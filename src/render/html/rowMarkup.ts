@@ -1,5 +1,10 @@
 import type { RowCell, WordSpan } from "../../core/types";
-import type { ConflictSummary, ResolutionRow, ResolutionViewModel } from "../../model/resolutionView";
+import type {
+  ConflictSummary,
+  HunkCheckbox,
+  ResolutionRow,
+  ResolutionViewModel,
+} from "../../model/resolutionView";
 
 type Pane = "ours" | "result" | "theirs";
 
@@ -28,7 +33,7 @@ function renderRow(row: ResolutionRow, index: number): string {
   return [
     `<div class="row kind-${row.kind}${markerClass}" data-row="${index}">`,
     renderCell(row.ours, "ours", false),
-    renderCell(row.result, "result", isEditable(row)),
+    renderCell(row.result, "result", isEditable(row), row.checkbox),
     renderCell(row.theirs, "theirs", false),
     "</div>",
   ].join("");
@@ -43,7 +48,12 @@ function isEditable(row: ResolutionRow): boolean {
   return row.result.lineNumber !== null && !row.isMarkerLine;
 }
 
-function renderCell(cell: RowCell, pane: Pane, isEditableCell: boolean): string {
+function renderCell(
+  cell: RowCell,
+  pane: Pane,
+  isEditableCell: boolean,
+  checkbox: HunkCheckbox | null = null,
+): string {
   const isFiller = cell.text === null;
   const number = cell.lineNumber === null ? "" : String(cell.lineNumber + 1);
   const editing = isEditableCell
@@ -51,9 +61,29 @@ function renderCell(cell: RowCell, pane: Pane, isEditableCell: boolean): string 
     : "";
 
   return [
-    `<div class="num pane-${pane}">${number}</div>`,
+    `<div class="num pane-${pane}">${renderCheckbox(checkbox)}${number}</div>`,
     `<div class="cell pane-${pane}${isFiller ? " filler" : ""}${isEditableCell ? " editable" : ""}"${editing}>`,
     `<span class="code">${renderText(cell)}</span></div>`,
+  ].join("");
+}
+
+/**
+ * The gutter control that includes one side of one hunk. It sits beside the
+ * working copy so both sides' offers line up in a single column of decisions.
+ */
+function renderCheckbox(checkbox: HunkCheckbox | null): string {
+  if (!checkbox) {
+    return "";
+  }
+
+  const lines = `${checkbox.lineCount} line${checkbox.lineCount === 1 ? "" : "s"}`;
+  const title = `${checkbox.isIncluded ? "Exclude" : "Include"} ${lines} from this side`;
+
+  return [
+    `<button class="hunk-box side-${checkbox.side}${checkbox.isIncluded ? " included" : ""}"`,
+    ` role="checkbox" aria-checked="${checkbox.isIncluded}" title="${title}"`,
+    ` data-conflict="${checkbox.conflictIndex}" data-hunk="${checkbox.hunkIndex}"`,
+    ` data-side="${checkbox.side}">${checkbox.isIncluded ? "☑" : "☐"}</button>`,
   ].join("");
 }
 
@@ -91,14 +121,37 @@ function renderActionBar(conflict: ConflictSummary, model: ResolutionViewModel):
     conflict.hasBase ? button(conflict.index, "base", "Revert to base") : "",
     button(conflict.index, "remote", `Take ${escapeHtml(model.theirLabel)}`),
     button(conflict.index, "localThenRemote", "Keep both"),
+    renderApplyButton(conflict),
   ].join("");
 
   return [
     `<div class="action-bar" data-conflict="${conflict.index}">`,
     `<span class="conflict-title">Unresolved conflict ${conflict.index + 1}</span>`,
+    renderSplitHint(conflict),
     `<span class="actions">${buttons}</span>`,
     "</div>",
   ].join("");
+}
+
+/** Commits whatever the gutter checkboxes currently select, rather than a whole side. */
+function renderApplyButton(conflict: ConflictSummary): string {
+  if (conflict.hunkCount === 0) {
+    return "";
+  }
+
+  const lines = `${conflict.selectedLineCount} line${conflict.selectedLineCount === 1 ? "" : "s"}`;
+  return [
+    `<button class="apply-selection" data-conflict="${conflict.index}"`,
+    ` title="Replace this conflict with the lines ticked in the gutter">`,
+    `Apply selection (${lines})</button>`,
+  ].join("");
+}
+
+function renderSplitHint(conflict: ConflictSummary): string {
+  if (conflict.hunkCount < 2) {
+    return "";
+  }
+  return `<span class="split-hint">${conflict.hunkCount} parts — tick the gutter to take them separately</span>`;
 }
 
 function button(conflictIndex: number, resolution: string, label: string): string {

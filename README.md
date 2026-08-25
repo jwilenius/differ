@@ -51,6 +51,25 @@ Each unresolved conflict also gets an action bar: **Take &lt;your branch&gt;**, 
 The `<<<<<<<` marker lines themselves are deliberately **not** editable — they are structural, and a half-typed marker
 would corrupt the region. Resolve them with the action bar, which removes them properly.
 
+## Partial resolution (hunk splitting)
+
+Taking a whole side is often too coarse. Each conflict is therefore split into the smallest pieces the two sides
+actually disagree about, and every piece can be decided on its own.
+
+- Lines **both sides agree on** are settled: they are always kept and carry no control.
+- Every other piece gets a **checkbox in the gutter beside the middle pane** — one for the branch's lines, one for the
+  incoming lines, coloured to match their pane.
+- Tick any combination, then press **Apply selection**, which reports how many lines it would commit.
+- Ticking both sides of a piece keeps both, branch first. Ticking neither drops that piece.
+
+The two sides are compared **directly against each other** rather than through the merge base: what matters is where
+they disagree, and content both sides arrived at independently is already settled. This also works for 2-way markers,
+which carry no base at all.
+
+A conflict keeps its markers while you tick — that is what keeps its pieces derivable — and is rewritten once, on
+apply. Selections are pending intent held in the model, not file content, so resolving an earlier conflict renumbers
+them rather than losing them.
+
 All edits go through the host's document port, so undo works, and the file is never saved for you.
 
 Typing is debounced before it reaches the document, and the view suppresses the rebuild it would otherwise trigger for
@@ -73,11 +92,11 @@ src/host/    VS Code wiring: webview, WorkspaceEdit adapter
 To add a terminal UI: implement `MergeRenderer<string[]>` in `src/render/tui/`, implement `MergeDocument` over `fs`, and
 reuse `ResolutionController` unchanged — including its editing operations, which are host-independent.
 
-| Port / seam              | Contract                                       |
-| ------------------------ | ---------------------------------------------- |
-| `MergeRenderer<TOutput>` | `render(model, context) => TOutput`            |
-| `MergeDocument`          | `getText()`, `replaceLines(start, end, lines)` |
-| `ResolutionController`   | `load(options)`, `resolve(index, resolution)`  |
+| Port / seam              | Contract                                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `MergeRenderer<TOutput>` | `render(model, context) => TOutput`                                                       |
+| `MergeDocument`          | `getText()`, `replaceLines(start, end, lines)`                                            |
+| `ResolutionController`   | `load(options)`, `resolve(index, resolution)`, `toggleHunk(...)`, `applySelection(index)` |
 
 ## Development
 
@@ -98,17 +117,23 @@ Press `F5` in VS Code to launch an Extension Development Host, then open `sample
 
 ## Layout
 
-| Path                          | Role                                                        |
-| ----------------------------- | ----------------------------------------------------------- |
-| `src/core/conflictParser.ts`  | Splits a document into stable and conflict sections         |
-| `src/core/lineDiff.ts`        | Line diff → hunks + base↔side position maps                 |
-| `src/core/wordDiff.ts`        | Intra-line changed character ranges                         |
-| `src/core/threeWayAligner.ts` | Aligns the three sides into one row grid, classifies blocks |
-| `src/core/mergeResolver.ts`   | Collapses a conflict under a chosen resolution              |
-| `src/view/viewModel.ts`       | Whole-file row model with document-wide line numbers        |
-| `src/view/rowRenderer.ts`     | Rows, word spans, and action bars → HTML                    |
-| `src/view/webviewHtml.ts`     | Page shell, CSP, toolbar                                    |
-| `src/view/mergeViewPanel.ts`  | Webview lifecycle, messages, document edits                 |
-| `media/`                      | Webview stylesheet and client script                        |
+| Path                                | Role                                                         |
+| ----------------------------------- | ------------------------------------------------------------ |
+| `src/core/conflictParser.ts`        | Splits a document into stable and conflict sections          |
+| `src/core/lineDiff.ts`              | Line diff → hunks + base↔side position maps                  |
+| `src/core/wordDiff.ts`              | Intra-line changed character ranges                          |
+| `src/core/threeWayAligner.ts`       | Aligns the three sides into one row grid, classifies blocks  |
+| `src/core/mergeResolver.ts`         | Collapses a conflict under a chosen resolution               |
+| `src/git/gitMergeSources.ts`        | Reads the three versions from the index and the working copy |
+| `src/model/hunkSplitter.ts`         | Divides a conflict into separately decidable pieces          |
+| `src/model/hunkSelection.ts`        | Which side of which piece is pending inclusion               |
+| `src/model/resolutionView.ts`       | Row model, conflict summaries, gutter controls               |
+| `src/model/resolutionController.ts` | Host-independent load / resolve / edit / apply               |
+| `src/model/mergeDocument.ts`        | Port onto the host's editable document                       |
+| `src/render/renderer.ts`            | `MergeRenderer` seam a TUI can implement                     |
+| `src/render/html/rowMarkup.ts`      | Rows, word spans, gutter checkboxes, action bars → HTML      |
+| `src/render/html/htmlRenderer.ts`   | Page shell, CSP, toolbar                                     |
+| `src/host/vscode/mergeViewPanel.ts` | Webview lifecycle, messages, document edits                  |
+| `media/`                            | Webview stylesheet and client script                         |
 
-The `core/` layer has no `vscode` import and is unit-tested on its own.
+The `core/`, `model/` and `render/` layers have no `vscode` import and are unit-tested on their own; `src/test/layering.test.ts` enforces it.

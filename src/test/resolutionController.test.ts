@@ -108,3 +108,88 @@ describe("ResolutionController editing", () => {
     expect(await controller.resolve(0, "local")).toBe("gone");
   });
 });
+
+const splittable = [
+  "a",
+  "<<<<<<< HEAD",
+  "mine-1",
+  "shared",
+  "mine-2",
+  "=======",
+  "theirs-1",
+  "shared",
+  "theirs-2",
+  ">>>>>>> trunk",
+  "z",
+].join("\n");
+
+describe("ResolutionController hunk splitting", () => {
+  it("divides a conflict into separately decidable pieces", () => {
+    const controller = new ResolutionController(new FakeDocument(splittable));
+
+    const hunks = controller.hunksFor(0);
+
+    expect(hunks.map((hunk) => hunk.isCommon)).toEqual([false, true, false]);
+    expect(hunks[0].ours).toEqual(["mine-1"]);
+    expect(hunks[0].theirs).toEqual(["theirs-1"]);
+  });
+
+  it("keeps only the agreed lines when nothing is ticked", async () => {
+    const document = new FakeDocument(splittable);
+    const controller = new ResolutionController(document);
+
+    expect(await controller.applySelection(0)).toBe("applied");
+    expect(document.getText()).toBe(["a", "shared", "z"].join("\n"));
+  });
+
+  it("takes one side of one piece and the other side of another", async () => {
+    const document = new FakeDocument(splittable);
+    const controller = new ResolutionController(document);
+
+    controller.toggleHunk(0, 0, "ours");
+    controller.toggleHunk(0, 2, "theirs");
+
+    expect(await controller.applySelection(0)).toBe("applied");
+    expect(document.getText()).toBe(["a", "mine-1", "shared", "theirs-2", "z"].join("\n"));
+  });
+
+  it("drops a piece that is ticked twice", async () => {
+    const document = new FakeDocument(splittable);
+    const controller = new ResolutionController(document);
+
+    controller.toggleHunk(0, 0, "ours");
+    controller.toggleHunk(0, 0, "ours");
+
+    expect(await controller.applySelection(0)).toBe("applied");
+    expect(document.getText()).toBe(["a", "shared", "z"].join("\n"));
+  });
+
+  it("takes a whole side by ticking all of its pieces", async () => {
+    const document = new FakeDocument(splittable);
+    const controller = new ResolutionController(document);
+
+    controller.toggleSide(0, "ours", true);
+
+    expect(await controller.applySelection(0)).toBe("applied");
+    expect(document.getText()).toBe(["a", "mine-1", "shared", "mine-2", "z"].join("\n"));
+  });
+
+  it("reports a conflict that is already gone", async () => {
+    const controller = new ResolutionController(new FakeDocument("a\nb\n"));
+
+    expect(await controller.applySelection(0)).toBe("gone");
+  });
+
+  it("keeps a pending selection pointed at its conflict when an earlier one is resolved", async () => {
+    const document = new FakeDocument([splittable, splittable].join("\n"));
+    const controller = new ResolutionController(document);
+
+    controller.toggleHunk(1, 0, "ours");
+    expect(await controller.resolve(0, "local")).toBe("applied");
+
+    // The second conflict is now the first, and its selection moved with it.
+    expect(await controller.applySelection(0)).toBe("applied");
+    expect(document.getText()).toContain("mine-1");
+    expect(document.getText()).not.toContain("theirs-1");
+  });
+});

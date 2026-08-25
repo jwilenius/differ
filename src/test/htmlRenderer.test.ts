@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HtmlMergeRenderer } from "../render/html/htmlRenderer";
 import { buildResolutionView } from "../model/resolutionView";
+import { HunkSelection } from "../model/hunkSelection";
 import type { MergeSources } from "../git/gitMergeSources";
 
 const assets = { styleUri: "res://main.css", scriptUri: "res://main.js", cspSource: "res:" };
@@ -108,5 +109,82 @@ describe("HtmlMergeRenderer", () => {
 
   it("collapses to two panes when the result pane is hidden", () => {
     expect(renderer.render(model, { ...context, showResultPane: false })).toContain('<body class="hide-result">');
+  });
+});
+
+const splittable: MergeSources = {
+  ours: "a\nmine-1\nshared\nmine-2\nz",
+  theirs: "a\ntheirs-1\nshared\ntheirs-2\nz",
+  base: "a\nz",
+  result: [
+    "a",
+    "<<<<<<< HEAD",
+    "mine-1",
+    "shared",
+    "mine-2",
+    "=======",
+    "theirs-1",
+    "shared",
+    "theirs-2",
+    ">>>>>>> trunk",
+    "z",
+  ].join("\n"),
+  ourLabel: "feature",
+  theirLabel: "trunk",
+  isSidesSwapped: false,
+};
+
+describe("HtmlMergeRenderer hunk checkboxes", () => {
+  const splitModel = buildResolutionView(splittable, { wordLevelHighlighting: false });
+  const html = renderer.render(splitModel, context);
+
+  it("puts a control beside each side of each divided piece", () => {
+    const boxes = [...html.matchAll(/data-hunk="(\d+)" data-side="(\w+)"/g)]
+      .map(([, hunk, side]) => `${hunk}:${side}`);
+
+    expect(boxes).toEqual(["0:ours", "2:ours", "0:theirs", "2:theirs"]);
+  });
+
+  it("offers no control beside the lines both sides agree on", () => {
+    const selection = new HunkSelection();
+    selection.toggle(0, 1, "ours");
+
+    // Hunk 1 is the agreed run, so ticking it changes nothing that is rendered.
+    const html = renderer.render(
+      buildResolutionView(splittable, { wordLevelHighlighting: false }, selection),
+      context,
+    );
+
+    expect(html).not.toContain('data-hunk="1"');
+  });
+
+  it("shows what applying the current selection would commit", () => {
+    expect(html).toContain("Apply selection (1 line)");
+
+    const selection = new HunkSelection();
+    selection.toggle(0, 0, "ours");
+    selection.toggle(0, 2, "theirs");
+    const picked = renderer.render(
+      buildResolutionView(splittable, { wordLevelHighlighting: false }, selection),
+      context,
+    );
+
+    expect(picked).toContain("Apply selection (3 lines)");
+  });
+
+  it("marks a ticked control as checked", () => {
+    const selection = new HunkSelection();
+    selection.toggle(0, 0, "ours");
+    const picked = renderer.render(
+      buildResolutionView(splittable, { wordLevelHighlighting: false }, selection),
+      context,
+    );
+
+    expect(picked).toMatch(/aria-checked="true"[^>]*data-conflict="0" data-hunk="0" data-side="ours"/);
+    expect(picked.match(/aria-checked="true"/g)).toHaveLength(1);
+  });
+
+  it("says how many parts a conflict divides into", () => {
+    expect(html).toContain("2 parts");
   });
 });

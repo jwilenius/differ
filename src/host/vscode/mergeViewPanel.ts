@@ -95,7 +95,7 @@ export class MergeViewPanel {
       this.isApplyingOwnEdit = false;
     }
 
-    await this.render(message.type === "resolve" ? null : message.focus);
+    await this.render(focusOf(message));
   }
 
   private async dispatch(message: WebviewMessage): Promise<void> {
@@ -111,6 +111,21 @@ export class MergeViewPanel {
       case "joinWithPrevious":
         await this.controller.joinWithPrevious(message.line);
         return;
+      case "toggleHunk":
+        this.controller.toggleHunk(message.conflictIndex, message.hunkIndex, message.side);
+        return;
+      case "applySelection":
+        return this.applySelection(message.conflictIndex);
+    }
+  }
+
+  private async applySelection(conflictIndex: number): Promise<void> {
+    const outcome = await this.controller.applySelection(conflictIndex);
+    if (outcome === "gone") {
+      void vscode.window.showWarningMessage("That conflict is no longer present in the file.");
+    }
+    if (outcome === "failed") {
+      void vscode.window.showErrorMessage("Differ could not apply the selected hunks.");
     }
   }
 
@@ -143,4 +158,9 @@ This file has none, so there is nothing to compare against the working copy.</p>
 
 function baseName(uri: vscode.Uri): string {
   return uri.path.split("/").pop() ?? uri.path;
+}
+
+/** Only the editing messages carry a caret to restore; the rest rebuild plainly. */
+function focusOf(message: WebviewMessage): FocusRequest | null {
+  return "focus" in message ? message.focus : null;
 }

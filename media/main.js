@@ -25,6 +25,38 @@
     });
   });
 
+  // --- partial resolution: include one side of one hunk ---
+
+  grid.addEventListener("click", (event) => {
+    const box = event.target.closest("button.hunk-box");
+    if (!box) {
+      return;
+    }
+    flushPendingEdit();
+
+    // Tick straight away; the rebuild that follows confirms it.
+    const isIncluded = !box.classList.contains("included");
+    box.classList.toggle("included", isIncluded);
+    box.setAttribute("aria-checked", String(isIncluded));
+
+    vscode.postMessage({
+      type: "toggleHunk",
+      conflictIndex: Number(box.dataset.conflict),
+      hunkIndex: Number(box.dataset.hunk),
+      side: box.dataset.side,
+    });
+  });
+
+  grid.addEventListener("click", (event) => {
+    const button = event.target.closest("button.apply-selection");
+    if (!button) {
+      return;
+    }
+    flushPendingEdit();
+    button.closest(".action-bar").classList.add("resolved");
+    vscode.postMessage({ type: "applySelection", conflictIndex: Number(button.dataset.conflict) });
+  });
+
   // --- editing the working copy ---
 
   grid.addEventListener("input", (event) => {

@@ -245,6 +245,46 @@ body.hide-result .pane-result {
   color: var(--vscode-charts-orange, #d7ba7d);
 }
 
+/* --- hunk checkboxes ---
+   One column of decisions beside the working copy: each control includes or
+   drops the lines one side contributes to a single piece of the conflict. */
+
+.hunk-box {
+  padding: 0;
+  margin-right: 4px;
+  border: none;
+  background: none;
+  font-size: 1em;
+  line-height: inherit;
+  vertical-align: baseline;
+  opacity: 0.75;
+}
+
+.hunk-box:hover {
+  background: none;
+  opacity: 1;
+}
+
+.hunk-box.side-ours {
+  color: var(--ours-bar);
+}
+
+.hunk-box.side-theirs {
+  color: var(--theirs-bar);
+}
+
+.hunk-box.included {
+  opacity: 1;
+}
+
+.split-hint {
+  color: var(--vscode-descriptionForeground);
+}
+
+.apply-selection {
+  border-color: var(--unresolved-bar);
+}
+
 /* --- editing ---
    Only the working copy is editable; the two side panes are references. */
 
@@ -265,4 +305,5 @@ body.hide-result .pane-result {
 
 .num.pane-result {
   color: var(--vscode-editorLineNumber-activeForeground, var(--vscode-editorLineNumber-foreground));
+  white-space: nowrap;
 }

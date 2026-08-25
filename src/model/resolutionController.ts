@@ -3,6 +3,8 @@ import { resolvedLines, type Resolution } from "../core/mergeResolver";
 import { readMergeSources, type MergeSources } from "../git/gitMergeSources";
 import type { ConflictSection } from "../core/types";
 import type { MergeDocument } from "./mergeDocument";
+import { HunkSelection } from "./hunkSelection";
+import { assembleHunks, splitConflict, type ConflictHunk, type HunkSide } from "./hunkSplitter";
 import { buildResolutionView, type ResolutionViewModel, type ViewOptions } from "./resolutionView";
 
 const MARKER_LINE = /^(<<<<<<<|\|\|\|\|\|\|\||=======|>>>>>>>)( |$)/;
@@ -15,6 +17,8 @@ export type ResolveOutcome = "applied" | "gone" | "failed";
  * render what `load` returns and call `resolve` on user input.
  */
 export class ResolutionController {
+  private readonly selection = new HunkSelection();
+
   constructor(private readonly document: MergeDocument) {}
 
   /** Builds the current view model, or `null` if the file is not a conflicted merge. */
@@ -23,7 +27,7 @@ export class ResolutionController {
     if (!sources) {
       return null;
     }
-    return buildResolutionView(sources, options);
+    return buildResolutionView(sources, options, this.selection);
   }
 
   /** Collapses one conflict in the working copy to the chosen side. */
@@ -33,12 +37,57 @@ export class ResolutionController {
       return "gone";
     }
 
+    return this.replaceConflict(conflictIndex, conflict, resolvedLines(conflict, resolution));
+  }
+
+  /** The pieces one conflict divides into, each decidable on its own. */
+  hunksFor(conflictIndex: number): ConflictHunk[] {
+    const conflict = this.conflictAt(conflictIndex);
+    return conflict ? splitConflict(conflict) : [];
+  }
+
+  /** Includes or drops one side of one hunk. Nothing is written until it is applied. */
+  toggleHunk(conflictIndex: number, hunkIndex: number, side: HunkSide): void {
+    this.selection.toggle(conflictIndex, hunkIndex, side);
+  }
+
+  /** Includes or drops every hunk of one side at once. */
+  toggleSide(conflictIndex: number, side: HunkSide, isIncluded: boolean): void {
+    const divided = this.hunksFor(conflictIndex).filter((hunk) => !hunk.isCommon);
+    this.selection.setSide(conflictIndex, divided.map((hunk) => hunk.index), side, isIncluded);
+  }
+
+  /**
+   * Collapses one conflict to the hunks currently selected, which is how a
+   * resolution can take part of each side rather than all of one.
+   */
+  async applySelection(conflictIndex: number): Promise<ResolveOutcome> {
+    const conflict = this.conflictAt(conflictIndex);
+    if (!conflict) {
+      return "gone";
+    }
+
+    const lines = assembleHunks(splitConflict(conflict), (hunkIndex, side) =>
+      this.selection.isIncluded(conflictIndex, hunkIndex, side));
+
+    return this.replaceConflict(conflictIndex, conflict, lines);
+  }
+
+  /** Writes a conflict's replacement and renumbers the pending selections after it. */
+  private async replaceConflict(
+    conflictIndex: number,
+    conflict: ConflictSection,
+    lines: readonly string[],
+  ): Promise<ResolveOutcome> {
     const isApplied = await this.document.replaceLines(
       conflict.markerStartLine,
       conflict.markerEndLine,
-      resolvedLines(conflict, resolution),
+      lines,
     );
 
+    if (isApplied) {
+      this.selection.forgetConflict(conflictIndex);
+    }
     return isApplied ? "applied" : "failed";
   }
 

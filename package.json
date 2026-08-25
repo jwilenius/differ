@@ -1,0 +1,77 @@
+{
+  "name": "differ",
+  "displayName": "Differ",
+  "description": "IntelliJ-style three-way merge conflict viewer for VS Code",
+  "version": "0.1.0",
+  "publisher": "local",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "differ.openMergeView",
+        "title": "Open Three-Way Merge View",
+        "category": "Differ",
+        "icon": "$(git-merge)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "differ.openMergeView",
+          "when": "differ.hasConflicts",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "differ.openMergeView",
+          "when": "editorIsOpen"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Differ",
+      "properties": {
+        "differ.showBasePane": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the base (common ancestor) pane between the local and remote panes."
+        },
+        "differ.wordLevelHighlighting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight the changed words inside modified lines."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18",
+    "watch": "npm run build -- --sourcemap --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "diff": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/diff": "^5.2.3",
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

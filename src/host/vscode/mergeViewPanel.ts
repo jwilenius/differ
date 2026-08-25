@@ -1,19 +1,17 @@
 import * as vscode from "vscode";
-import type { Resolution } from "../../core/mergeResolver";
 import { ResolutionController } from "../../model/resolutionController";
+import type { FocusRequest, WebviewMessage } from "./webviewMessages";
 import { HtmlMergeRenderer } from "../../render/html/htmlRenderer";
+import type { Resolution } from "../../core/mergeResolver";
 import { VscodeMergeDocument } from "./vscodeMergeDocument";
-
-interface ResolveMessage {
-  readonly type: "resolve";
-  readonly conflictIndex: number;
-  readonly resolution: Resolution;
-}
 
 /** Hosts one merge view: owns the webview, and nothing about merging itself. */
 export class MergeViewPanel {
   private readonly controller: ResolutionController;
   private readonly disposables: vscode.Disposable[] = [];
+  /** Set while this panel is the author of a document change, so it does not
+      rebuild the view underneath the caret and then rebuild it again. */
+  private isApplyingOwnEdit = false;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -24,7 +22,7 @@ export class MergeViewPanel {
     this.controller = new ResolutionController(new VscodeMergeDocument(document));
 
     this.panel.webview.onDidReceiveMessage(
-      (message: ResolveMessage) => this.handleMessage(message),
+      (message: WebviewMessage) => this.handleMessage(message),
       undefined,
       this.disposables,
     );
@@ -54,7 +52,7 @@ export class MergeViewPanel {
     this.panel.reveal(vscode.ViewColumn.Active);
   }
 
-  private async render(): Promise<void> {
+  private async render(focus: FocusRequest | null = null): Promise<void> {
     const settings = vscode.workspace.getConfiguration("differ");
     const model = await this.controller.load({
       wordLevelHighlighting: settings.get<boolean>("wordLevelHighlighting", true),
@@ -74,6 +72,7 @@ export class MergeViewPanel {
     this.panel.webview.html = renderer.render(model, {
       fileName: baseName(this.document.uri),
       showResultPane: settings.get<boolean>("showResultPane", true),
+      focus,
     });
   }
 
@@ -82,26 +81,46 @@ export class MergeViewPanel {
   }
 
   private handleDocumentChange(event: vscode.TextDocumentChangeEvent): void {
-    if (event.document.uri.toString() === this.document.uri.toString()) {
+    const isOurDocument = event.document.uri.toString() === this.document.uri.toString();
+    if (isOurDocument && !this.isApplyingOwnEdit) {
       void this.render();
     }
   }
 
-  private async handleMessage(message: ResolveMessage): Promise<void> {
-    if (message.type !== "resolve") {
-      return;
+  private async handleMessage(message: WebviewMessage): Promise<void> {
+    this.isApplyingOwnEdit = true;
+    try {
+      await this.dispatch(message);
+    } finally {
+      this.isApplyingOwnEdit = false;
     }
 
-    const outcome = await this.controller.resolve(message.conflictIndex, message.resolution);
+    await this.render(message.type === "resolve" ? null : message.focus);
+  }
+
+  private async dispatch(message: WebviewMessage): Promise<void> {
+    switch (message.type) {
+      case "resolve":
+        return this.applyResolution(message.conflictIndex, message.resolution);
+      case "editLine":
+        await this.controller.editLine(message.line, message.text);
+        return;
+      case "splitLine":
+        await this.controller.splitLine(message.line, message.offset);
+        return;
+      case "joinWithPrevious":
+        await this.controller.joinWithPrevious(message.line);
+        return;
+    }
+  }
+
+  private async applyResolution(conflictIndex: number, resolution: Resolution): Promise<void> {
+    const outcome = await this.controller.resolve(conflictIndex, resolution);
     if (outcome === "gone") {
       void vscode.window.showWarningMessage("That conflict is no longer present in the file.");
     }
     if (outcome === "failed") {
       void vscode.window.showErrorMessage("Differ could not apply the resolution.");
-    }
-    // An applied edit re-renders through onDidChangeTextDocument.
-    if (outcome !== "applied") {
-      void this.render();
     }
   }
 

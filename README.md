@@ -32,11 +32,30 @@ toolbar says so when that is the case.
 
 Word-level highlighting marks the characters each side differs by from the working copy.
 
-## Resolving
+## Editing and resolving
 
-Each unresolved conflict gets an action bar: **Take &lt;your branch&gt;**, **Revert to base**, **Take &lt;incoming&gt;**,
-**Keep both**. Resolving rewrites the conflict in the real file through the host's document port, so undo works and
-nothing is saved for you. `F7` / `Shift+F7` step through conflicts.
+The **middle pane is editable** — it is a real text surface, and what you type is what gets committed. The left and
+right panes are read-only references.
+
+| Key                  | Effect                                           |
+| -------------------- | ------------------------------------------------ |
+| Any text             | Edits that line of the working copy              |
+| `Enter`              | Splits the line                                  |
+| `Backspace` at col 0 | Joins onto the line above                        |
+| `↑` / `↓`            | Moves between editable lines, keeping the column |
+| `F7` / `Shift+F7`    | Next / previous unresolved conflict              |
+
+Each unresolved conflict also gets an action bar: **Take &lt;your branch&gt;**, **Revert to base**,
+**Take &lt;incoming&gt;**, **Keep both**.
+
+The `<<<<<<<` marker lines themselves are deliberately **not** editable — they are structural, and a half-typed marker
+would corrupt the region. Resolve them with the action bar, which removes them properly.
+
+All edits go through the host's document port, so undo works, and the file is never saved for you.
+
+Typing is debounced before it reaches the document, and the view suppresses the rebuild it would otherwise trigger for
+its own edits, so the caret survives. Structural edits (split, join) renumber lines and so apply immediately, with the
+caret restored at the join or the start of the new line.
 
 ## Architecture
 
@@ -52,7 +71,7 @@ src/host/    VS Code wiring: webview, WorkspaceEdit adapter
 ```
 
 To add a terminal UI: implement `MergeRenderer<string[]>` in `src/render/tui/`, implement `MergeDocument` over `fs`, and
-reuse `ResolutionController` unchanged.
+reuse `ResolutionController` unchanged — including its editing operations, which are host-independent.
 
 | Port / seam              | Contract                                       |
 | ------------------------ | ---------------------------------------------- |

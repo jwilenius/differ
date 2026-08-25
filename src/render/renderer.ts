@@ -1,9 +1,17 @@
 import type { ResolutionViewModel } from "../model/resolutionView";
 
+/** Where a UI should place the caret after the view is rebuilt. */
+export interface FocusRequest {
+  readonly line: number;
+  readonly offset: number;
+}
+
 export interface RenderContext {
   readonly fileName: string;
   /** Hide the working-copy pane, leaving a two-pane branch-vs-incoming view. */
   readonly showResultPane: boolean;
+  /** Caret to restore after an edit rebuilt the view, if any. */
+  readonly focus: FocusRequest | null;
 }
 
 /**

@@ -29,13 +29,21 @@ export class HtmlMergeRenderer implements MergeRenderer<string> {
 <link href="${this.assets.styleUri}" rel="stylesheet">
 <title>Merge: ${escapeHtml(context.fileName)}</title>
 </head>
-<body class="${context.showResultPane ? "" : "hide-result"}">
+<body class="${context.showResultPane ? "" : "hide-result"}"${focusAttributes(context.focus)}>
 ${renderToolbar(model, context)}
 <div class="grid" id="grid">${renderGrid(model)}</div>
 <script nonce="${nonce}" src="${this.assets.scriptUri}"></script>
 </body>
 </html>`;
   }
+}
+
+/** Hands the caret position to the client script so typing survives a rebuild. */
+function focusAttributes(focus: RenderContext["focus"]): string {
+  if (!focus) {
+    return "";
+  }
+  return ` data-focus-line="${focus.line}" data-focus-offset="${focus.offset}"`;
 }
 
 function renderToolbar(model: ResolutionViewModel, context: RenderContext): string {

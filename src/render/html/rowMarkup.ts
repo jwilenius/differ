@@ -27,20 +27,32 @@ function renderRow(row: ResolutionRow, index: number): string {
 
   return [
     `<div class="row kind-${row.kind}${markerClass}" data-row="${index}">`,
-    renderCell(row.ours, "ours"),
-    renderCell(row.result, "result"),
-    renderCell(row.theirs, "theirs"),
+    renderCell(row.ours, "ours", false),
+    renderCell(row.result, "result", isEditable(row)),
+    renderCell(row.theirs, "theirs", false),
     "</div>",
   ].join("");
 }
 
-function renderCell(cell: RowCell, pane: Pane): string {
+/**
+ * Only the working copy is editable, and only where it holds a real line. The
+ * marker lines are resolved through the actions instead, so that a half-typed
+ * marker cannot corrupt the region.
+ */
+function isEditable(row: ResolutionRow): boolean {
+  return row.result.lineNumber !== null && !row.isMarkerLine;
+}
+
+function renderCell(cell: RowCell, pane: Pane, isEditableCell: boolean): string {
   const isFiller = cell.text === null;
   const number = cell.lineNumber === null ? "" : String(cell.lineNumber + 1);
+  const editing = isEditableCell
+    ? ` contenteditable="plaintext-only" spellcheck="false" data-line="${cell.lineNumber}"`
+    : "";
 
   return [
     `<div class="num pane-${pane}">${number}</div>`,
-    `<div class="cell pane-${pane}${isFiller ? " filler" : ""}">`,
+    `<div class="cell pane-${pane}${isFiller ? " filler" : ""}${isEditableCell ? " editable" : ""}"${editing}>`,
     `<span class="code">${renderText(cell)}</span></div>`,
   ].join("");
 }

@@ -244,3 +244,25 @@ body.hide-result .pane-result {
 .toolbar .warning {
   color: var(--vscode-charts-orange, #d7ba7d);
 }
+
+/* --- editing ---
+   Only the working copy is editable; the two side panes are references. */
+
+.cell.editable {
+  cursor: text;
+}
+
+.cell.editable:focus {
+  outline: 2px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: -2px;
+  background: var(--vscode-editor-background);
+}
+
+.cell.pane-ours,
+.cell.pane-theirs {
+  cursor: default;
+}
+
+.num.pane-result {
+  color: var(--vscode-editorLineNumber-activeForeground, var(--vscode-editorLineNumber-foreground));
+}

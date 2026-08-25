@@ -4,7 +4,7 @@ import { buildResolutionView } from "../model/resolutionView";
 import type { MergeSources } from "../git/gitMergeSources";
 
 const assets = { styleUri: "res://main.css", scriptUri: "res://main.js", cspSource: "res:" };
-const context = { fileName: "f.txt", showResultPane: true };
+const context = { fileName: "f.txt", showResultPane: true, focus: null };
 const renderer = new HtmlMergeRenderer(assets);
 
 const conflicted: MergeSources = {
@@ -70,6 +70,40 @@ describe("HtmlMergeRenderer", () => {
     );
 
     expect(renderer.render(clean, context)).toContain("Ready to commit");
+  });
+
+  it("makes only the working-copy pane editable", () => {
+    const html = renderer.render(model, context);
+
+    const editable = [...html.matchAll(/<div class="cell pane-(\w+)[^"]*"[^>]*contenteditable/g)];
+    expect(editable.length).toBeGreaterThan(0);
+    expect(new Set(editable.map((match) => match[1]))).toEqual(new Set(["result"]));
+  });
+
+  it("leaves the branch and incoming panes read-only", () => {
+    const html = renderer.render(model, context);
+
+    expect(html).not.toMatch(/pane-ours[^>]*contenteditable/);
+    expect(html).not.toMatch(/pane-theirs[^>]*contenteditable/);
+  });
+
+  it("does not let the conflict markers themselves be typed over", () => {
+    const html = renderer.render(model, context);
+
+    const markerCells = [...html.matchAll(/marker-line.*?<div class="cell pane-result[^>]*>/g)];
+    expect(markerCells.length).toBeGreaterThan(0);
+    expect(markerCells.every((match) => !match[0].includes("contenteditable"))).toBe(true);
+  });
+
+  it("restores the caret after an edit rebuilt the view", () => {
+    const html = renderer.render(model, { ...context, focus: { line: 4, offset: 3 } });
+
+    expect(html).toContain('data-focus-line="4"');
+    expect(html).toContain('data-focus-offset="3"');
+  });
+
+  it("omits focus attributes when nothing needs restoring", () => {
+    expect(renderer.render(model, context)).not.toContain("data-focus-line");
   });
 
   it("collapses to two panes when the result pane is hidden", () => {

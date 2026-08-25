@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { hasConflictMarkers } from "./core/conflictParser";
-import { MergeViewPanel } from "./view/mergeViewPanel";
+import { hasConflictMarkers } from "../../core/conflictParser";
+import { MergeViewPanel } from "./mergeViewPanel";
 
 const CONTEXT_HAS_CONFLICTS = "differ.hasConflicts";
 

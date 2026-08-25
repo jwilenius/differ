@@ -44,21 +44,21 @@
     "configuration": {
       "title": "Differ",
       "properties": {
-        "differ.showBasePane": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the base (common ancestor) pane between the local and remote panes."
-        },
         "differ.wordLevelHighlighting": {
           "type": "boolean",
           "default": true,
           "description": "Highlight the changed words inside modified lines."
+        },
+        "differ.showResultPane": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the working-copy pane (what will be committed) between the branch and incoming panes."
         }
       }
     }
   },
   "scripts": {
-    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18",
+    "build": "esbuild src/host/vscode/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18",
     "watch": "npm run build -- --sourcemap --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

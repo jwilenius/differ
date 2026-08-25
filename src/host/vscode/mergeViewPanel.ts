@@ -1,9 +1,8 @@
 import * as vscode from "vscode";
-import { parseConflicts } from "../core/conflictParser";
-import { resolvedLines, type Resolution } from "../core/mergeResolver";
-import type { ConflictSection } from "../core/types";
-import { renderMergePage } from "./webviewHtml";
-import { buildMergeView } from "./viewModel";
+import type { Resolution } from "../../core/mergeResolver";
+import { ResolutionController } from "../../model/resolutionController";
+import { HtmlMergeRenderer } from "../../render/html/htmlRenderer";
+import { VscodeMergeDocument } from "./vscodeMergeDocument";
 
 interface ResolveMessage {
   readonly type: "resolve";
@@ -11,8 +10,9 @@ interface ResolveMessage {
   readonly resolution: Resolution;
 }
 
-/** One three-way merge webview bound to a single document. */
+/** Hosts one merge view: owns the webview, and nothing about merging itself. */
 export class MergeViewPanel {
+  private readonly controller: ResolutionController;
   private readonly disposables: vscode.Disposable[] = [];
 
   private constructor(
@@ -21,6 +21,8 @@ export class MergeViewPanel {
     private readonly mediaRoot: vscode.Uri,
     private readonly onDispose: () => void,
   ) {
+    this.controller = new ResolutionController(new VscodeMergeDocument(document));
+
     this.panel.webview.onDidReceiveMessage(
       (message: ResolveMessage) => this.handleMessage(message),
       undefined,
@@ -34,7 +36,7 @@ export class MergeViewPanel {
       this.disposables,
     );
 
-    this.render();
+    void this.render();
   }
 
   static create(document: vscode.TextDocument, mediaRoot: vscode.Uri, onDispose: () => void): MergeViewPanel {
@@ -52,31 +54,37 @@ export class MergeViewPanel {
     this.panel.reveal(vscode.ViewColumn.Active);
   }
 
-  private render(): void {
+  private async render(): Promise<void> {
     const settings = vscode.workspace.getConfiguration("differ");
-    const model = buildMergeView(this.document.getText(), {
+    const model = await this.controller.load({
       wordLevelHighlighting: settings.get<boolean>("wordLevelHighlighting", true),
     });
 
-    const webview = this.panel.webview;
-    this.panel.webview.html = renderMergePage(model, {
+    if (!model) {
+      this.panel.webview.html = renderUnavailable(baseName(this.document.uri));
+      return;
+    }
+
+    const renderer = new HtmlMergeRenderer({
+      styleUri: this.mediaUri("main.css"),
+      scriptUri: this.mediaUri("main.js"),
+      cspSource: this.panel.webview.cspSource,
+    });
+
+    this.panel.webview.html = renderer.render(model, {
       fileName: baseName(this.document.uri),
-      showBasePane: settings.get<boolean>("showBasePane", true),
-      styleUri: this.mediaUri(webview, "main.css"),
-      scriptUri: this.mediaUri(webview, "main.js"),
-      cspSource: webview.cspSource,
+      showResultPane: settings.get<boolean>("showResultPane", true),
     });
   }
 
-  private mediaUri(webview: vscode.Webview, fileName: string): string {
-    return webview.asWebviewUri(vscode.Uri.joinPath(this.mediaRoot, fileName)).toString();
+  private mediaUri(fileName: string): string {
+    return this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.mediaRoot, fileName)).toString();
   }
 
   private handleDocumentChange(event: vscode.TextDocumentChangeEvent): void {
-    if (event.document.uri.toString() !== this.document.uri.toString()) {
-      return;
+    if (event.document.uri.toString() === this.document.uri.toString()) {
+      void this.render();
     }
-    this.render();
   }
 
   private async handleMessage(message: ResolveMessage): Promise<void> {
@@ -84,31 +92,16 @@ export class MergeViewPanel {
       return;
     }
 
-    const conflict = conflictAt(this.document.getText(), message.conflictIndex);
-    if (!conflict) {
+    const outcome = await this.controller.resolve(message.conflictIndex, message.resolution);
+    if (outcome === "gone") {
       void vscode.window.showWarningMessage("That conflict is no longer present in the file.");
-      this.render();
-      return;
     }
-
-    await this.applyResolution(conflict, message.resolution);
-  }
-
-  private async applyResolution(conflict: ConflictSection, resolution: Resolution): Promise<void> {
-    const lastMarkerLine = this.document.lineAt(conflict.markerEndLine);
-    const range = new vscode.Range(
-      new vscode.Position(conflict.markerStartLine, 0),
-      lastMarkerLine.range.end,
-    );
-
-    const edit = new vscode.WorkspaceEdit();
-    edit.replace(this.document.uri, range, resolvedLines(conflict, resolution).join("\n"));
-
-    // A successful edit re-renders through onDidChangeTextDocument.
-    const isApplied = await vscode.workspace.applyEdit(edit);
-    if (!isApplied) {
+    if (outcome === "failed") {
       void vscode.window.showErrorMessage("Differ could not apply the resolution.");
-      this.render();
+    }
+    // An applied edit re-renders through onDidChangeTextDocument.
+    if (outcome !== "applied") {
+      void this.render();
     }
   }
 
@@ -121,12 +114,12 @@ export class MergeViewPanel {
   }
 }
 
-/** Finds the nth conflict in the current text, or `null` if it has been resolved away. */
-function conflictAt(text: string, index: number): ConflictSection | null {
-  const conflicts = parseConflicts(text).filter(
-    (section): section is ConflictSection => section.kind === "conflict",
-  );
-  return conflicts[index] ?? null;
+function renderUnavailable(fileName: string): string {
+  return `<!DOCTYPE html><html><body style="font-family: sans-serif; padding: 2rem;">
+<h3>No merge in progress for ${fileName}</h3>
+<p>Differ reads the branch and incoming versions from git's conflict stages.
+This file has none, so there is nothing to compare against the working copy.</p>
+</body></html>`;
 }
 
 function baseName(uri: vscode.Uri): string {

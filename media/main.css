@@ -1,11 +1,13 @@
 :root {
-  --local-tint: var(--vscode-merge-currentContentBackground, rgba(64, 200, 174, 0.22));
-  --remote-tint: var(--vscode-merge-incomingContentBackground, rgba(64, 166, 255, 0.22));
-  --common-tint: var(--vscode-merge-commonContentBackground, rgba(96, 96, 96, 0.16));
-  --conflict-tint: var(--vscode-inputValidation-warningBackground, rgba(255, 170, 0, 0.18));
-  --local-bar: var(--vscode-charts-green, #4ec9b0);
-  --remote-bar: var(--vscode-charts-blue, #569cd6);
-  --conflict-bar: var(--vscode-charts-orange, #d7ba7d);
+  --ours-tint: var(--vscode-merge-currentContentBackground, rgba(64, 200, 174, 0.22));
+  --theirs-tint: var(--vscode-merge-incomingContentBackground, rgba(64, 166, 255, 0.22));
+  --custom-tint: var(--vscode-merge-commonContentBackground, rgba(180, 130, 220, 0.2));
+  --rejected-tint: rgba(128, 128, 128, 0.13);
+  --unresolved-tint: var(--vscode-inputValidation-warningBackground, rgba(255, 170, 0, 0.14));
+  --ours-bar: var(--vscode-charts-green, #4ec9b0);
+  --theirs-bar: var(--vscode-charts-blue, #569cd6);
+  --custom-bar: var(--vscode-charts-purple, #b180d7);
+  --unresolved-bar: var(--vscode-charts-orange, #d7ba7d);
   --row-height: 1.45em;
 }
 
@@ -58,19 +60,19 @@ body {
   font-size: 0.9em;
 }
 
-.pane-title.side-local {
-  background: var(--local-tint);
+.pane-title.pane-ours {
+  background: var(--ours-tint);
 }
 
-.pane-title.side-base {
-  background: var(--common-tint);
+.pane-title.pane-result {
+  background: var(--custom-tint);
 }
 
-.pane-title.side-remote {
-  background: var(--remote-tint);
+.pane-title.pane-theirs {
+  background: var(--theirs-tint);
 }
 
-body.hide-base .pane-title.side-base {
+body.hide-result .pane-title.pane-result {
   display: none;
 }
 
@@ -97,11 +99,11 @@ button:hover {
   align-items: stretch;
 }
 
-body.hide-base .grid {
+body.hide-result .grid {
   grid-template-columns: max-content 1fr max-content 1fr;
 }
 
-body.hide-base .side-base {
+body.hide-result .pane-result {
   display: none;
 }
 
@@ -134,32 +136,62 @@ body.hide-base .side-base {
   padding-right: 16px;
 }
 
-/* --- change indication --- */
+/* --- change indication ---
+   Panes are tinted by how they relate to the working copy in the middle:
+   a side is marked when it still differs from what will be committed, and the
+   result pane is tinted by where its content came from. */
 
-.kind-localChange > .cell.side-local,
-.kind-bothSame > .cell.side-local,
-.kind-conflict > .cell.side-local {
-  background: var(--local-tint);
-  border-left-color: var(--local-bar);
+.kind-tookOurs > .cell.pane-result {
+  background: var(--ours-tint);
+  border-left-color: var(--ours-bar);
 }
 
-.kind-remoteChange > .cell.side-remote,
-.kind-bothSame > .cell.side-remote,
-.kind-conflict > .cell.side-remote {
-  background: var(--remote-tint);
-  border-left-color: var(--remote-bar);
+.kind-tookOurs > .cell.pane-theirs {
+  background: var(--rejected-tint);
+  border-left-color: var(--theirs-bar);
 }
 
-.kind-localChange > .cell.side-base,
-.kind-remoteChange > .cell.side-base,
-.kind-bothSame > .cell.side-base,
-.kind-conflict > .cell.side-base {
-  background: var(--common-tint);
+.kind-tookTheirs > .cell.pane-result {
+  background: var(--theirs-tint);
+  border-left-color: var(--theirs-bar);
 }
 
-.kind-conflict > .cell.side-base {
-  background: var(--conflict-tint);
-  border-left-color: var(--conflict-bar);
+.kind-tookTheirs > .cell.pane-ours {
+  background: var(--rejected-tint);
+  border-left-color: var(--ours-bar);
+}
+
+.kind-custom > .cell.pane-result {
+  background: var(--custom-tint);
+  border-left-color: var(--custom-bar);
+}
+
+.kind-custom > .cell.pane-ours,
+.kind-custom > .cell.pane-theirs {
+  background: var(--rejected-tint);
+}
+
+.kind-unresolved > .cell {
+  background: var(--unresolved-tint);
+}
+
+.kind-unresolved > .cell.pane-result {
+  border-left-color: var(--unresolved-bar);
+}
+
+.kind-unresolved > .cell.pane-ours {
+  border-left-color: var(--ours-bar);
+}
+
+.kind-unresolved > .cell.pane-theirs {
+  border-left-color: var(--theirs-bar);
+}
+
+/* The raw git marker lines, still sitting in the file until you resolve. */
+.marker-line > .cell.pane-result .code {
+  color: var(--unresolved-bar);
+  font-weight: 600;
+  opacity: 0.9;
 }
 
 .cell.filler {
@@ -168,17 +200,16 @@ body.hide-base .side-base {
     transparent 0 6px,
     var(--vscode-editorWhitespace-foreground, rgba(128, 128, 128, 0.25)) 6px 7px
   );
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
 .word {
-  background: var(--vscode-diffEditor-insertedTextBackground, rgba(155, 185, 85, 0.35));
+  background: var(--vscode-diffEditor-removedTextBackground, rgba(255, 100, 100, 0.3));
   border-radius: 2px;
-  outline: 1px solid var(--vscode-diffEditor-insertedTextBorder, transparent);
 }
 
-.side-remote .word {
-  background: var(--vscode-diffEditor-removedTextBackground, rgba(255, 100, 100, 0.3));
+.pane-result .word {
+  background: var(--vscode-diffEditor-insertedTextBackground, rgba(155, 185, 85, 0.35));
 }
 
 /* --- per-conflict actions --- */
@@ -191,7 +222,7 @@ body.hide-base .side-base {
   padding: 4px 10px;
   margin-top: 4px;
   background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.1));
-  border-top: 1px solid var(--conflict-bar);
+  border-top: 1px solid var(--unresolved-bar);
   font-family: var(--vscode-font-family);
   font-size: 0.85em;
 }
@@ -204,14 +235,12 @@ body.hide-base .side-base {
   font-weight: 600;
 }
 
-.labels {
-  margin-left: 8px;
-  font-weight: 400;
-  color: var(--vscode-descriptionForeground);
-}
-
 .actions {
   display: flex;
   gap: 6px;
   margin-left: auto;
+}
+
+.toolbar .warning {
+  color: var(--vscode-charts-orange, #d7ba7d);
 }

@@ -5,42 +5,60 @@ IntelliJ-style three-way merge conflict viewer for VS Code.
 Renders a conflicted file as one aligned tri-pane grid — local, base, remote — with per-side change bars, word-level
 highlighting inside modified lines, and per-conflict resolution buttons.
 
-## Why
+## Panes
 
-VS Code ships a built-in 3-way merge editor. Differ's value is the presentation: rows are aligned across all three panes
-(shorter panes get hatched filler), every changed block is classified and colour-coded, and only the words that actually
-changed are highlighted.
+| Pane       | Content                                     | Source                    |
+| ---------- | ------------------------------------------- | ------------------------- |
+| **Left**   | Your branch's version                       | git stage 2 (`:2:<path>`) |
+| **Middle** | The working copy — _what will be committed_ | The file on disk          |
+| **Right**  | The incoming version conflicting with yours | git stage 3 (`:3:<path>`) |
+
+The middle pane is the pivot: both sides are diffed **against what you are about to commit**, so each side shows only
+what it still disagrees with. Base (stage 1) is read too, and backs the "Revert to base" action.
+
+During a **rebase or cherry-pick** git replays commits onto the other branch, reversing the sense of the two sides. The
+toolbar says so when that is the case.
 
 ## Change indication
 
-| Block kind     | Meaning                                  | Shown as                     |
-| -------------- | ---------------------------------------- | ---------------------------- |
-| `unchanged`    | All three sides agree                    | No tint                      |
-| `localChange`  | Only local changed the base              | Green tint + bar, local pane |
-| `remoteChange` | Only remote changed the base             | Blue tint + bar, remote pane |
-| `bothSame`     | Both sides made the identical change     | Tint on both sides           |
-| `conflict`     | Both sides changed the same lines, apart | Orange tint + bar on base    |
-| filler         | A pane has no line at this row           | Hatched cell                 |
+| Row kind     | Meaning                                      | Shown as                            |
+| ------------ | -------------------------------------------- | ----------------------------------- |
+| `settled`    | All three agree                              | No tint                             |
+| `tookOurs`   | Working copy matches your branch             | Green on the result; right dimmed   |
+| `tookTheirs` | Working copy matches the incoming side       | Blue on the result; left dimmed     |
+| `custom`     | Working copy matches neither — you edited it | Purple on the result                |
+| `unresolved` | Still inside `<<<<<<<` markers               | Orange across the row; markers bold |
+| filler       | A pane has no line at this row               | Hatched cell                        |
 
-Word-level spans compare each side against base; with 2-way markers (no `|||||||` block) they compare the two sides
-against each other.
+Word-level highlighting marks the characters each side differs by from the working copy.
 
 ## Resolving
 
-Each conflict gets an action bar: **Accept Left**, **Accept Base**, **Accept Right**, **Both: L, R**, **Both: R, L**.
-Resolving replaces the conflict and its markers in the underlying document via a `WorkspaceEdit`, so undo works and the
-file is not saved for you.
+Each unresolved conflict gets an action bar: **Take &lt;your branch&gt;**, **Revert to base**, **Take &lt;incoming&gt;**,
+**Keep both**. Resolving rewrites the conflict in the real file through the host's document port, so undo works and
+nothing is saved for you. `F7` / `Shift+F7` step through conflicts.
 
-`F7` / `Alt+↓` jumps to the next conflict, `Shift+F7` / `Alt+↑` to the previous.
+## Architecture
 
-## Commands & settings
+The merge logic knows nothing about VS Code or HTML, so a second front end — a TUI — only has to supply a renderer and a
+document port. `src/test/layering.test.ts` asserts these boundaries rather than trusting them.
 
-| Id                             | Description                                                       |
-| ------------------------------ | ----------------------------------------------------------------- |
-| `differ.openMergeView`         | Open the merge view for the active file (title bar button appears |
-|                                | when conflict markers are detected)                               |
-| `differ.showBasePane`          | Show the base pane between local and remote (default `true`)      |
-| `differ.wordLevelHighlighting` | Highlight changed words inside modified lines (default `true`)    |
+```
+src/core/    diff, alignment, conflict parsing, resolution   (pure, no I/O)
+src/git/     reads the three versions from git's index        (pure Node)
+src/model/   view model + controller — renderer-agnostic      <-- the seam
+src/render/  MergeRenderer<TOutput>; html/ implements it
+src/host/    VS Code wiring: webview, WorkspaceEdit adapter
+```
+
+To add a terminal UI: implement `MergeRenderer<string[]>` in `src/render/tui/`, implement `MergeDocument` over `fs`, and
+reuse `ResolutionController` unchanged.
+
+| Port / seam              | Contract                                       |
+| ------------------------ | ---------------------------------------------- |
+| `MergeRenderer<TOutput>` | `render(model, context) => TOutput`            |
+| `MergeDocument`          | `getText()`, `replaceLines(start, end, lines)` |
+| `ResolutionController`   | `load(options)`, `resolve(index, resolution)`  |
 
 ## Development
 

@@ -1,7 +1,7 @@
 {
   "name": "differ",
   "displayName": "Differ",
-  "description": "IntelliJ-style three-way merge conflict viewer for VS Code",
+  "description": "IntelliJ-style Git commit diff viewer and three-way merge conflict resolver for VS Code",
   "version": "0.1.0",
   "publisher": "local",
   "private": true,

@@ -1,6 +1,64 @@
 # Differ
 
-IntelliJ-style three-way merge conflict viewer for VS Code.
+IntelliJ-style Git commit diff viewer and three-way merge conflict resolver for VS Code.
+
+Differ's scope covers reviewing committed changes and resolving merge conflicts. The merge workflow below is
+implemented; the commit-history workflow described next is planned.
+
+## Git commit history and diff viewing (planned)
+
+Select any subset of commits, review the files included in their changes, and double-click a file to open its diff
+for the selected commits and comparison base.
+
+### History interface
+
+- Keep the file diff in the main editor area.
+- Place commit selection in a resizable, hideable bottom pane. Hiding and reopening it preserves selections and the
+  comparison base.
+- Use IntelliJ's Git Log as the design reference: a branch graph alongside a commit table, with changed files and
+  commit details beside it. Show commit message, author, date, abbreviated hash, and branch/tag labels.
+- Support individual selection, range selection, and arbitrary non-contiguous multi-selection. Clearly distinguish
+  selected commits from the focused row; show the selection count.
+- Provide branch filtering and search by commit message or hash. Filtering must not silently change the selection.
+- Show the selected commits' changed files with paths and change status, including additions, deletions, and renames.
+  Double-click or keyboard activation opens the corresponding diff; label its comparison base and selected commits.
+- Keep the active comparison and a control to reopen the history pane visible when the bottom pane is hidden.
+
+### Comparison base
+
+- Allow an explicit commit, branch, or tag as the comparison base, plus an **Automatic** option.
+- By default, use the first unselected commit before the earliest selected commit in ancestry order, independent of
+  table sorting or filtering. For linear history, this is the parent of the oldest selected commit.
+- If the selection starts at the repository's root commit, compare against the empty tree.
+- Show the resolved base hash and subject. Automatic mode recalculates when selection changes; an explicit base stays
+  fixed until changed or reset to Automatic.
+
+### Comparison semantics
+
+- Apply only the selected commits' parent-relative changes to the comparison base, in ancestor-before-descendant
+  order. The result is a temporary snapshot; the working tree, index, branches, and commits remain untouched.
+- For non-contiguous selections, omit unselected commits' changes. If a selected change depends on omitted changes
+  and cannot be applied cleanly, identify the blocking commit and files. Do not display a partial result as a complete
+  comparison.
+- Automatic base selection requires one earliest selected commit that is an ancestor of every other selected commit.
+  Use that commit's parent; use the empty tree for a root commit. When selected commits have incomparable earliest
+  ancestors, require an explicit base.
+- Compare a merge commit against its first parent by default, with a visible parent selector. Its changes include
+  everything introduced relative to that parent. Selecting both a merge and commits it incorporates can overlap;
+  report application conflicts instead of silently discarding selected commits.
+- Determine application order using Git's reverse topological traversal of the selected commit IDs, supplied in
+  lexical order, then retain only selected IDs. Display that order; table sorting and filtering never change it.
+- Resolve an explicit branch or tag to a commit ID when chosen and keep it pinned until the user chooses a new base
+  or resets to Automatic.
+- Derive both the file list and opened diffs from the same base-to-result snapshot. Show net changes, so changes that
+  cancel out disappear. Preserve rename paths; show empty content on the missing side of an addition or deletion.
+- Use VS Code's native bottom panel for the hideable history view and its read-only diff editor for file comparisons.
+  Keep the selection/base summary and reopen action in the status bar when history is hidden.
+
+References: [IntelliJ Git Log layout](https://www.jetbrains.com/help/idea/log-tab.html) and
+[reviewing changes and comparing commits](https://www.jetbrains.com/help/idea/investigate-changes.html).
+
+## Merge conflict resolution
 
 Renders a conflicted file as one aligned tri-pane grid — local, base, remote — with per-side change bars, word-level
 highlighting inside modified lines, and per-conflict resolution buttons.

@@ -4,3 +4,10 @@ node_modules/**
 tsconfig.json
 **/*.map
 junk/**
+.github/**
+samples/**
+package-lock.json
+AGENTS.md
+MEMORY.local.md
+.claude/**
+vitest.config.ts

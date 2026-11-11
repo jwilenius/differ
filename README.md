@@ -160,7 +160,18 @@ reuse `ResolutionController` unchanged — including its editing operations, whi
 | `MergeDocument`          | `getText()`, `replaceLines(start, end, lines)`                                            |
 | `ResolutionController`   | `load(options)`, `resolve(index, resolution)`, `toggleHunk(...)`, `applySelection(index)` |
 
-## Development
+## Install from GitHub Actions
+
+Every push to `main` builds a VS Code installer after typecheck and tests pass. Manual builds are also available.
+
+1. Open [Build VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml).
+2. Select a successful run and download the **differ-vsix** artifact (retained for 30 days).
+3. Extract the ZIP to get `differ-0.1.0.vsix`.
+4. In VS Code, run **Extensions: Install from VSIX...** and select that file.
+
+For a local installer, use Node.js 22, run `npm ci`, then `npm run package`.
+
+## Build and test
 
 ```sh
 npm install         # deps

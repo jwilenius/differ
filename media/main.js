@@ -208,14 +208,19 @@
 
   function placeCaret(cell, offset) {
     cell.focus();
-    const textNode = cell.querySelector(".code")?.firstChild ?? cell.firstChild;
-    if (!textNode) {
-      return;
-    }
-
+    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+    let remaining = Math.max(0, Math.min(offset, cell.textContent.length));
     const range = document.createRange();
-    const clamped = Math.min(offset, textNode.textContent.length);
-    range.setStart(textNode, clamped);
+    range.selectNodeContents(cell);
+    range.collapse(false);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (remaining <= node.textContent.length) {
+        range.setStart(node, remaining);
+        break;
+      }
+      remaining -= node.textContent.length;
+    }
     range.collapse(true);
 
     const selection = window.getSelection();

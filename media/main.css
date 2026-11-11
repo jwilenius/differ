@@ -320,7 +320,7 @@ body.hide-result .num.pane-theirs {
   background: none;
   font-size: 1em;
   line-height: inherit;
-  vertical-align: baseline;
+  vertical-align: top;
   opacity: 0.75;
 }
 

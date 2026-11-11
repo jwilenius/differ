@@ -22,6 +22,8 @@ export interface ResolutionRow {
   readonly isMarkerLine: boolean;
   /** Set on the first row of a hunk slice, where the include control belongs. */
   readonly checkbox: HunkCheckbox | null;
+  /** The unresolved conflict this row lies inside, if any. */
+  readonly conflictIndex: number | null;
 }
 
 /** An offer to include one side of one hunk, anchored to the row it governs. */
@@ -106,6 +108,7 @@ export function buildResolutionView(
       kind: region ? "unresolved" : toResolutionKind(row.kind),
       isMarkerLine: region !== null && isMarkerLine(row.base.text),
       checkbox: row.base.lineNumber === null ? null : checkboxes.get(row.base.lineNumber) ?? null,
+      conflictIndex: region ? region.index : null,
     });
   }
 

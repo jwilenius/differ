@@ -1,14 +1,38 @@
+/* Colours follow IntelliJ's merge view (New UI Dark / Light): blocks are
+   tinted by what applying a side would do to the working copy, and the changed
+   words inside a block take a stronger shade of the same colour. */
 :root {
-  --ours-tint: var(--vscode-merge-currentContentBackground, rgba(64, 200, 174, 0.22));
-  --theirs-tint: var(--vscode-merge-incomingContentBackground, rgba(64, 166, 255, 0.22));
-  --custom-tint: var(--vscode-merge-commonContentBackground, rgba(180, 130, 220, 0.2));
-  --rejected-tint: rgba(128, 128, 128, 0.13);
-  --unresolved-tint: var(--vscode-inputValidation-warningBackground, rgba(255, 170, 0, 0.14));
-  --ours-bar: var(--vscode-charts-green, #4ec9b0);
-  --theirs-bar: var(--vscode-charts-blue, #569cd6);
-  --custom-bar: var(--vscode-charts-purple, #b180d7);
-  --unresolved-bar: var(--vscode-charts-orange, #d7ba7d);
-  --row-height: 1.45em;
+  --chg-modified: #28323d;
+  --chg-modified-word: #3e546e;
+  --chg-added: #2f4337;
+  --chg-added-word: #3f5e4a;
+  --chg-deleted: #484a4a;
+  --chg-deleted-word: #646666;
+  --chg-conflict: #2a2322;
+  --chg-conflict-word: #42312c;
+  --divider: #323438;
+  --gutter-text: #6f737a;
+  --toolbar-height: 32px;
+  --header-height: 26px;
+  --row-height: 1.5em;
+}
+
+body.vscode-light {
+  --chg-modified: #e6eefb;
+  --chg-modified-word: #c5d7f5;
+  --chg-added: #e3f3e6;
+  --chg-added-word: #bfe3c6;
+  --chg-deleted: #ebebeb;
+  --chg-deleted-word: #d2d2d2;
+  --chg-conflict: #fbe6e2;
+  --chg-conflict-word: #f4c7be;
+  --divider: #ebecf0;
+  --gutter-text: #a8adbd;
+}
+
+/* Keeps focused and navigated-to lines clear of the sticky toolbar and headers. */
+html {
+  scroll-padding-top: calc(var(--toolbar-height) + var(--header-height));
 }
 
 body {
@@ -25,86 +49,114 @@ body {
 .toolbar {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 3;
+  box-sizing: border-box;
+  height: var(--toolbar-height);
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  padding: 6px 10px;
+  padding: 0 8px;
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
-  border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
+  border-bottom: 1px solid var(--divider);
   font-family: var(--vscode-font-family);
 }
 
-.toolbar .file {
-  font-weight: 600;
+.toolbar .nav {
+  display: flex;
+  gap: 2px;
 }
 
-.toolbar .status {
+.toolbar .file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--vscode-descriptionForeground);
 }
 
-.toolbar .status.clean {
-  color: var(--vscode-charts-green, #4ec9b0);
-}
-
-.toolbar .headers {
-  display: flex;
-  gap: 24px;
+.toolbar .status {
   margin-left: auto;
 }
 
-.pane-title {
-  padding: 1px 8px;
-  border-radius: 3px;
-  font-size: 0.9em;
+.toolbar .status.clean {
+  color: var(--vscode-charts-green, #5fb865);
 }
 
-.pane-title.pane-ours {
-  background: var(--ours-tint);
-}
-
-.pane-title.pane-result {
-  background: var(--custom-tint);
-}
-
-.pane-title.pane-theirs {
-  background: var(--theirs-tint);
-}
-
-body.hide-result .pane-title.pane-result {
-  display: none;
+.toolbar .warning {
+  color: var(--vscode-charts-orange, #d7ba7d);
 }
 
 button {
   font-family: var(--vscode-font-family);
   font-size: 0.85em;
-  padding: 2px 8px;
-  border: 1px solid var(--vscode-button-border, transparent);
-  border-radius: 3px;
-  background: var(--vscode-button-secondaryBackground, #3a3d41);
-  color: var(--vscode-button-secondaryForeground, #fff);
+  color: inherit;
   cursor: pointer;
 }
 
-button:hover {
-  background: var(--vscode-button-secondaryHoverBackground, #45494e);
+button.tool {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  font-size: 15px;
 }
 
-/* --- grid --- */
+button.tool:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+/* --- grid ---
+   IntelliJ column order: text | gutter, gutter | result | gutter, text. The two
+   side gutters face the working copy, so every action sits beside it. */
 
 .grid {
   display: grid;
-  grid-template-columns: max-content 1fr max-content 1fr max-content 1fr;
+  grid-template-columns: minmax(0, 1fr) max-content max-content minmax(0, 1fr) max-content minmax(0, 1fr);
   align-items: stretch;
 }
 
 body.hide-result .grid {
-  grid-template-columns: max-content 1fr max-content 1fr;
+  grid-template-columns: minmax(0, 1fr) max-content max-content minmax(0, 1fr);
 }
 
-body.hide-result .pane-result {
+/* Hunk checkboxes live in the hidden result gutter, so partial selection goes with it. */
+body.hide-result .pane-result,
+body.hide-result .context-menu hr,
+body.hide-result .context-menu .apply-selection,
+body.hide-result .context-menu .split-hint {
   display: none;
+}
+
+body.hide-result .num.pane-theirs {
+  border-left: 1px solid var(--divider);
+}
+
+.pane-header {
+  position: sticky;
+  top: var(--toolbar-height);
+  z-index: 2;
+  grid-column: span 2;
+  box-sizing: border-box;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--divider);
+  font-family: var(--vscode-font-family);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pane-header .icon {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  opacity: 0.8;
 }
 
 .row {
@@ -118,131 +170,143 @@ body.hide-result .pane-result {
 }
 
 .num {
-  padding: 0 8px;
+  padding: 0 6px;
   text-align: right;
-  color: var(--vscode-editorLineNumber-foreground);
-  background: var(--vscode-editorGutter-background, var(--vscode-editor-background));
+  color: var(--gutter-text);
+  white-space: nowrap;
   user-select: none;
 }
 
+/* Hairlines frame the gutter strip on each side of the working copy. */
+.num.pane-ours {
+  border-left: 1px solid var(--divider);
+}
+
+.cell.pane-result {
+  border-right: 1px solid var(--divider);
+}
+
 .cell {
-  padding-left: 6px;
-  border-left: 3px solid transparent;
+  padding-left: 8px;
   white-space: pre;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .cell .code {
   padding-right: 16px;
 }
 
-/* --- change indication ---
-   Panes are tinted by how they relate to the working copy in the middle:
-   a side is marked when it still differs from what will be committed, and the
-   result pane is tinted by where its content came from. */
+/* --- change indication --- */
 
-.kind-tookOurs > .cell.pane-result {
-  background: var(--ours-tint);
-  border-left-color: var(--ours-bar);
+.chg-modified {
+  background: var(--chg-modified);
+  --word: var(--chg-modified-word);
 }
 
-.kind-tookOurs > .cell.pane-theirs {
-  background: var(--rejected-tint);
-  border-left-color: var(--theirs-bar);
+.chg-added {
+  background: var(--chg-added);
+  --word: var(--chg-added-word);
 }
 
-.kind-tookTheirs > .cell.pane-result {
-  background: var(--theirs-tint);
-  border-left-color: var(--theirs-bar);
+.chg-deleted {
+  background: var(--chg-deleted);
+  --word: var(--chg-deleted-word);
 }
 
-.kind-tookTheirs > .cell.pane-ours {
-  background: var(--rejected-tint);
-  border-left-color: var(--ours-bar);
+.chg-conflict {
+  background: var(--chg-conflict);
+  --word: var(--chg-conflict-word);
 }
 
-.kind-custom > .cell.pane-result {
-  background: var(--custom-tint);
-  border-left-color: var(--custom-bar);
-}
-
-.kind-custom > .cell.pane-ours,
-.kind-custom > .cell.pane-theirs {
-  background: var(--rejected-tint);
-}
-
-.kind-unresolved > .cell {
-  background: var(--unresolved-tint);
-}
-
-.kind-unresolved > .cell.pane-result {
-  border-left-color: var(--unresolved-bar);
-}
-
-.kind-unresolved > .cell.pane-ours {
-  border-left-color: var(--ours-bar);
-}
-
-.kind-unresolved > .cell.pane-theirs {
-  border-left-color: var(--theirs-bar);
+.word {
+  background: var(--word, var(--chg-modified-word));
 }
 
 /* The raw git marker lines, still sitting in the file until you resolve. */
 .marker-line > .cell.pane-result .code {
-  color: var(--unresolved-bar);
-  font-weight: 600;
-  opacity: 0.9;
+  color: var(--gutter-text);
+  font-style: italic;
 }
 
-.cell.filler {
-  background-image: repeating-linear-gradient(
-    135deg,
-    transparent 0 6px,
-    var(--vscode-editorWhitespace-foreground, rgba(128, 128, 128, 0.25)) 6px 7px
-  );
-  opacity: 0.45;
-}
-
-.word {
-  background: var(--vscode-diffEditor-removedTextBackground, rgba(255, 100, 100, 0.3));
-  border-radius: 2px;
-}
-
-.pane-result .word {
-  background: var(--vscode-diffEditor-insertedTextBackground, rgba(155, 185, 85, 0.35));
-}
-
-/* --- per-conflict actions --- */
-
-.action-bar {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 10px;
-  margin-top: 4px;
-  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.1));
-  border-top: 1px solid var(--unresolved-bar);
-  font-family: var(--vscode-font-family);
-  font-size: 0.85em;
-}
-
-.action-bar.resolved {
+/* A resolution was sent; the rebuild that follows replaces the rows. */
+.row.pending > * {
   opacity: 0.5;
 }
 
-.conflict-title {
-  font-weight: 600;
+/* --- gutter actions --- */
+
+.gutter-action {
+  padding: 0 3px;
+  border: none;
+  background: none;
+  color: var(--vscode-editor-foreground);
+  font-size: 1.15em;
+  line-height: 1;
+  opacity: 0.8;
 }
 
-.actions {
+.num.pane-ours .gutter-action {
+  margin-right: 4px;
+}
+
+.num.pane-theirs .gutter-action {
+  margin-left: 4px;
+}
+
+.gutter-action:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.25));
+  border-radius: 3px;
+}
+
+/* --- per-conflict menu --- */
+
+.context-menu {
+  position: fixed;
+  z-index: 10;
+  min-width: 220px;
   display: flex;
-  gap: 6px;
-  margin-left: auto;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--vscode-menu-background, #2b2d30);
+  color: var(--vscode-menu-foreground, inherit);
+  border: 1px solid var(--vscode-menu-border, #43454a);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  font-family: var(--vscode-font-family);
 }
 
-.toolbar .warning {
-  color: var(--vscode-charts-orange, #d7ba7d);
+.context-menu[hidden] {
+  display: none;
+}
+
+.context-menu button {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  text-align: left;
+  font-size: 0.95em;
+}
+
+.context-menu button:hover,
+.context-menu button:focus {
+  background: var(--vscode-menu-selectionBackground, #2e436e);
+  color: var(--vscode-menu-selectionForeground, inherit);
+  outline: none;
+}
+
+.context-menu hr {
+  width: 100%;
+  margin: 4px 0;
+  border: none;
+  border-top: 1px solid var(--vscode-menu-separatorBackground, #43454a);
+}
+
+.split-hint {
+  padding: 4px 10px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.85em;
 }
 
 /* --- hunk checkboxes ---
@@ -266,23 +330,15 @@ body.hide-result .pane-result {
 }
 
 .hunk-box.side-ours {
-  color: var(--ours-bar);
+  color: var(--vscode-charts-green, #5fb865);
 }
 
 .hunk-box.side-theirs {
-  color: var(--theirs-bar);
+  color: var(--vscode-charts-blue, #548af7);
 }
 
 .hunk-box.included {
   opacity: 1;
-}
-
-.split-hint {
-  color: var(--vscode-descriptionForeground);
-}
-
-.apply-selection {
-  border-color: var(--unresolved-bar);
 }
 
 /* --- editing ---
@@ -293,17 +349,11 @@ body.hide-result .pane-result {
 }
 
 .cell.editable:focus {
-  outline: 2px solid var(--vscode-focusBorder, #007fd4);
-  outline-offset: -2px;
-  background: var(--vscode-editor-background);
+  outline: 1px solid var(--vscode-focusBorder, #3574f0);
+  outline-offset: -1px;
 }
 
 .cell.pane-ours,
 .cell.pane-theirs {
   cursor: default;
-}
-
-.num.pane-result {
-  color: var(--vscode-editorLineNumber-activeForeground, var(--vscode-editorLineNumber-foreground));
-  white-space: nowrap;
 }

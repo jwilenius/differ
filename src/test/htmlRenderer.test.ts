@@ -24,7 +24,7 @@ describe("HtmlMergeRenderer", () => {
   it("names the panes after the branches, with the result in the middle", () => {
     const html = renderer.render(model, context);
 
-    const order = ["pane-ours\">feature<", "pane-result\">Will be committed<", "pane-theirs\">trunk<"];
+    const order = ["Changes from <b>feature</b>", "pane-result\">Result<", "Changes from <b>trunk</b>"];
     const positions = order.map((needle) => html.indexOf(needle));
     expect(positions.every((position) => position > 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
@@ -33,9 +33,24 @@ describe("HtmlMergeRenderer", () => {
   it("offers to take either side by branch name", () => {
     const html = renderer.render(model, context);
 
-    expect(html).toContain("Take feature");
-    expect(html).toContain("Take trunk");
+    expect(html).toContain("Accept feature");
+    expect(html).toContain("Accept trunk");
     expect(html).toContain('data-resolution="base"');
+  });
+
+  it("puts accept arrows in the side gutters that face the working copy", () => {
+    const html = renderer.render(model, context);
+
+    expect(html).toMatch(/<div class="num pane-ours[^"]*"><button class="resolve gutter-action"[^>]*data-resolution="local"[^>]*>»</);
+    expect(html).toMatch(/<div class="num pane-theirs[^"]*">\d+<button class="resolve gutter-action"[^>]*data-resolution="remote"[^>]*>«</);
+  });
+
+  it("tints an unresolved conflict with the conflict colour in all three panes", () => {
+    const html = renderer.render(model, context);
+
+    for (const pane of ["ours", "result", "theirs"]) {
+      expect(html).toContain(`cell pane-${pane} chg-conflict`);
+    }
   });
 
   it("locks the script to a fresh nonce each render", () => {
@@ -186,5 +201,36 @@ describe("HtmlMergeRenderer hunk checkboxes", () => {
 
   it("says how many parts a conflict divides into", () => {
     expect(html).toContain("2 parts");
+  });
+});
+
+describe("HtmlMergeRenderer conflict ownership", () => {
+  const adjacent: MergeSources = {
+    ours: "a\nA1\nB1\nz",
+    theirs: "a\nA2\nB2\nz",
+    base: "a\nz",
+    result: [
+      "a",
+      "<<<<<<< HEAD", "A1", "=======", "A2", ">>>>>>> trunk",
+      "<<<<<<< HEAD", "B1", "=======", "B2", ">>>>>>> trunk",
+      "z",
+    ].join("\n"),
+    ourLabel: "feature",
+    theirLabel: "trunk",
+    isSidesSwapped: false,
+  };
+  const html = renderer.render(buildResolutionView(adjacent, { wordLevelHighlighting: false }), context);
+
+  it("gives each row of back-to-back conflicts to the conflict it lies in", () => {
+    const owners = [...html.matchAll(/<div class="row[^"]*" data-row="\d+" data-conflict="(\d+)"><div class="cell pane-ours[^>]*>[^]*?<div class="cell pane-result[^>]*><span class="code">([^<]*)</g)]
+      .map(([, conflict, text]) => `${conflict}:${text}`);
+
+    expect(owners).toContain("0:A1");
+    expect(owners).toContain("1:B1");
+    expect(owners).toContain("1:&gt;&gt;&gt;&gt;&gt;&gt;&gt; trunk");
+  });
+
+  it("starts each conflict on its own row", () => {
+    expect(html.match(/conflict-start/g)).toHaveLength(2);
   });
 });

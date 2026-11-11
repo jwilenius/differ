@@ -17,7 +17,8 @@
       return;
     }
     flushPendingEdit();
-    button.closest(".action-bar").classList.add("resolved");
+    hideMenus();
+    markPending(button.dataset.conflict);
     vscode.postMessage({
       type: "resolve",
       conflictIndex: Number(button.dataset.conflict),
@@ -38,6 +39,7 @@
     const isIncluded = !box.classList.contains("included");
     box.classList.toggle("included", isIncluded);
     box.setAttribute("aria-checked", String(isIncluded));
+    box.textContent = isIncluded ? "☑" : "☐";
 
     vscode.postMessage({
       type: "toggleHunk",
@@ -53,9 +55,61 @@
       return;
     }
     flushPendingEdit();
-    button.closest(".action-bar").classList.add("resolved");
+    hideMenus();
+    markPending(button.dataset.conflict);
     vscode.postMessage({ type: "applySelection", conflictIndex: Number(button.dataset.conflict) });
   });
+
+  function markPending(conflictIndex) {
+    for (const row of document.querySelectorAll(`.row[data-conflict="${conflictIndex}"]`)) {
+      row.classList.add("pending");
+    }
+  }
+
+  // --- per-conflict menu, opened by right-clicking anywhere in the conflict ---
+
+  grid.addEventListener("contextmenu", (event) => {
+    // Editing and copying keep the browser's own Cut/Copy/Paste menu.
+    const isEditingOrCopying = event.target.closest(".editable") || !isSelectionEmpty();
+    if (isEditingOrCopying) {
+      return;
+    }
+
+    const row = event.target.closest(".row[data-conflict]");
+    const menu = row && document.querySelector(`.context-menu[data-menu="${row.dataset.conflict}"]`);
+    if (!menu) {
+      return;
+    }
+    event.preventDefault();
+    hideMenus();
+
+    menu.hidden = false;
+    const left = Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 4);
+    const top = Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 4);
+    menu.style.left = `${Math.max(0, left)}px`;
+    menu.style.top = `${Math.max(0, top)}px`;
+    menu.querySelector("button")?.focus();
+  });
+
+  document.addEventListener("mousedown", (event) => {
+    if (!event.target.closest(".context-menu")) {
+      hideMenus();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideMenus();
+    }
+  });
+
+  window.addEventListener("scroll", hideMenus);
+
+  function hideMenus() {
+    for (const menu of document.querySelectorAll(".context-menu:not([hidden])")) {
+      menu.hidden = true;
+    }
+  }
 
   // --- editing the working copy ---
 
@@ -199,7 +253,7 @@
   });
 
   function moveToConflict(step) {
-    const bars = Array.from(document.querySelectorAll(".action-bar"));
+    const bars = Array.from(document.querySelectorAll(".row.conflict-start > .cell.pane-ours"));
     if (bars.length === 0) {
       return;
     }

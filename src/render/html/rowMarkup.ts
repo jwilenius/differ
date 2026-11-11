@@ -5,36 +5,61 @@ import type {
   ResolutionRow,
   ResolutionViewModel,
 } from "../../model/resolutionView";
+import { highlightRows, type ChangeType, type RowHighlight } from "./changeHighlight";
 
 type Pane = "ours" | "result" | "theirs";
 
-/** Renders the aligned rows, with an action bar above each unresolved conflict. */
+const LOCK_ICON = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7.5" width="9" height="7" rx="1.5"/><path d="M5.5 7.5V5a2.5 2.5 0 0 1 5 0v2.5"/></svg>`;
+const ACCEPT_RIGHTWARDS = "»";
+const ACCEPT_LEFTWARDS = "«";
+
+/**
+ * Renders IntelliJ's merge layout as one aligned grid: branch text, its gutter,
+ * the working copy's gutter and text, then the incoming gutter and text.
+ */
 export function renderGrid(model: ResolutionViewModel): string {
-  const barByRow = new Map<number, ConflictSummary>();
-  for (const conflict of model.conflicts) {
-    barByRow.set(conflict.rowStart, conflict);
-  }
-
-  const parts: string[] = [];
-  model.rows.forEach((row, index) => {
-    const conflict = barByRow.get(index);
-    if (conflict) {
-      parts.push(renderActionBar(conflict, model));
-    }
-    parts.push(renderRow(row, index));
-  });
-
-  return parts.join("");
-}
-
-function renderRow(row: ResolutionRow, index: number): string {
-  const markerClass = row.isMarkerLine ? " marker-line" : "";
+  const highlights = highlightRows(model.rows);
+  const conflictByStart = new Map(model.conflicts.map((conflict) => [conflict.rowStart, conflict]));
 
   return [
-    `<div class="row kind-${row.kind}${markerClass}" data-row="${index}">`,
-    renderCell(row.ours, "ours", false),
-    renderCell(row.result, "result", isEditable(row), row.checkbox),
-    renderCell(row.theirs, "theirs", false),
+    renderPaneHeaders(model),
+    ...model.rows.map((row, index) => renderRow(row, index, highlights[index], conflictByStart.get(index) ?? null, model)),
+    ...model.conflicts.map((conflict) => renderConflictMenu(conflict, model)),
+  ].join("");
+}
+
+function renderPaneHeaders(model: ResolutionViewModel): string {
+  return [
+    `<div class="pane-header pane-ours">${LOCK_ICON}Changes from <b>${escapeHtml(model.ourLabel)}</b></div>`,
+    `<div class="pane-header pane-result">Result</div>`,
+    `<div class="pane-header pane-theirs">${LOCK_ICON}Changes from <b>${escapeHtml(model.theirLabel)}</b></div>`,
+  ].join("");
+}
+
+/** `start` is the conflict that begins on this row, which is where its gutter arrows go. */
+function renderRow(
+  row: ResolutionRow,
+  index: number,
+  highlight: RowHighlight,
+  start: ConflictSummary | null,
+  model: ResolutionViewModel,
+): string {
+  const classes = [
+    "row",
+    `kind-${row.kind}`,
+    row.isMarkerLine ? "marker-line" : "",
+    start ? "conflict-start" : "",
+  ].filter(Boolean).join(" ");
+  const conflictAttribute = row.conflictIndex === null ? "" : ` data-conflict="${row.conflictIndex}"`;
+
+  return [
+    `<div class="${classes}" data-row="${index}"${conflictAttribute}>`,
+    renderCell(row.ours, "ours", highlight.ours, false),
+    renderGutter(row.ours, "ours", highlight.ours, start ? acceptButton(start, "local", model.ourLabel) : ""),
+    renderGutter(row.result, "result", highlight.result, renderCheckbox(row.checkbox)),
+    renderCell(row.result, "result", highlight.result, isEditable(row)),
+    renderGutter(row.theirs, "theirs", highlight.theirs, start ? acceptButton(start, "remote", model.theirLabel) : ""),
+    renderCell(row.theirs, "theirs", highlight.theirs, false),
     "</div>",
   ].join("");
 }
@@ -48,23 +73,37 @@ function isEditable(row: ResolutionRow): boolean {
   return row.result.lineNumber !== null && !row.isMarkerLine;
 }
 
-function renderCell(
-  cell: RowCell,
-  pane: Pane,
-  isEditableCell: boolean,
-  checkbox: HunkCheckbox | null = null,
-): string {
-  const isFiller = cell.text === null;
-  const number = cell.lineNumber === null ? "" : String(cell.lineNumber + 1);
+function renderCell(cell: RowCell, pane: Pane, change: ChangeType | null, isEditableCell: boolean): string {
+  const classes = [
+    "cell",
+    `pane-${pane}`,
+    changeClass(change),
+    cell.text === null ? "filler" : "",
+    isEditableCell ? "editable" : "",
+  ].filter(Boolean).join(" ");
   const editing = isEditableCell
     ? ` contenteditable="plaintext-only" spellcheck="false" data-line="${cell.lineNumber}"`
     : "";
 
-  return [
-    `<div class="num pane-${pane}">${renderCheckbox(checkbox)}${number}</div>`,
-    `<div class="cell pane-${pane}${isFiller ? " filler" : ""}${isEditableCell ? " editable" : ""}"${editing}>`,
-    `<span class="code">${renderText(cell)}</span></div>`,
-  ].join("");
+  return `<div class="${classes}"${editing}><span class="code">${renderText(cell)}</span></div>`;
+}
+
+/** The line-number column beside a pane; the side gutters face the working copy, as in IntelliJ. */
+function renderGutter(cell: RowCell, pane: Pane, change: ChangeType | null, controls: string): string {
+  const number = cell.lineNumber === null ? "" : String(cell.lineNumber + 1);
+  const content = pane === "theirs" ? `${number}${controls}` : `${controls}${number}`;
+  return `<div class="num pane-${pane} ${changeClass(change)}">${content}</div>`;
+}
+
+function changeClass(change: ChangeType | null): string {
+  return change ? `chg-${change}` : "";
+}
+
+/** IntelliJ's gutter arrow that pushes one side's version of the conflict into the working copy. */
+function acceptButton(conflict: ConflictSummary, resolution: "local" | "remote", label: string): string {
+  const arrow = resolution === "local" ? ACCEPT_RIGHTWARDS : ACCEPT_LEFTWARDS;
+  const title = `Accept ${escapeHtml(label)}`;
+  return `<button class="resolve gutter-action" data-conflict="${conflict.index}" data-resolution="${resolution}" title="${title}">${arrow}</button>`;
 }
 
 /**
@@ -115,33 +154,28 @@ function clampSpans(spans: readonly WordSpan[], length: number): WordSpan[] {
     .filter((span) => span.start < span.end);
 }
 
-function renderActionBar(conflict: ConflictSummary, model: ResolutionViewModel): string {
-  const buttons = [
-    button(conflict.index, "local", `Take ${escapeHtml(model.ourLabel)}`),
-    conflict.hasBase ? button(conflict.index, "base", "Revert to base") : "",
-    button(conflict.index, "remote", `Take ${escapeHtml(model.theirLabel)}`),
-    button(conflict.index, "localThenRemote", "Keep both"),
-    renderApplyButton(conflict),
+/** IntelliJ's right-click menu on a conflict: every way to resolve it in one place. */
+function renderConflictMenu(conflict: ConflictSummary, model: ResolutionViewModel): string {
+  const items = [
+    menuItem(conflict.index, "local", `${ACCEPT_RIGHTWARDS} Accept ${escapeHtml(model.ourLabel)}`),
+    menuItem(conflict.index, "remote", `${ACCEPT_LEFTWARDS} Accept ${escapeHtml(model.theirLabel)}`),
+    menuItem(conflict.index, "localThenRemote", "Keep both"),
+    conflict.hasBase ? menuItem(conflict.index, "base", "Revert to base") : "",
+    renderApplyItem(conflict),
   ].join("");
 
-  return [
-    `<div class="action-bar" data-conflict="${conflict.index}">`,
-    `<span class="conflict-title">Unresolved conflict ${conflict.index + 1}</span>`,
-    renderSplitHint(conflict),
-    `<span class="actions">${buttons}</span>`,
-    "</div>",
-  ].join("");
+  return `<div class="context-menu" data-menu="${conflict.index}" role="menu" hidden>${renderSplitHint(conflict)}${items}</div>`;
 }
 
 /** Commits whatever the gutter checkboxes currently select, rather than a whole side. */
-function renderApplyButton(conflict: ConflictSummary): string {
+function renderApplyItem(conflict: ConflictSummary): string {
   if (conflict.hunkCount === 0) {
     return "";
   }
 
   const lines = `${conflict.selectedLineCount} line${conflict.selectedLineCount === 1 ? "" : "s"}`;
   return [
-    `<button class="apply-selection" data-conflict="${conflict.index}"`,
+    `<hr><button class="apply-selection" role="menuitem" data-conflict="${conflict.index}"`,
     ` title="Replace this conflict with the lines ticked in the gutter">`,
     `Apply selection (${lines})</button>`,
   ].join("");
@@ -151,11 +185,11 @@ function renderSplitHint(conflict: ConflictSummary): string {
   if (conflict.hunkCount < 2) {
     return "";
   }
-  return `<span class="split-hint">${conflict.hunkCount} parts — tick the gutter to take them separately</span>`;
+  return `<div class="split-hint">${conflict.hunkCount} parts — tick the gutter to take them separately</div>`;
 }
 
-function button(conflictIndex: number, resolution: string, label: string): string {
-  return `<button class="resolve" data-conflict="${conflictIndex}" data-resolution="${resolution}">${label}</button>`;
+function menuItem(conflictIndex: number, resolution: string, label: string): string {
+  return `<button class="resolve" role="menuitem" data-conflict="${conflictIndex}" data-resolution="${resolution}">${label}</button>`;
 }
 
 export function escapeHtml(text: string): string {

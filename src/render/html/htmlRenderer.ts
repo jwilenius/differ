@@ -46,25 +46,21 @@ function focusAttributes(focus: RenderContext["focus"]): string {
   return ` data-focus-line="${focus.line}" data-focus-offset="${focus.offset}"`;
 }
 
+/** IntelliJ's merge toolbar: conflict navigation on the left, the tally on the right. */
 function renderToolbar(model: ResolutionViewModel, context: RenderContext): string {
   const count = model.conflicts.length;
   const status = count === 0
     ? "Ready to commit — no conflicts left"
-    : `${count} unresolved conflict${count === 1 ? "" : "s"}`;
+    : `${count} conflict${count === 1 ? "" : "s"}`;
 
   return `<header class="toolbar">
-  <span class="file">${escapeHtml(context.fileName)}</span>
-  <span class="status ${count === 0 ? "clean" : ""}">${status}</span>
-  ${renderSwapWarning(model)}
   <span class="nav">
-    <button id="prev" title="Previous conflict">↑ Prev</button>
-    <button id="next" title="Next conflict">↓ Next</button>
+    <button id="prev" class="tool" title="Previous conflict (Shift+F7)">↑</button>
+    <button id="next" class="tool" title="Next conflict (F7)">↓</button>
   </span>
-  <span class="headers">
-    <span class="pane-title pane-ours">${escapeHtml(model.ourLabel)}</span>
-    <span class="pane-title pane-result">Will be committed</span>
-    <span class="pane-title pane-theirs">${escapeHtml(model.theirLabel)}</span>
-  </span>
+  <span class="file">${escapeHtml(context.fileName)}</span>
+  ${renderSwapWarning(model)}
+  <span class="status ${count === 0 ? "clean" : ""}">${status}</span>
 </header>`;
 }
 

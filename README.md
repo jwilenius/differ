@@ -79,16 +79,19 @@ toolbar says so when that is the case.
 
 ## Change indication
 
-| Row kind     | Meaning                                      | Shown as                            |
-| ------------ | -------------------------------------------- | ----------------------------------- |
-| `settled`    | All three agree                              | No tint                             |
-| `tookOurs`   | Working copy matches your branch             | Green on the result; right dimmed   |
-| `tookTheirs` | Working copy matches the incoming side       | Blue on the result; left dimmed     |
-| `custom`     | Working copy matches neither — you edited it | Purple on the result                |
-| `unresolved` | Still inside `<<<<<<<` markers               | Orange across the row; markers bold |
-| filler       | A pane has no line at this row               | Hatched cell                        |
+Colours and layout follow IntelliJ's merge dialog: branch text, its gutter, the working copy's gutter and text, then the
+incoming gutter and text. Each block takes one colour describing what applying a side would do to the working copy.
 
-Word-level highlighting marks the characters each side differs by from the working copy.
+| Colour | Meaning                                                 |
+| ------ | ------------------------------------------------------- |
+| Red    | Unresolved conflict — still inside `<<<<<<<` markers    |
+| Blue   | Modified — the side has different lines from the result |
+| Green  | Added — the side has lines the working copy lacks       |
+| Grey   | Deleted — the working copy has lines the side lacks     |
+| None   | All three agree, or the side matches the working copy   |
+
+Changed words inside a block take a stronger shade of the block's colour. Marker lines are dimmed and italic. Light
+themes use IntelliJ Light's equivalents.
 
 ## Editing and resolving
 
@@ -103,11 +106,12 @@ right panes are read-only references.
 | `↑` / `↓`            | Moves between editable lines, keeping the column |
 | `F7` / `Shift+F7`    | Next / previous unresolved conflict              |
 
-Each unresolved conflict also gets an action bar: **Take &lt;your branch&gt;**, **Revert to base**,
-**Take &lt;incoming&gt;**, **Keep both**.
+Each unresolved conflict gets IntelliJ's gutter arrows on its first row: **»** beside your branch accepts it, **«**
+beside the incoming side accepts that. Right-click a conflict (outside the editable lines) for the full menu:
+**Accept &lt;your branch&gt;**, **Accept &lt;incoming&gt;**, **Keep both**, **Revert to base** and **Apply selection**.
 
 The `<<<<<<<` marker lines themselves are deliberately **not** editable — they are structural, and a half-typed marker
-would corrupt the region. Resolve them with the action bar, which removes them properly.
+would corrupt the region. Resolve them with the gutter arrows or the conflict menu, which remove them properly.
 
 ## Partial resolution (hunk splitting)
 
@@ -117,7 +121,7 @@ actually disagree about, and every piece can be decided on its own.
 - Lines **both sides agree on** are settled: they are always kept and carry no control.
 - Every other piece gets a **checkbox in the gutter beside the middle pane** — one for the branch's lines, one for the
   incoming lines, coloured to match their pane.
-- Tick any combination, then press **Apply selection**, which reports how many lines it would commit.
+- Tick any combination, then choose **Apply selection** from the conflict's right-click menu, which reports how many lines it would commit.
 - Ticking both sides of a piece keeps both, branch first. Ticking neither drops that piece.
 
 The two sides are compared **directly against each other** rather than through the merge base: what matters is where
@@ -175,23 +179,24 @@ Press `F5` in VS Code to launch an Extension Development Host, then open `sample
 
 ## Layout
 
-| Path                                | Role                                                         |
-| ----------------------------------- | ------------------------------------------------------------ |
-| `src/core/conflictParser.ts`        | Splits a document into stable and conflict sections          |
-| `src/core/lineDiff.ts`              | Line diff → hunks + base↔side position maps                  |
-| `src/core/wordDiff.ts`              | Intra-line changed character ranges                          |
-| `src/core/threeWayAligner.ts`       | Aligns the three sides into one row grid, classifies blocks  |
-| `src/core/mergeResolver.ts`         | Collapses a conflict under a chosen resolution               |
-| `src/git/gitMergeSources.ts`        | Reads the three versions from the index and the working copy |
-| `src/model/hunkSplitter.ts`         | Divides a conflict into separately decidable pieces          |
-| `src/model/hunkSelection.ts`        | Which side of which piece is pending inclusion               |
-| `src/model/resolutionView.ts`       | Row model, conflict summaries, gutter controls               |
-| `src/model/resolutionController.ts` | Host-independent load / resolve / edit / apply               |
-| `src/model/mergeDocument.ts`        | Port onto the host's editable document                       |
-| `src/render/renderer.ts`            | `MergeRenderer` seam a TUI can implement                     |
-| `src/render/html/rowMarkup.ts`      | Rows, word spans, gutter checkboxes, action bars → HTML      |
-| `src/render/html/htmlRenderer.ts`   | Page shell, CSP, toolbar                                     |
-| `src/host/vscode/mergeViewPanel.ts` | Webview lifecycle, messages, document edits                  |
-| `media/`                            | Webview stylesheet and client script                         |
+| Path                                 | Role                                                         |
+| ------------------------------------ | ------------------------------------------------------------ |
+| `src/core/conflictParser.ts`         | Splits a document into stable and conflict sections          |
+| `src/core/lineDiff.ts`               | Line diff → hunks + base↔side position maps                  |
+| `src/core/wordDiff.ts`               | Intra-line changed character ranges                          |
+| `src/core/threeWayAligner.ts`        | Aligns the three sides into one row grid, classifies blocks  |
+| `src/core/mergeResolver.ts`          | Collapses a conflict under a chosen resolution               |
+| `src/git/gitMergeSources.ts`         | Reads the three versions from the index and the working copy |
+| `src/model/hunkSplitter.ts`          | Divides a conflict into separately decidable pieces          |
+| `src/model/hunkSelection.ts`         | Which side of which piece is pending inclusion               |
+| `src/model/resolutionView.ts`        | Row model, conflict summaries, gutter controls               |
+| `src/model/resolutionController.ts`  | Host-independent load / resolve / edit / apply               |
+| `src/model/mergeDocument.ts`         | Port onto the host's editable document                       |
+| `src/render/renderer.ts`             | `MergeRenderer` seam a TUI can implement                     |
+| `src/render/html/rowMarkup.ts`       | Rows, word spans, gutter arrows/checkboxes, menus → HTML     |
+| `src/render/html/changeHighlight.ts` | IntelliJ change colour per block (added/deleted/modified)    |
+| `src/render/html/htmlRenderer.ts`    | Page shell, CSP, toolbar                                     |
+| `src/host/vscode/mergeViewPanel.ts`  | Webview lifecycle, messages, document edits                  |
+| `media/`                             | Webview stylesheet and client script                         |
 
 The `core/`, `model/` and `render/` layers have no `vscode` import and are unit-tested on their own; `src/test/layering.test.ts` enforces it.

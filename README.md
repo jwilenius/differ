@@ -160,7 +160,17 @@ reuse `ResolutionController` unchanged — including its editing operations, whi
 | `MergeDocument`          | `getText()`, `replaceLines(start, end, lines)`                                            |
 | `ResolutionController`   | `load(options)`, `resolve(index, resolution)`, `toggleHunk(...)`, `applySelection(index)` |
 
-## Install from GitHub Actions
+## Install from GitHub Releases
+
+1. Open [Releases](https://github.com/jwilenius/differ/releases/latest).
+2. Download the `differ-<version>.vsix` file under **Assets**.
+3. In VS Code, run **Extensions: Install from VSIX...** and select that file.
+
+To publish a release, update `version` in `package.json` and its lockfile, commit, then push a matching `v<version>`
+tag (for example, `v0.1.0`). The workflow tests, packages, and attaches the installer to a release with generated notes.
+The tag must match the package version.
+
+## Install a development build
 
 Every push to `main` builds a VS Code installer after typecheck and tests pass. Manual builds are also available.
 

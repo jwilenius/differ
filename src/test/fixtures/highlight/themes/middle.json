@@ -1,0 +1,5 @@
+{
+  "name": "Middle",
+  "include": "./base.json",
+  "tokenColors": "./middle-colors.json"
+}

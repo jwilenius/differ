@@ -1,0 +1,8 @@
+// JSONC: comments and trailing commas are allowed, as in VS Code theme files.
+{
+  "name": "Top",
+  "include": "../middle.json",
+  "tokenColors": [
+    { "scope": ["constant.numeric"], "settings": { "foreground": "#B5CEA8" } },
+  ],
+}

@@ -64,13 +64,16 @@
   "scripts": {
     "release": "bash scripts/release.sh",
     "package": "npm run build && vsce package --no-dependencies --skip-license",
-    "build": "esbuild src/host/vscode/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18",
+    "build": "node -e \"const fs = require('fs'); fs.mkdirSync('dist', { recursive: true }); fs.copyFileSync('node_modules/vscode-oniguruma/release/onig.wasm', 'dist/onig.wasm')\" && esbuild src/host/vscode/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --main-fields=module,main",
     "watch": "npm run build -- --sourcemap --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "diff": "^5.2.0"
+    "diff": "^5.2.0",
+    "jsonc-parser": "^3.3.1",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   },
   "devDependencies": {
     "@types/diff": "^5.2.3",

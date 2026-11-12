@@ -1,0 +1,10 @@
+{
+  "name": "Base",
+  "tokenColors": [
+    { "settings": { "foreground": "#FFFFFF" } },
+    { "scope": "comment", "settings": { "foreground": "#6a9955", "fontStyle": "italic" } },
+    { "scope": "keyword", "settings": { "foreground": "#569CD6" } },
+    { "scope": "string", "settings": { "foreground": "#CE9178" } },
+    { "scope": "keyword.todo", "settings": { "foreground": "#F00", "fontStyle": "bold" } }
+  ]
+}

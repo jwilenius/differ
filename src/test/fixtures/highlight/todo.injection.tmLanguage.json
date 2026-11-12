@@ -1,0 +1,5 @@
+{
+  "scopeName": "todo.injection",
+  "injectionSelector": "L:comment",
+  "patterns": [{ "match": "TODO", "name": "keyword.todo" }]
+}

@@ -28,8 +28,38 @@
         "title": "Open Three-Way Merge View",
         "category": "Differ",
         "icon": "$(git-merge)"
+      },
+      {
+        "command": "differ.openHistory",
+        "title": "Open Git History",
+        "category": "Differ",
+        "icon": "$(history)"
+      },
+      {
+        "command": "differ.refreshHistory",
+        "title": "Refresh Git History",
+        "category": "Differ",
+        "icon": "$(refresh)"
       }
     ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "differHistory",
+          "title": "Differ",
+          "icon": "$(git-commit)"
+        }
+      ]
+    },
+    "views": {
+      "differHistory": [
+        {
+          "type": "webview",
+          "id": "differ.history",
+          "name": "Git History"
+        }
+      ]
+    },
     "menus": {
       "editor/title": [
         {
@@ -38,10 +68,23 @@
           "group": "navigation"
         }
       ],
+      "view/title": [
+        {
+          "command": "differ.refreshHistory",
+          "when": "view == differ.history",
+          "group": "navigation"
+        }
+      ],
       "commandPalette": [
         {
           "command": "differ.openMergeView",
           "when": "editorIsOpen"
+        },
+        {
+          "command": "differ.openHistory"
+        },
+        {
+          "command": "differ.refreshHistory"
         }
       ]
     },
@@ -57,6 +100,19 @@
           "type": "boolean",
           "default": true,
           "description": "Show the working-copy pane (what will be committed) between the branch and incoming panes."
+        },
+        "differ.historyDiffViewer": {
+          "type": "string",
+          "enum": [
+            "intellij",
+            "native"
+          ],
+          "enumDescriptions": [
+            "Open changed files from Git History in Differ's IntelliJ-style side-by-side diff.",
+            "Open changed files from Git History in VS Code's built-in diff editor."
+          ],
+          "default": "intellij",
+          "description": "Which diff viewer opens text files from the Git History panel."
         }
       }
     }

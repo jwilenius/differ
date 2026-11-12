@@ -2,61 +2,88 @@
 
 IntelliJ-style Git commit diff viewer and three-way merge conflict resolver for VS Code.
 
-Differ's scope covers reviewing committed changes and resolving merge conflicts. The merge workflow below is
-implemented; the commit-history workflow described next is planned.
+Two workflows: review the combined changes of any set of commits, and resolve merge conflicts.
 
-## Git commit history and diff viewing (planned)
+## Git commit history and diff viewing
 
-Select any subset of commits, review the files included in their changes, and double-click a file to open its diff
-for the selected commits and comparison base.
+Select any subset of commits — including non-adjacent ones — and see exactly what those commits change, with nothing
+from the commits in between. Double-click a file to open its diff in VS Code's native diff editor.
 
-### History interface
+### Opening it
 
-- Keep the file diff in the main editor area.
-- Place commit selection in a resizable, hideable bottom pane. Hiding and reopening it preserves selections and the
-  comparison base.
-- Use IntelliJ's Git Log as the design reference: a branch graph alongside a commit table, with changed files and
-  commit details beside it. Show commit message, author, date, abbreviated hash, and branch/tag labels.
-- Support individual selection, range selection, and arbitrary non-contiguous multi-selection. Clearly distinguish
-  selected commits from the focused row; show the selection count.
-- Provide branch filtering and search by commit message or hash. Filtering must not silently change the selection.
-- Show the selected commits' changed files with paths and change status, including additions, deletions, and renames.
-  Double-click or keyboard activation opens the corresponding diff; label its comparison base and selected commits.
-- Keep the active comparison and a control to reopen the history pane visible when the bottom pane is hidden.
+- Run **Differ: Open Git History**, or open the **Differ** tab in the bottom panel. **Differ: Refresh Git History** (also
+  the ↻ button in the view title) reloads commits and refs.
+- The repository comes from the active editor and the workspace folders; the picker switches between them, and
+  **Open…** adds any local repository folder. Each repository keeps its own selection and base for the session.
+- The status bar shows `<repository>: N selected · base …` and reopens the panel when it is hidden. Hiding and
+  reopening the panel keeps the selection, base and filters.
+
+### Selecting commits
+
+Layout follows IntelliJ's Git Log: branch graph and commit table (subject, branch/tag labels, author, date, hash) on
+the left; changed files, replay order and commit details on the right.
+
+| Gesture                         | Effect                                              |
+| ------------------------------- | --------------------------------------------------- |
+| Click                           | Select only that commit                             |
+| Ctrl/Cmd+click                  | Add or remove one commit                            |
+| Shift+click                     | Select the shown range from the last clicked commit |
+| Ctrl/Cmd+Shift+click            | Add that range to the selection                     |
+| `↑` / `↓`                       | Move focus; details update when you pause           |
+| Shift+`↑` / Shift+`↓`, Space    | Extend the selection / toggle the focused commit    |
+| **Clear**                       | Deselect everything                                 |
+| Double-click or `Enter` on file | Open its diff (base ↔ result) in the editor         |
+
+- **Search** filters by subject or hash (literal, case-insensitive); the branch filter shows commits reachable from
+  that branch. Filtering never changes the selection — selected commits it hides are counted next to the selection.
+- The table shows 200 commits at a time; **Load more** adds 200.
 
 ### Comparison base
 
-- Allow an explicit commit, branch, or tag as the comparison base, plus an **Automatic** option.
-- By default, use the first unselected commit before the earliest selected commit in ancestry order, independent of
-  table sorting or filtering. For linear history, this is the parent of the oldest selected commit.
-- If the selection starts at the repository's root commit, compare against the empty tree.
-- Show the resolved base hash and subject. Automatic mode recalculates when selection changes; an explicit base stays
-  fixed until changed or reset to Automatic.
+- **Automatic** (default): the parent of the earliest selected commit, or the empty tree when that is the root commit.
+  The ancestry decides "earliest", not table order or dates. The toolbar shows the resolved hash and subject.
+- When the selection has several earliest commits that are not ancestors of each other (for example commits on two
+  branches), Differ asks for a base: type a commit, branch or tag and press **Pin**. A pinned ref is resolved once and
+  stays on that commit even if the branch later moves; **Automatic** unpins it.
+- A selected merge commit gets a parent selector in the replay list (default: first parent). Its changes are taken
+  relative to that parent, and the choice also moves the Automatic base when the merge is the earliest commit.
 
-### Comparison semantics
+### What is compared
 
-- Apply only the selected commits' parent-relative changes to the comparison base, in ancestor-before-descendant
-  order. The result is a temporary snapshot; the working tree, index, branches, and commits remain untouched.
-- For non-contiguous selections, omit unselected commits' changes. If a selected change depends on omitted changes
-  and cannot be applied cleanly, identify the blocking commit and files. Do not display a partial result as a complete
-  comparison.
-- Automatic base selection requires one earliest selected commit that is an ancestor of every other selected commit.
-  Use that commit's parent; use the empty tree for a root commit. When selected commits have incomparable earliest
-  ancestors, require an explicit base.
-- Compare a merge commit against its first parent by default, with a visible parent selector. Its changes include
-  everything introduced relative to that parent. Selecting both a merge and commits it incorporates can overlap;
-  report application conflicts instead of silently discarding selected commits.
-- Determine application order using Git's reverse topological traversal of the selected commit IDs, supplied in
-  lexical order, then retain only selected IDs. Display that order; table sorting and filtering never change it.
-- Resolve an explicit branch or tag to a commit ID when chosen and keep it pinned until the user chooses a new base
-  or resets to Automatic.
-- Derive both the file list and opened diffs from the same base-to-result snapshot. Show net changes, so changes that
-  cancel out disappear. Preserve rename paths; show empty content on the missing side of an addition or deletion.
-- Use VS Code's native bottom panel for the hideable history view and its read-only diff editor for file comparisons.
-  Keep the selection/base summary and reopen action in the status bar when history is hidden.
+- Differ replays only the selected commits' own changes (each against its parent) onto the base, oldest first, in Git's
+  topological order. The replay order is listed in the panel.
+- The file list shows the net change from base to result: additions, deletions, modifications, renames, mode changes,
+  binary files and submodules. Changes that cancel out disappear; if everything cancels, the panel says so.
+- If a selected commit depends on a commit you left out and cannot be applied, replay stops at that commit and lists
+  the conflicting paths. No partial result is shown; change the selection or base and it retries.
+- Example: on `A ← B ← C ← D`, where B adds `b.txt`, C adds `c.txt` and D adds `d.txt`, selecting B and D compares
+  against A and shows only `b.txt` and `d.txt`.
+- Opened diffs are snapshots: changing the selection later does not alter a diff that is already open.
 
-References: [IntelliJ Git Log layout](https://www.jetbrains.com/help/idea/log-tab.html) and
-[reviewing changes and comparing commits](https://www.jetbrains.com/help/idea/investigate-changes.html).
+### The diff view
+
+Files open in an IntelliJ-style side-by-side diff rather than VS Code's padded one:
+
+- No filler rows. Each side shows only its own lines; inserted lines are one green block on the new side and a thin
+  line between the rows of the old side, joined by a curved band. Deleted lines are grey, modified lines blue with the
+  changed words in a darker shade.
+- Both panes scroll together, keeping corresponding blocks level; `↑`/`↓` (or F7 / Shift+F7) jump between
+  differences.
+- Syntax colouring uses the grammars of your installed VS Code extensions and the active colour theme (including
+  `editor.tokenColorCustomizations` → `textMateRules`), and follows theme changes. Semantic colouring from language
+  servers is not applied, so some identifiers can differ slightly from the editor. Files over 500 000 characters, or
+  that take more than about 2 seconds to colour, are shown partly or wholly uncoloured.
+- **Open in VS Code diff** shows the same comparison in the built-in diff editor. Set `differ.historyDiffViewer` to
+  `native` to always use it. Opening another file reuses the same tab.
+
+### Limits
+
+- Read-only: no checkout, staging, commits, ref changes or hooks; the working tree and index are never touched. Replay
+  runs in a private temporary repository that borrows the source's objects and is deleted afterwards.
+- Local repositories only; no network fetches. Shallow clones load, but a comparison that needs history beyond the
+  shallow boundary fails until you deepen the clone with Git.
+- Files that are binary, not valid UTF-8, or over 16 MiB open as an explanation (type, size, mode) rather than a text
+  diff. Very large histories fail to load rather than showing a truncated graph (64 MiB of Git output per command).
 
 ## Merge conflict resolution
 
@@ -140,13 +167,13 @@ caret restored at the join or the start of the new line.
 
 ## Architecture
 
-The merge logic knows nothing about VS Code or HTML, so a second front end — a TUI — only has to supply a renderer and a
+The merge and history logic know nothing about VS Code or HTML, so a second front end — a TUI — only has to supply a renderer and a
 document port. `src/test/layering.test.ts` asserts these boundaries rather than trusting them.
 
 ```
 src/core/    diff, alignment, conflict parsing, resolution   (pure, no I/O)
-src/git/     reads the three versions from git's index        (pure Node)
-src/model/   view model + controller — renderer-agnostic      <-- the seam
+src/git/     merge sources; history reads, replay, file content (pure Node)
+src/model/   view models + controllers — renderer-agnostic    <-- the seam
 src/render/  MergeRenderer<TOutput>; html/ implements it
 src/host/    VS Code wiring: webview, WorkspaceEdit adapter
 ```
@@ -159,6 +186,8 @@ reuse `ResolutionController` unchanged — including its editing operations, whi
 | `MergeRenderer<TOutput>` | `render(model, context) => TOutput`                                                       |
 | `MergeDocument`          | `getText()`, `replaceLines(start, end, lines)`                                            |
 | `ResolutionController`   | `load(options)`, `resolve(index, resolution)`, `toggleHunk(...)`, `applySelection(index)` |
+| `HistoryRepository`      | `loadHistory`, `resolveRef`, `compare`, `readFile`, `releaseSnapshot` (Git adapter port)  |
+| `HistoryController`      | `load()`, `setSelection(oids)`, `setBase(ref)`, `setMainline(oid, parent)`, `compare()`   |
 
 ## Install from GitHub Releases
 
@@ -210,24 +239,43 @@ Press `F5` in VS Code to launch an Extension Development Host, then open `sample
 
 ## Layout
 
-| Path                                 | Role                                                         |
-| ------------------------------------ | ------------------------------------------------------------ |
-| `src/core/conflictParser.ts`         | Splits a document into stable and conflict sections          |
-| `src/core/lineDiff.ts`               | Line diff → hunks + base↔side position maps                  |
-| `src/core/wordDiff.ts`               | Intra-line changed character ranges                          |
-| `src/core/threeWayAligner.ts`        | Aligns the three sides into one row grid, classifies blocks  |
-| `src/core/mergeResolver.ts`          | Collapses a conflict under a chosen resolution               |
-| `src/git/gitMergeSources.ts`         | Reads the three versions from the index and the working copy |
-| `src/model/hunkSplitter.ts`          | Divides a conflict into separately decidable pieces          |
-| `src/model/hunkSelection.ts`         | Which side of which piece is pending inclusion               |
-| `src/model/resolutionView.ts`        | Row model, conflict summaries, gutter controls               |
-| `src/model/resolutionController.ts`  | Host-independent load / resolve / edit / apply               |
-| `src/model/mergeDocument.ts`         | Port onto the host's editable document                       |
-| `src/render/renderer.ts`             | `MergeRenderer` seam a TUI can implement                     |
-| `src/render/html/rowMarkup.ts`       | Rows, word spans, gutter arrows/checkboxes, menus → HTML     |
-| `src/render/html/changeHighlight.ts` | IntelliJ change colour per block (added/deleted/modified)    |
-| `src/render/html/htmlRenderer.ts`    | Page shell, CSP, toolbar                                     |
-| `src/host/vscode/mergeViewPanel.ts`  | Webview lifecycle, messages, document edits                  |
-| `media/`                             | Webview stylesheet and client script                         |
+| Path                                     | Role                                                           |
+| ---------------------------------------- | -------------------------------------------------------------- |
+| `src/core/conflictParser.ts`             | Splits a document into stable and conflict sections            |
+| `src/core/lineDiff.ts`                   | Line diff → hunks + base↔side position maps                    |
+| `src/core/wordDiff.ts`                   | Intra-line changed character ranges                            |
+| `src/core/threeWayAligner.ts`            | Aligns the three sides into one row grid, classifies blocks    |
+| `src/core/mergeResolver.ts`              | Collapses a conflict under a chosen resolution                 |
+| `src/git/gitMergeSources.ts`             | Reads the three versions from the index and the working copy   |
+| `src/model/hunkSplitter.ts`              | Divides a conflict into separately decidable pieces            |
+| `src/model/hunkSelection.ts`             | Which side of which piece is pending inclusion                 |
+| `src/model/resolutionView.ts`            | Row model, conflict summaries, gutter controls                 |
+| `src/model/resolutionController.ts`      | Host-independent load / resolve / edit / apply                 |
+| `src/model/mergeDocument.ts`             | Port onto the host's editable document                         |
+| `src/render/renderer.ts`                 | `MergeRenderer` seam a TUI can implement                       |
+| `src/render/html/rowMarkup.ts`           | Rows, word spans, gutter arrows/checkboxes, menus → HTML       |
+| `src/render/html/changeHighlight.ts`     | IntelliJ change colour per block (added/deleted/modified)      |
+| `src/render/html/htmlRenderer.ts`        | Page shell, CSP, toolbar                                       |
+| `src/host/vscode/mergeViewPanel.ts`      | Webview lifecycle, messages, document edits                    |
+| `src/model/historyTypes.ts`              | History domain types and the `HistoryRepository` port          |
+| `src/model/historyController.ts`         | Selection, base, merge parents, cancellable comparisons        |
+| `src/model/historyGraph.ts`              | Branch graph lanes and edges per commit row                    |
+| `src/model/historyVisibility.ts`         | Search and branch filtering of loaded commits                  |
+| `src/git/historyGitCommand.ts`           | Binary-safe, bounded, cancellable `git` subprocess runner      |
+| `src/git/gitHistoryRepository.ts`        | Commits, refs and pinned ref resolution                        |
+| `src/git/historyComparisonResolver.ts`   | Replay order, Automatic base, merge parents                    |
+| `src/git/gitSelectionReplay.ts`          | Isolated replay of selected commits in a private repository    |
+| `src/git/gitComparisonFiles.ts`          | Net changed files and immutable file content                   |
+| `src/git/gitComparisonRepository.ts`     | Git adapter implementing `HistoryRepository`, snapshot leases  |
+| `src/render/html/historyRenderer.ts`     | History panel HTML: toolbar, graph, table, files, details      |
+| `src/host/vscode/historyViewProvider.ts` | Panel lifecycle, repositories, messages, publishing            |
+| `src/host/vscode/historyDiffProvider.ts` | Read-only `differ-history:` documents and `vscode.diff`        |
+| `src/host/vscode/historyMessages.ts`     | Validation of every message from the history webview           |
+| `src/model/twoWayDiff.ts`                | Line blocks and word spans for the two-way diff                |
+| `src/render/html/twoWayDiffRenderer.ts`  | IntelliJ-style two-pane diff HTML with token colours           |
+| `src/highlight/`                         | TextMate tokenizing and theme resolution (no VS Code import)   |
+| `src/host/vscode/syntaxHighlighting.ts`  | Finds grammars and the active theme among installed extensions |
+| `src/host/vscode/twoWayDiffPanel.ts`     | The reusable diff tab and its native-diff fallback             |
+| `media/`                                 | Webview stylesheet and client script                           |
 
 The `core/`, `model/` and `render/` layers have no `vscode` import and are unit-tested on their own; `src/test/layering.test.ts` enforces it.

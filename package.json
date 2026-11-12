@@ -62,6 +62,7 @@
     }
   },
   "scripts": {
+    "release": "bash scripts/release.sh",
     "package": "npm run build && vsce package --no-dependencies --skip-license",
     "build": "esbuild src/host/vscode/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18",
     "watch": "npm run build -- --sourcemap --watch",

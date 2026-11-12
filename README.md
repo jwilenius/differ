@@ -166,9 +166,19 @@ reuse `ResolutionController` unchanged — including its editing operations, whi
 2. Download the `differ-<version>.vsix` file under **Assets**.
 3. In VS Code, run **Extensions: Install from VSIX...** and select that file.
 
-To publish a release, update `version` in `package.json` and its lockfile, commit, then push a matching `v<version>`
-tag (for example, `v0.1.0`). The workflow tests, packages, and attaches the installer to a release with generated notes.
-The tag must match the package version.
+To publish a release, start with a clean `main` matching `origin/main`, with Node.js 22, npm, Bash, and Git available:
+
+```sh
+npm run release -- 0.1.1
+```
+
+Choose an unused version greater than the current version. The script installs locked dependencies, runs typecheck
+and tests, updates both package files, builds the VSIX, commits, tags, and atomically pushes the commit and tag.
+GitHub Actions then attaches the installer to a release with generated notes.
+
+If packaging fails after the version update, the changed package files remain available to inspect or revert.
+If pushing fails, the release commit and tag remain local; fix the push error and retry
+`git push --atomic origin main refs/tags/v0.1.1` with the version you chose. Do not rerun the release command for that tag.
 
 ## Install a development build
 

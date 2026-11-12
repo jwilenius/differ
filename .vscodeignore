@@ -10,4 +10,5 @@ package-lock.json
 AGENTS.md
 MEMORY.local.md
 .claude/**
+scripts/**
 vitest.config.ts

@@ -108,7 +108,7 @@ joined by connector ribbons.
 
 - Add/add conflicts have no stage 1; the result starts empty.
 - During a **rebase or cherry-pick** git's sides are reversed; the toolbar warns.
-- The result lives in the view until **Apply**; the file on disk is untouched until then.
+- The result lives in the view until **Apply**; the file on disk is untouched until then. Apply refuses to write a file that has become a symbolic link.
 
 ### Changes and conflicts
 

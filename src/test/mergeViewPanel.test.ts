@@ -136,6 +136,27 @@ describe("MergeViewPanel apply after VS Code closed the document", () => {
     expect(fs.readFileSync(file, "utf8")).toBe("trunk\n");
     expect(await listUnmergedEntries(repo, ["f.txt"])).toEqual([]);
   });
+
+  it("creates and stages the file when it was deleted as well", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const document = fileDocument(file);
+    const webview = await openPanel(document);
+    closeDocument(document);
+    fs.rmSync(file);
+    vscodeMock.openFileDocument = (uri) => {
+      throw new Error(`cannot open ${uri.fsPath}: file not found`);
+    };
+
+    post(webview, { type: "acceptSide", side: "left" });
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(vscodeMock.messages).toEqual([]);
+    expect(fs.readFileSync(file, "utf8")).toBe("trunk\n");
+    expect(await listUnmergedEntries(repo, ["f.txt"])).toEqual([]);
+  });
 });
 
 describe("MergeViewPanel apply after confirming an unresolved result", () => {

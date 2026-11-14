@@ -278,25 +278,38 @@ export class MergeViewPanel {
     if (!isComplete && !(await confirm(`${describeTally(tally)} Apply the result anyway? The file will not be staged.`, "Apply"))) {
       return;
     }
-    // The document captured at open may have been closed since; a closed one can no longer be saved.
-    const document = await vscode.workspace.openTextDocument(this.uri);
-    if (await isSymbolicLink(document.uri.fsPath)) {
-      const reason = "it is a symbolic link, and saving would change the file it points to";
-      void vscode.window.showErrorMessage(`Differ will not write ${path.basename(document.uri.fsPath)}: ${reason}.`);
-      return;
-    }
-    const edit = new vscode.WorkspaceEdit();
-    const wholeDocument = new vscode.Range(new vscode.Position(0, 0), document.lineAt(document.lineCount - 1).range.end);
-    edit.replace(document.uri, wholeDocument, state.resultLines.join(this.context?.eol ?? "\n"));
-    const isWritten = (await vscode.workspace.applyEdit(edit)) && (await document.save());
-    if (!isWritten) {
-      void vscode.window.showErrorMessage(`Differ could not write ${path.basename(document.uri.fsPath)}.`);
+    if (!(await this.writeResult(state.resultLines.join(this.context?.eol ?? "\n")))) {
       return;
     }
     if (isComplete) {
-      await this.stage(document.uri.fsPath);
+      await this.stage(this.uri.fsPath);
     }
     this.panel.dispose();
+  }
+
+  /** Writes the result through the file's document, so editors showing it follow; false, once the user is told, when it was not written. */
+  private async writeResult(text: string): Promise<boolean> {
+    const name = path.basename(this.uri.fsPath);
+    // The document captured at open may have been closed since; a closed one can no longer be saved.
+    const document = await openPresentDocument(this.uri);
+    if (document === null) {
+      // "wx" refuses a file, or a link, that appeared since the document failed to open.
+      await fs.promises.writeFile(this.uri.fsPath, text, { flag: "wx" });
+      return true;
+    }
+    if (await isSymbolicLink(document.uri.fsPath)) {
+      const reason = "it is a symbolic link, and saving would change the file it points to";
+      void vscode.window.showErrorMessage(`Differ will not write ${name}: ${reason}.`);
+      return false;
+    }
+    const edit = new vscode.WorkspaceEdit();
+    const wholeDocument = new vscode.Range(new vscode.Position(0, 0), document.lineAt(document.lineCount - 1).range.end);
+    edit.replace(document.uri, wholeDocument, text);
+    const isWritten = (await vscode.workspace.applyEdit(edit)) && (await document.save());
+    if (!isWritten) {
+      void vscode.window.showErrorMessage(`Differ could not write ${name}.`);
+    }
+    return isWritten;
   }
 
   private async stage(filePath: string): Promise<void> {
@@ -372,6 +385,30 @@ async function confirm(message: string, action: string): Promise<boolean> {
 }
 
 /** A missing file is not a link: saving creates it. */
+/** Opens a file's document; null when the file was deleted and no open document holds it, so there is none to open. */
+async function openPresentDocument(uri: vscode.Uri): Promise<vscode.TextDocument | null> {
+  try {
+    return await vscode.workspace.openTextDocument(uri);
+  } catch (error) {
+    if (await isPresent(uri.fsPath)) {
+      throw error;
+    }
+    return null;
+  }
+}
+
+async function isPresent(filePath: string): Promise<boolean> {
+  try {
+    await fs.promises.lstat(filePath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
 async function isSymbolicLink(filePath: string): Promise<boolean> {
   try {
     return (await fs.promises.lstat(filePath)).isSymbolicLink();

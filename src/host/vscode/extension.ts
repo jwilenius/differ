@@ -127,15 +127,22 @@ async function openMergeView(document: vscode.TextDocument, services: Services):
     mediaRoot: services.mediaRoot,
     highlighter: services.highlighter,
     log: (message) => services.log.appendLine(message),
-    onDispose: () => openPanels.delete(key),
+    onDispose: () => forgetMergeView(key, opening),
   });
   openPanels.set(key, opening);
   try {
     await opening;
   } catch (error) {
-    openPanels.delete(key);
+    forgetMergeView(key, opening);
     services.log.appendLine(`Opening the merge view of ${document.uri.fsPath} failed. ${error instanceof Error ? error.message : String(error)}`);
     void vscode.window.showErrorMessage("Differ could not open the merge view.");
+  }
+}
+
+/** Forgets the merge view `opening` of `key`; one that closed or failed late must not drop its replacement. */
+function forgetMergeView(key: string, opening: Promise<MergeViewPanel>): void {
+  if (openPanels.get(key) === opening) {
+    openPanels.delete(key);
   }
 }
 

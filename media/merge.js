@@ -459,6 +459,15 @@
     }
   });
 
+  // A selection across lines takes in their line numbers and gutter buttons, which a copy must leave out.
+  document.addEventListener("copy", (event) => {
+    const text = selectedCode();
+    if (text !== null && event.clipboardData) {
+      event.preventDefault();
+      event.clipboardData.setData("text/plain", text);
+    }
+  });
+
   resultLines.addEventListener("compositionstart", () => {
     isComposing = true;
   });
@@ -686,6 +695,33 @@
       last,
       end: offsetIn(last, range.endContainer, range.endOffset),
     };
+  }
+
+  /** The code text of the lines a selection across lines of one pane covers, one per line; null for any other selection. */
+  function selectedCode() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return null;
+    }
+    const range = selection.getRangeAt(0);
+    const first = lineOf(range.startContainer);
+    const last = lineOf(range.endContainer);
+    if (!first || !last || first === last || first.parentElement !== last.parentElement) {
+      return null;
+    }
+    const lines = Array.from(first.parentElement.querySelectorAll(".line"));
+    const covered = lines.slice(lines.indexOf(first), lines.indexOf(last) + 1).map((line) => line.querySelector(".code"));
+    const start = offsetIn(covered[0], range.startContainer, range.startOffset);
+    const end = offsetIn(covered[covered.length - 1], range.endContainer, range.endOffset);
+    const texts = covered.map((code) => code.textContent);
+    texts[texts.length - 1] = texts[texts.length - 1].slice(0, end);
+    texts[0] = texts[0].slice(start);
+    return texts.join("\n");
+  }
+
+  function lineOf(node) {
+    const element = node instanceof Element ? node : node.parentElement;
+    return element ? element.closest(".line") : null;
   }
 
   /** The editable cell of the result line holding a node, its line number included. */

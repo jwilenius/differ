@@ -540,6 +540,21 @@ export class MergePage {
     this.window.selection.addRange(range);
   }
 
+  /** Selects from `offset` into `start` to `endOffset` into `end`, as a drag does. */
+  select(start: FakeNode, offset: number, end: FakeNode, endOffset: number): void {
+    const range = new FakeRange();
+    range.setStart(start, offset);
+    range.setEnd(end, endOffset);
+    this.window.selection.addRange(range);
+  }
+
+  /** Copies the selection; the text the page put on the clipboard, or null when it left the copy to the browser. */
+  copy(target: FakeElement): string | null {
+    let copied: string | null = null;
+    this.userEvent(target, "copy", { clipboardData: { setData: (_type: string, text: string) => (copied = text) } });
+    return copied;
+  }
+
   key(target: FakeElement, init: Readonly<Record<string, unknown>>): void {
     this.userEvent(target, "keydown", init);
   }

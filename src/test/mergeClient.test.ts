@@ -196,3 +196,41 @@ describe("the browser's own undo in the result", () => {
     expect(page.posted).toEqual([editLine(0, "abc"), { type: "undo", page: PAGE }]);
   });
 });
+
+describe("copying a selection across lines", () => {
+  function paneLines(page: MergePage, pane: string): FakeElement[] {
+    return page.document.getElementById(`scroll-${pane}`)!.querySelectorAll(".line");
+  }
+
+  function codeOf(line: FakeElement): FakeElement {
+    return line.querySelector(".code")!;
+  }
+
+  function numberOf(line: FakeElement): FakeText {
+    return line.querySelector(".num")!.childNodes[0] as FakeText;
+  }
+
+  it("copies a side's text without its line numbers or gutter buttons", () => {
+    const page = openPage();
+    const lines = paneLines(page, "left");
+    page.select(textOf(codeOf(lines[1]!)), 0, textOf(codeOf(lines[3]!)), 1);
+
+    expect(page.copy(page.document.body)).toBe("X\nb\nc");
+  });
+
+  it("copies the result's text from a drag started in the line numbers", () => {
+    const page = openPage();
+    const lines = paneLines(page, "result");
+    page.select(numberOf(lines[1]!), 0, textOf(codeOf(lines[2]!)), 1);
+
+    expect(page.copy(page.document.body)).toBe("b\nc");
+  });
+
+  it("leaves a selection within one line to the browser", () => {
+    const page = openPage();
+    const code = codeOf(paneLines(page, "left")[1]!);
+    page.select(textOf(code), 0, textOf(code), 1);
+
+    expect(page.copy(page.document.body)).toBeNull();
+  });
+});

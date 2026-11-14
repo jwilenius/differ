@@ -16,6 +16,8 @@ export type MergeIntent =
   | { readonly type: "splitLine"; readonly line: number; readonly offset: number; readonly seq: number }
   | { readonly type: "joinWithPrevious"; readonly line: number; readonly seq: number }
   | { readonly type: "replaceLines"; readonly line: number; readonly count: number; readonly lines: readonly string[]; readonly seq: number }
+  | { readonly type: "undo" }
+  | { readonly type: "redo" }
   | { readonly type: "apply" }
   | { readonly type: "cancel" };
 
@@ -94,6 +96,8 @@ const SCHEMAS: Readonly<Record<MergeIntent["type"], (fields: Fields) => MergeInt
   splitLine: parseSplitLine,
   joinWithPrevious: parseJoin,
   replaceLines: parseReplaceLines,
+  undo: () => ({ type: "undo" }),
+  redo: () => ({ type: "redo" }),
   apply: () => ({ type: "apply" }),
   cancel: () => ({ type: "cancel" }),
 };
@@ -107,6 +111,8 @@ const FIELDS: Readonly<Record<MergeIntent["type"], readonly string[]>> = {
   splitLine: ["line", "offset", "seq"],
   joinWithPrevious: ["line", "seq"],
   replaceLines: ["line", "count", "lines", "seq"],
+  undo: [],
+  redo: [],
   apply: [],
   cancel: [],
 };

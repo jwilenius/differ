@@ -305,12 +305,44 @@
     }
   });
 
-  // A line break typed any other way would put two lines into one cell.
+  // A line break typed any other way would put two lines into one cell. The browser's own undo knows nothing
+  // of the lines this page splits, joins and colours, so an undo from a menu goes to the host's history.
   resultLines.addEventListener("beforeinput", (event) => {
     if (event.inputType === "insertParagraph" || event.inputType === "insertLineBreak") {
       event.preventDefault();
+    } else if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+      event.preventDefault();
+      stepHistory(event.inputType === "historyUndo" ? "undo" : "redo");
     }
   });
+
+  document.addEventListener("keydown", (event) => {
+    const step = event.isComposing ? null : historyStepOf(event);
+    if (!step) {
+      return;
+    }
+    event.preventDefault();
+    // VS Code would otherwise run its undo command on the webview too, undoing natively as well.
+    event.stopPropagation();
+    stepHistory(step);
+  });
+
+  /** Undo and redo replace the page, as resolving actions do. */
+  function stepHistory(step) {
+    post({ type: step });
+    awaitRedraw();
+  }
+
+  /** "undo" or "redo" for their shortcuts, else null: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y. */
+  function historyStepOf(event) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+      return null;
+    }
+    if (event.keyCode === 90) {
+      return event.shiftKey ? "redo" : "undo";
+    }
+    return event.keyCode === 89 && !event.shiftKey ? "redo" : null;
+  }
 
   // A selection spanning result lines (dragged from the line numbers) is not editable, so Chrome
   // pastes nothing into it: the caret moves into its first line so the paste lands there, and

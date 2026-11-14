@@ -39,6 +39,8 @@ const VIEW_TYPE = "differ.mergeView";
 const NONCE_BYTES = 16;
 /** How long a render waits for highlighting before showing plain text. */
 const HIGHLIGHT_TIMEOUT_MS = 3_000;
+/** Most changes to the merge that undo can take back. */
+const MAX_UNDO_STEPS = 200;
 
 export interface MergeViewPanelOptions {
   /** Read only while the panel opens: VS Code may close the document while the panel stays open. */
@@ -89,6 +91,9 @@ export class MergeViewPanel {
   /** The number of the page the webview shows; messages a replaced page sent are dropped. */
   private shownPage = 0;
   private shownResult: ShownResult | null = null;
+  /** Earlier merge states, latest last; the page's own undo knows nothing of the lines it splits, joins and colours. */
+  private readonly undoStates: MergeState[] = [];
+  private readonly redoStates: MergeState[] = [];
   /** Closing the panel while it loads or renders is not an error; its webview just takes no more content. */
   private isDisposed = false;
 
@@ -272,7 +277,13 @@ export class MergeViewPanel {
     if (message.type === "cancel") {
       return this.cancel(state);
     }
+    if (message.type === "undo" || message.type === "redo") {
+      this.state = this.stepHistory(message.type, state);
+      // The page stops taking edits once it asks, so it is redrawn even when there was nothing to undo.
+      return this.render();
+    }
     this.state = nextState(state, message);
+    this.recordChange(state, this.state);
     // Result edits are already on the page; rebuilding it would lose keystrokes, the caret and undo.
     if (isLineEdit(message)) {
       this.notePageEdit(message);
@@ -293,6 +304,29 @@ export class MergeViewPanel {
     const data = mergeClientData(state, describeMerge(state, { wordLevel: false }));
     const update: MergeLayoutUpdate = { type: "layout", page, seq, data };
     await this.panel.webview.postMessage(update);
+  }
+
+  /** Keeps `state` for undo when `next` changed it; a change forgets what was undone. */
+  private recordChange(state: MergeState, next: MergeState): void {
+    if (next === state) {
+      return;
+    }
+    this.undoStates.push(state);
+    if (this.undoStates.length > MAX_UNDO_STEPS) {
+      this.undoStates.shift();
+    }
+    this.redoStates.length = 0;
+  }
+
+  /** The state an undo or redo of `state` leaves; `state` itself when there is nothing to take back or put back. */
+  private stepHistory(step: "undo" | "redo", state: MergeState): MergeState {
+    const [from, to] = step === "undo" ? [this.undoStates, this.redoStates] : [this.redoStates, this.undoStates];
+    const target = from.pop();
+    if (target === undefined) {
+      return state;
+    }
+    to.push(state);
+    return target;
   }
 
   /** The page drew the lines an edit left without highlighting them. */
@@ -395,7 +429,7 @@ export class MergeViewPanel {
 }
 
 /** The merge state after a resolving or editing message. */
-function nextState(state: MergeState, message: Exclude<MergeMessage, { type: "apply" | "cancel" }>): MergeState {
+function nextState(state: MergeState, message: Exclude<MergeMessage, { type: "apply" | "cancel" | "undo" | "redo" }>): MergeState {
   switch (message.type) {
     case "applySide":
       return applySide(state, message.chunk, message.side);

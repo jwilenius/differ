@@ -374,6 +374,81 @@ describe("MergeViewPanel typing in the result", () => {
   });
 });
 
+describe("MergeViewPanel undo and redo", () => {
+  /** Posts a message that redraws the page and waits for the new page. */
+  async function postAndRedraw(webview: FakeWebview, message: Readonly<Record<string, unknown>>): Promise<void> {
+    const page = shownPage(webview);
+    post(webview, message);
+    await vi.waitFor(() => expect(shownPage(webview)).not.toBe(page));
+  }
+
+  async function applyAndRead(webview: FakeWebview, file: string): Promise<string> {
+    vscodeMock.warningMessageResponse = () => "Apply";
+    post(webview, { type: "apply" });
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    return fs.readFileSync(file, "utf8");
+  }
+
+  it("takes back result edits and resolving actions one at a time, redrawing the page", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+
+    post(webview, { type: "applySide", chunk: 0, side: "left" });
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
+    post(webview, { type: "editLine", line: 0, text: "one" });
+    post(webview, { type: "splitLine", line: 0, offset: 1, seq: 1 });
+    await postAndRedraw(webview, { type: "undo" });
+    await postAndRedraw(webview, { type: "undo" });
+
+    expect(/data-line="0">(.*?)<\/div>/.exec(webview.html)?.[1]).toContain(">trunk<");
+    await postAndRedraw(webview, { type: "undo" });
+    expect(await applyAndRead(webview, file)).toBe("base\n");
+  });
+
+  it("puts an undone edit back on redo", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+
+    post(webview, { type: "editLine", line: 0, text: "one" });
+    post(webview, { type: "editLine", line: 0, text: "two" });
+    await postAndRedraw(webview, { type: "undo" });
+    await postAndRedraw(webview, { type: "undo" });
+    await postAndRedraw(webview, { type: "redo" });
+
+    expect(await applyAndRead(webview, file)).toBe("one\n");
+  });
+
+  it("forgets what was undone once the result changes again", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+
+    post(webview, { type: "editLine", line: 0, text: "one" });
+    await postAndRedraw(webview, { type: "undo" });
+    post(webview, { type: "editLine", line: 0, text: "two" });
+    await postAndRedraw(webview, { type: "redo" });
+
+    expect(await applyAndRead(webview, file)).toBe("two\n");
+  });
+
+  it("redraws the page with nothing to undo, as it stops taking edits until it is replaced", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+
+    await postAndRedraw(webview, { type: "undo" });
+    await postAndRedraw(webview, { type: "redo" });
+
+    expect(await applyAndRead(webview, file)).toBe("base\n");
+  });
+});
+
 describe("MergeViewPanel splitting and joining result lines", () => {
   it("keeps the page and answers each edit with the chunk layout it left", async () => {
     divergeBranches(repo, ["f.txt"]);

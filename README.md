@@ -140,13 +140,15 @@ own palettes.
 
 ### Editing the result
 
-| Key                  | Effect                                            |
-| -------------------- | ------------------------------------------------- |
-| Any text             | Edits that result line (debounced 400 ms)         |
-| `Enter`              | Splits the line                                   |
-| `Backspace` at col 0 | Joins onto the line above                         |
-| `↑` / `↓`            | Moves between result lines, keeping the column    |
-| `F7` / `Shift+F7`    | Next / previous unresolved block (also ↓/↑ icons) |
+| Key                      | Effect                                            |
+| ------------------------ | ------------------------------------------------- |
+| Any text                 | Edits that result line (debounced 400 ms)         |
+| `Enter`                  | Splits the line                                   |
+| `Backspace` at col 0     | Joins onto the line above                         |
+| `↑` / `↓`                | Moves between result lines, keeping the column    |
+| `F7` / `Shift+F7`        | Next / previous unresolved block (also ↓/↑ icons) |
+| `Ctrl+Z`                 | Undoes the last edit or resolving action          |
+| `Ctrl+Shift+Z`, `Ctrl+Y` | Redoes it                                         |
 
 Scrolling is synchronised across the three panes, aligned on the blocks.
 

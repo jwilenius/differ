@@ -62,6 +62,7 @@ type Pane = MergeSide | "result";
 /** What one pane draws: its lines, and per line the chunk tint, the 1px gap markers, changed words and gutter actions. */
 interface PaneLayout {
   readonly pane: Pane;
+  /** Bare lines: a `\r` would reach the page as a line break, so callers normalize line endings first. */
   readonly lines: readonly string[];
   readonly highlight: HighlightedText;
   readonly tints: ReadonlyMap<number, ChunkTint>;

@@ -1,4 +1,3 @@
-import { isUtf8 } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import type {
   ComparisonFile,
@@ -9,6 +8,7 @@ import type {
   FileStatus,
   NonTextReason,
 } from "../model/historyTypes";
+import { nonTextBlobReason } from "./gitBlobText";
 import { HistoryOutputError, isFullOid } from "./gitHistoryRepository";
 import { runPrivateGit } from "./gitSelectionReplay";
 import type { ReplaySession } from "./gitSelectionReplay";
@@ -19,7 +19,6 @@ export const COMPARISON_FILE_LIMIT_BYTES = 16 * 1024 * 1024;
 const GITLINK_MODE = "160000";
 const ABSENT_MODE = "000000";
 const MODE_PATTERN = /^[0-7]{6}$/;
-const NUL_BYTE = 0;
 /** Git's `--numstat` marker for content it considers binary. */
 const BINARY_NUMSTAT_PREFIX = "-\t-\t";
 /** `-z` fields per `--raw` record: header and path, or header, old path and new path for a rename. */
@@ -120,11 +119,9 @@ export async function readComparisonFile(
 
 /** Text only when free of NUL bytes and valid UTF-8; bytes, line endings and BOMs are preserved exactly. */
 function decodeContent(content: Buffer, fileSide: ComparisonFileSide): FileContentResult {
-  if (content.includes(NUL_BYTE)) {
-    return nonText("binary", content.length, fileSide);
-  }
-  if (!isUtf8(content)) {
-    return nonText("invalidEncoding", content.length, fileSide);
+  const reason = nonTextBlobReason(content);
+  if (reason !== null) {
+    return nonText(reason, content.length, fileSide);
   }
   return { kind: "text", text: content.toString("utf8") };
 }

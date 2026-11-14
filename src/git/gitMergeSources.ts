@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { type NonTextBlobReason, nonTextBlobReason } from "./gitBlobText";
 import {
   isMergeableConflict,
   listUnmergedEntries,
@@ -28,33 +29,47 @@ export interface MergeSources {
 }
 
 /**
- * Reads the three versions of a conflicted file from the git index. Returns
- * `null` when the file has no conflict stages, lacks a side, or has a stage
- * that is not a regular file, such as a symbolic link or submodule.
+ * Why a file's conflict cannot be merged as text: it has no conflict stages, lacks a side or has a stage that is not
+ * a regular file, such as a symbolic link or submodule; or a stage is binary or not UTF-8, so merging it as text
+ * would corrupt it.
  */
-export async function readMergeSources(filePath: string, result: string): Promise<MergeSources | null> {
+export type UnmergeableReason = "noMergeableConflict" | NonTextBlobReason;
+
+export interface UnmergeableConflict {
+  readonly unmergeable: UnmergeableReason;
+}
+
+const NO_MERGEABLE_CONFLICT: UnmergeableConflict = { unmergeable: "noMergeableConflict" };
+const BYTE_ORDER_MARK = "\uFEFF";
+
+/** Reads the three versions of a conflicted file from the git index, or why they cannot be merged. */
+export async function readMergeSources(filePath: string, result: string): Promise<MergeSources | UnmergeableConflict> {
   const root = await repositoryRoot(filePath);
   if (!root) {
-    return null;
+    return NO_MERGEABLE_CONFLICT;
   }
 
   const relativePath = toPosix(path.relative(root, filePath));
   const entries = await conflictEntries(root, relativePath);
   if (!isMergeableConflict(entries)) {
-    return null;
+    return NO_MERGEABLE_CONFLICT;
   }
 
   const stages = await stagedVersions(root, entries);
   if (stages.ours === null || stages.theirs === null) {
-    return null;
+    return NO_MERGEABLE_CONFLICT;
+  }
+  const nonTextReason = nonTextStageReason(stages);
+  if (nonTextReason !== null) {
+    return { unmergeable: nonTextReason };
   }
 
   const isSidesSwapped = await isReplayInProgress(root);
 
   return {
-    ours: stages.ours,
-    theirs: stages.theirs,
-    base: stages.base,
+    ours: stageText(stages.ours),
+    theirs: stageText(stages.theirs),
+    base: stages.base === null ? null : stageText(stages.base),
     result,
     ourLabel: await describeHead(root),
     theirLabel: await describeIncoming(root),
@@ -63,9 +78,9 @@ export async function readMergeSources(filePath: string, result: string): Promis
 }
 
 interface StagedVersions {
-  readonly base: string | null;
-  readonly ours: string | null;
-  readonly theirs: string | null;
+  readonly base: Buffer | null;
+  readonly ours: Buffer | null;
+  readonly theirs: Buffer | null;
 }
 
 /** The file's unmerged index entries; none when Git fails. */
@@ -91,9 +106,29 @@ async function stagedVersions(root: string, entries: readonly UnmergedEntry[]): 
 }
 
 /** Reads a stage by object id, so the content is the blob whose mode was checked; `null` when the stage is absent. */
-async function readStage(root: string, entries: readonly UnmergedEntry[], stage: number): Promise<string | null> {
+async function readStage(root: string, entries: readonly UnmergedEntry[], stage: number): Promise<Buffer | null> {
   const entry = entries.find((candidate) => candidate.stage === stage);
-  return entry === undefined ? null : git(root, ["cat-file", "blob", entry.oid]);
+  return entry === undefined ? null : gitOutput(root, ["cat-file", "blob", entry.oid]);
+}
+
+/** Why some present stage is not text; null when all are. */
+function nonTextStageReason(stages: StagedVersions): NonTextBlobReason | null {
+  for (const blob of [stages.base, stages.ours, stages.theirs]) {
+    const reason = blob === null ? null : nonTextBlobReason(blob);
+    if (reason !== null) {
+      return reason;
+    }
+  }
+  return null;
+}
+
+/**
+ * A stage's text without a leading byte order mark. The mark belongs to the file's encoding, not its text: an editor
+ * such as VS Code leaves it out of the document and writes it back on save, so a merged mark would be saved twice.
+ */
+function stageText(blob: Buffer): string {
+  const text = blob.toString("utf8");
+  return text.startsWith(BYTE_ORDER_MARK) ? text.slice(BYTE_ORDER_MARK.length) : text;
 }
 
 async function repositoryRoot(filePath: string): Promise<string | null> {
@@ -123,11 +158,17 @@ async function describeIncoming(root: string): Promise<string> {
   return "Incoming";
 }
 
-/** Runs git, returning `null` for any Git failure so callers can fall back. */
+/** Runs git for text output, returning `null` for any Git failure so callers can fall back. */
 async function git(cwd: string, args: readonly string[]): Promise<string | null> {
+  const output = await gitOutput(cwd, args);
+  return output === null ? null : output.toString("utf8");
+}
+
+/** Runs git, returning its raw output, or `null` for any Git failure. */
+async function gitOutput(cwd: string, args: readonly string[]): Promise<Buffer | null> {
   try {
     const { stdout } = await runHistoryGit({ cwd, args });
-    return stdout.toString("utf8");
+    return stdout;
   } catch (error) {
     if (error instanceof HistoryGitError) {
       return null;

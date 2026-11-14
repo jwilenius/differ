@@ -95,6 +95,9 @@ joined by connector ribbons.
 - **Differ: Resolve Conflicts** lists the conflicted (unmerged) files of every repository holding a workspace folder or
   the active editor; pick one to open it. Only text conflicts are listed: both sides present, every stage a regular
   file. Modify/delete, symbolic-link and submodule conflicts are left to git.
+- Every stage must be UTF-8 text without NUL bytes. A binary or non-UTF-8 (e.g. Latin-1) conflict is still listed, but
+  opens a page saying why it cannot be merged rather than corrupting its characters. A UTF-8 byte order mark is dropped
+  from the stages; VS Code's document keeps it with the file's encoding and writes it back on save.
 - **Differ: Open Three-Way Merge View**, or the merge button in the title bar of a file with conflict markers, opens the
   active file.
 

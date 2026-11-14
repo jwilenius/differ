@@ -7,7 +7,7 @@ import { listUnmergedEntries } from "../git/gitConflictedFiles";
 import { type HighlightOptions, unstyledText } from "../highlight/textMateHighlighter";
 import { MergeViewPanel } from "../host/vscode/mergeViewPanel";
 import type { TextHighlighter } from "../host/vscode/twoWayDiffPanel";
-import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
+import { createConflictRepository, divergeBranches, divergeFile, mergeFeature, runGit } from "./gitConflictFixture";
 import { ColorThemeKind, changeColorThemeKind, type FakeWebview, fireDidCloseTextDocument, resetVscodeMock, vscodeMock } from "./vscodeMock";
 
 let repo: string;
@@ -118,6 +118,20 @@ describe("MergeViewPanel apply", () => {
     expect(vscodeMock.messages[0].text).toContain("symbolic link");
     expect(fs.readFileSync(target, "utf8")).toBe("precious\n");
     expect(await listUnmergedEntries(repo, ["f.txt"])).not.toEqual([]);
+  });
+});
+
+describe("MergeViewPanel apply to a file with a byte order mark", () => {
+  it("leaves the mark out of the text, as VS Code's document holds it, so saving does not write a second", async () => {
+    divergeFile(repo, "f.txt", { base: "\ufeffbase\n", feature: "\ufefffeature\n", trunk: "\ufefftrunk\n" });
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    post(webview, { type: "acceptSide", side: "left" });
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.appliedEdits).toHaveLength(1));
+    expect(vscodeMock.appliedEdits[0].text).toBe("trunk\n");
   });
 });
 
@@ -348,6 +362,31 @@ describe("MergeViewPanel for a conflict it cannot merge", () => {
     expect(html).not.toContain("No merge in progress");
     expect(html).toContain("Differ cannot merge f.txt");
     expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">`);
+  });
+
+  it("says a version is not UTF-8 rather than that the file is not conflicted", async () => {
+    const latin1 = (text: string): Buffer => Buffer.from(text, "latin1");
+    divergeFile(repo, "f.txt", { base: latin1("\u00e9\n"), feature: latin1("\u00e9 mine\n"), trunk: latin1("\u00e9 trunk\n") });
+    mergeFeature(repo);
+
+    await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    const { html } = vscodeMock.webviewPanels[0].webview;
+    expect(html).toContain("Differ cannot merge f.txt");
+    expect(html).toContain("is not UTF-8 text");
+    expect(html).not.toContain("not conflicted");
+  });
+
+  it("says a version is binary rather than that the file is not conflicted", async () => {
+    divergeFile(repo, "f.txt", { base: "text\n", feature: "bin\0ary\n", trunk: "trunk\n" });
+    mergeFeature(repo);
+
+    await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    const { html } = vscodeMock.webviewPanels[0].webview;
+    expect(html).toContain("Differ cannot merge f.txt");
+    expect(html).toContain("is binary");
+    expect(html).not.toContain("not conflicted");
   });
 });
 

@@ -20,7 +20,8 @@ export interface UnmergedEntry {
 
 /**
  * Absolute paths of the conflicted files in the repository at `root` that the merge view can open, in Git's order.
- * Conflicts it cannot merge, such as a deleted side or a symbolic link, are left out.
+ * Conflicts it cannot merge, such as a deleted side or a symbolic link, are left out. Telling a binary or non-UTF-8
+ * conflict needs each version's content, so those are listed, and opening one says why it cannot be merged.
  */
 export async function listConflictedFiles(root: string): Promise<readonly string[]> {
   const entries = await listUnmergedEntries(root);

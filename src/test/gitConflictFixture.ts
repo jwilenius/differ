@@ -44,3 +44,24 @@ export function mergeFeature(root: string): void {
     // The merge is expected to conflict.
   }
 }
+
+/** The contents `divergeFile` commits: the common ancestor, then each branch's own version. */
+export interface FileVersions {
+  readonly base: string | Buffer;
+  readonly feature: string | Buffer;
+  readonly trunk: string | Buffer;
+}
+
+/** Commits `versions` of `name` as `divergeBranches` does, written byte for byte so any encoding can be tested. */
+export function divergeFile(root: string, name: string, versions: FileVersions): void {
+  const file = path.join(root, name);
+  fs.writeFileSync(file, versions.base);
+  runGit(root, "add", name);
+  runGit(root, "commit", "-qm", "base");
+  runGit(root, "checkout", "-q", "-b", "feature");
+  fs.writeFileSync(file, versions.feature);
+  runGit(root, "commit", "-qam", "feature");
+  runGit(root, "checkout", "-q", "trunk");
+  fs.writeFileSync(file, versions.trunk);
+  runGit(root, "commit", "-qam", "trunk");
+}

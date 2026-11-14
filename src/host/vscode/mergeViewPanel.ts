@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { markResolved } from "../../git/gitConflictedFiles";
-import { readMergeSources } from "../../git/gitMergeSources";
+import { readMergeSources, type UnmergeableReason } from "../../git/gitMergeSources";
 import { TOKENIZE_TIME_BUDGET_MS, unstyledText } from "../../highlight/textMateHighlighter";
 import {
   acceptSide,
@@ -44,6 +44,15 @@ const HIGHLIGHT_TIMEOUT_MS = 3_000;
 const HELD_BACK_EDIT_TIMEOUT_MS = 500;
 /** The `shownPage` while no page takes messages: pages are numbered from 1. */
 const NO_PAGE = 0;
+
+/** Why the merge view cannot merge a file, as its page says. */
+const UNMERGEABLE_EXPLANATIONS: Readonly<Record<UnmergeableReason, string>> = {
+  noMergeableConflict: `This file has no conflict Differ can merge: it is not conflicted, one side deleted it,
+or a side is a symbolic link or submodule.`,
+  binary: "A version of this file in the conflict is binary, so Differ cannot merge it as text.",
+  invalidEncoding: `A version of this file in the conflict is not UTF-8 text, as a Latin-1 or Windows-1252 file is.
+Differ merges UTF-8 text only; merging it would corrupt its other characters.`,
+};
 
 export interface MergeViewPanelOptions {
   /** Read only while the panel opens: VS Code may close the document while the panel stays open. */
@@ -134,8 +143,8 @@ export class MergeViewPanel {
     if (this.isDisposed) {
       return;
     }
-    if (!sources) {
-      this.panel.webview.html = renderUnavailable(path.basename(document.uri.fsPath));
+    if ("unmergeable" in sources) {
+      this.panel.webview.html = renderUnavailable(path.basename(document.uri.fsPath), sources.unmergeable);
       return;
     }
     this.context = {
@@ -508,14 +517,13 @@ function normalizeEol(text: string): string {
   return text.replace(/\r\n?/g, "\n");
 }
 
-function renderUnavailable(fileName: string): string {
+function renderUnavailable(fileName: string, reason: UnmergeableReason): string {
   return `<!DOCTYPE html><html><head>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 </head><body style="font-family: sans-serif; padding: 2rem;">
 <h3>Differ cannot merge ${escapeHtml(fileName)}</h3>
 <p>Differ reads both sides and their common ancestor from git's conflict stages.
-This file has no conflict Differ can merge: it is not conflicted, one side deleted it,
-or a side is a symbolic link or submodule. Resolve it with git instead.</p>
+${UNMERGEABLE_EXPLANATIONS[reason]} Resolve it with git instead.</p>
 </body></html>`;
 }
 

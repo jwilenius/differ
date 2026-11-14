@@ -8,6 +8,7 @@ import {
   ignoreSide,
   isChunkResolved,
   joinWithPrevious,
+  replaceLine,
   resultText,
   splitLine,
   startMerge,
@@ -166,6 +167,18 @@ describe("merge session", () => {
     expect(edited.chunks.map((chunkState) => chunkState.result)).toEqual(start.chunks.map((chunkState) => chunkState.result));
   });
 
+  it("moves chunks when one line is replaced by several, as splitting it does", () => {
+    const start = startMerge(BASE, LEFT, RIGHT);
+
+    const pasted = replaceLine(start, 1, ["x", "b", "y"]);
+
+    expect(resultText(pasted)).toBe("a\nx\nb\ny\nc\nd\ne\nf\ng");
+    expect(pasted.chunks.map((chunkState) => chunkState.result)).toEqual(
+      splitLine(splitLine(editLine(start, 1, "xby"), 1, 1), 2, 1).chunks.map((chunkState) => chunkState.result),
+    );
+    expect(pasted.chunks[0].result).toEqual({ start: 1, end: 4 });
+  });
+
   it("keeps a joined line out of an empty chunk at the join", () => {
     const joined = joinWithPrevious(startMerge("a\nb\nc\nd", "a\nb\nX\nc\nd", "a\nb\nc\nd"), 2);
 
@@ -242,5 +255,6 @@ describe("merge session", () => {
     expect(editLine(start, 99, "x")).toBe(start);
     expect(splitLine(start, -1, 0)).toBe(start);
     expect(joinWithPrevious(start, 0)).toBe(start);
+    expect(replaceLine(start, 7, ["x", "y"])).toBe(start);
   });
 });

@@ -12,6 +12,7 @@ const LINES_SOURCE = fs.readFileSync(path.join(__dirname, "..", "..", "media", "
 /** The pure functions `mergeLines.js` defines at top level. */
 interface MergeLines {
   resultLineClasses(chunks: MergeClientData["chunks"], lineCount: number): string[];
+  pastedLines(before: string, text: string, after: string): string[];
 }
 
 function loadMergeLines(): MergeLines {
@@ -84,5 +85,19 @@ describe("resultLineClasses", () => {
     const classes = loadMergeLines().resultLineClasses(clientData(render(start)).chunks, 4);
 
     expect(classes).toEqual(["line", "line gap-before gap-added", "line chg-modified", "line gap-after gap-added"]);
+  });
+});
+
+describe("pastedLines", () => {
+  it.each([
+    ["\\n", "x\ny"],
+    ["\\r\\n", "x\r\ny"],
+    ["\\r", "x\ry"],
+  ])("splits pasted text on %s between the text around the caret", (_label, text) => {
+    expect(loadMergeLines().pastedLines("ab", text, "cd")).toEqual(["abx", "ycd"]);
+  });
+
+  it("keeps empty lines, including a trailing line break", () => {
+    expect(loadMergeLines().pastedLines("", "x\n\ny\n", "")).toEqual(["x", "", "y", ""]);
   });
 });

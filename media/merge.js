@@ -288,6 +288,35 @@
     }
   });
 
+  // Pasted or dropped text with line breaks becomes result lines; native handling would put the breaks inside one cell.
+  resultLines.addEventListener("paste", (event) => {
+    const cell = editableOf(event.target);
+    const text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
+    if (!cell || !hasLineBreak(text)) {
+      return;
+    }
+    event.preventDefault();
+    const selection = selectionOffsets(cell);
+    if (selection) {
+      insertLines(cell, selection.start, selection.end, text);
+    }
+  });
+
+  resultLines.addEventListener("drop", (event) => {
+    const text = event.dataTransfer ? event.dataTransfer.getData("text/plain") : "";
+    if (!hasLineBreak(text)) {
+      return;
+    }
+    event.preventDefault();
+    const point = document.caretRangeFromPoint(event.clientX, event.clientY);
+    const node = point ? point.startContainer : null;
+    const cell = editableOf(node instanceof Text ? node.parentElement : node);
+    if (cell && resultLines.contains(cell)) {
+      const offset = textOffset(cell, point.startContainer, point.startOffset);
+      insertLines(cell, offset, offset, text);
+    }
+  });
+
   // Losing focus must not lose the keystrokes still sitting in the debounce.
   resultLines.addEventListener("focusout", flushPendingEdit, true);
 
@@ -332,6 +361,27 @@
     line.after(createResultLine(line, tail.extractContents()));
   }
 
+  function hasLineBreak(text) {
+    return /[\r\n]/.test(text);
+  }
+
+  /** Puts `text`, which holds line breaks, in place of characters `start` to `end` of a cell, as result lines. */
+  function insertLines(cell, start, end, text) {
+    const current = cell.textContent;
+    const after = current.slice(end);
+    const lines = pastedLines(current.slice(0, start), text, after);
+    const line = Number(cell.dataset.line);
+    const last = lines.length - 1;
+    editLines({ type: "replaceLine", line, lines }, () => fillCells(cell, lines), line + last, lines[last].length - after.length);
+  }
+
+  /** Gives a cell the first of `lines` and adds the rest as new lines below it. */
+  function fillCells(cell, lines) {
+    const line = cell.parentElement;
+    cell.textContent = lines[0];
+    line.after(...lines.slice(1).map((text) => createResultLine(line, text)));
+  }
+
   function joinCells(previous, cell) {
     previous.append(...Array.from(cell.childNodes));
     cell.parentElement.remove();
@@ -367,7 +417,7 @@
     }
   }
 
-  /** Takes the host's chunk layout after a split or join: tints, ribbons and scroll anchors follow the moved lines. */
+  /** Takes the host's chunk layout after lines were added or removed: tints, ribbons and scroll anchors follow the moved lines. */
   function applyLayout(layout) {
     data = layout;
     lineCounts.result = layout.resultLineCount;
@@ -400,9 +450,30 @@
       return 0;
     }
     const caret = selection.getRangeAt(0);
-    const range = caret.cloneRange();
+    return textOffset(cell, caret.endContainer, caret.endOffset);
+  }
+
+  /** Where the selection starts and ends in a cell, in characters; null unless it lies within the cell. */
+  function selectionOffsets(cell) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return null;
+    }
+    const range = selection.getRangeAt(0);
+    if (!cell.contains(range.startContainer) || !cell.contains(range.endContainer)) {
+      return null;
+    }
+    return {
+      start: textOffset(cell, range.startContainer, range.startOffset),
+      end: textOffset(cell, range.endContainer, range.endOffset),
+    };
+  }
+
+  /** How many characters of a cell come before a DOM position inside it. */
+  function textOffset(cell, node, offset) {
+    const range = document.createRange();
     range.selectNodeContents(cell);
-    range.setEnd(caret.endContainer, caret.endOffset);
+    range.setEnd(node, offset);
     return range.toString().length;
   }
 

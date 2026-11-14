@@ -74,7 +74,7 @@ const LOCK_ICON = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rec
  * scrollers `#scroll-left`, `#scroll-result`, `#scroll-right` contain one
  * `.line` per text line; `svg#connectors-left` / `svg#connectors-right` sit in
  * the strips; a result `.line` holds `.num` and `.code[data-line]`, which the
- * client also builds when it splits or joins lines (classes from `mergeLines.js`); buttons
+ * client also builds when it splits, joins or pastes lines (classes from `mergeLines.js`); buttons
  * `button.act[data-chunk][data-side][data-action]`, `#prev`, `#next`,
  * `button[data-non-conflicting]`, `button[data-accept]`, `#cancel`, `#apply`.
  */

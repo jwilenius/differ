@@ -4,7 +4,8 @@ import type { MergeClientData } from "../../render/html/mergeViewRenderer";
 
 /**
  * Intents posted by `media/merge.js`. Indexes are checked against the merge state by the session itself.
- * Line edits are already on the page; a split or join carries `seq` for the {@link MergeLayoutUpdate} answering it.
+ * Line edits are already on the page; an edit that adds or removes lines carries `seq` for the
+ * {@link MergeLayoutUpdate} answering it.
  */
 export type MergeMessage =
   | { readonly type: "applySide"; readonly chunk: number; readonly side: MergeSide }
@@ -14,10 +15,11 @@ export type MergeMessage =
   | { readonly type: "editLine"; readonly line: number; readonly text: string }
   | { readonly type: "splitLine"; readonly line: number; readonly offset: number; readonly seq: number }
   | { readonly type: "joinWithPrevious"; readonly line: number; readonly seq: number }
+  | { readonly type: "replaceLine"; readonly line: number; readonly lines: readonly string[]; readonly seq: number }
   | { readonly type: "apply" }
   | { readonly type: "cancel" };
 
-/** Posted to `media/merge.js` after a split or join: the chunk layout the edit left, to redraw tints and ribbons. */
+/** Posted to `media/merge.js` after an edit that adds or removes lines: the chunk layout the edit left, to redraw tints and ribbons. */
 export interface MergeLayoutUpdate {
   readonly type: "layout";
   readonly seq: number;
@@ -26,6 +28,9 @@ export interface MergeLayoutUpdate {
 
 /** Longest line of text accepted from the webview. */
 export const MAX_LINE_LENGTH = 1_000_000;
+
+/** Most lines accepted in place of one result line, as a paste brings them. */
+export const MAX_REPLACED_LINES = 100_000;
 
 type Fields = Readonly<Record<string, unknown>>;
 
@@ -37,6 +42,7 @@ const SCHEMAS: Readonly<Record<MergeMessage["type"], (fields: Fields) => MergeMe
   editLine: parseEditLine,
   splitLine: parseSplitLine,
   joinWithPrevious: parseJoin,
+  replaceLine: parseReplaceLine,
   apply: () => ({ type: "apply" }),
   cancel: () => ({ type: "cancel" }),
 };
@@ -49,6 +55,7 @@ const FIELDS: Readonly<Record<MergeMessage["type"], readonly string[]>> = {
   editLine: ["line", "text"],
   splitLine: ["line", "offset", "seq"],
   joinWithPrevious: ["line", "seq"],
+  replaceLine: ["line", "lines", "seq"],
   apply: [],
   cancel: [],
 };
@@ -77,8 +84,7 @@ function parseNonConflicting(fields: Fields): MergeMessage | null {
 
 function parseEditLine(fields: Fields): MergeMessage | null {
   const { line, text } = fields;
-  const isText = typeof text === "string" && text.length <= MAX_LINE_LENGTH && !/[\r\n]/.test(text);
-  return isIndex(line) && isText ? { type: "editLine", line, text } : null;
+  return isIndex(line) && isLineText(text) ? { type: "editLine", line, text } : null;
 }
 
 function parseSplitLine(fields: Fields): MergeMessage | null {
@@ -89,6 +95,20 @@ function parseSplitLine(fields: Fields): MergeMessage | null {
 function parseJoin(fields: Fields): MergeMessage | null {
   const { line, seq } = fields;
   return isIndex(line) && isIndex(seq) ? { type: "joinWithPrevious", line, seq } : null;
+}
+
+function parseReplaceLine(fields: Fields): MergeMessage | null {
+  const { line, lines, seq } = fields;
+  return isIndex(line) && isLineList(lines) && isIndex(seq) ? { type: "replaceLine", line, lines: [...lines], seq } : null;
+}
+
+/** `every` skips the holes a structured clone keeps, so the list is copied densely first. */
+function isLineList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.length > 0 && value.length <= MAX_REPLACED_LINES && Array.from(value).every(isLineText);
+}
+
+function isLineText(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAX_LINE_LENGTH && !/[\r\n]/.test(value);
 }
 
 function isRecord(value: unknown): value is Fields {

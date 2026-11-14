@@ -153,6 +153,14 @@ export function joinWithPrevious(state: MergeState, line: number): MergeState {
   return replaceResultLines(state, { start: line - 1, end: line + 1 }, [joined]);
 }
 
+/** Replaces one result line with several, as pasting lines into it does. */
+export function replaceLine(state: MergeState, line: number, lines: readonly string[]): MergeState {
+  if (!isResultLine(state, line)) {
+    return state;
+  }
+  return replaceResultLines(state, { start: line, end: line + 1 }, lines);
+}
+
 function isResultLine(state: MergeState, line: number): boolean {
   return Number.isInteger(line) && line >= 0 && line < state.resultLines.length;
 }

@@ -40,3 +40,14 @@ function resultLineClasses(chunks, lineCount) {
   }
   return classes;
 }
+
+/**
+ * The lines a paste of `text` leaves where it lands between `before` and
+ * `after`, the text around the caret or selection; `text` holds line breaks.
+ */
+function pastedLines(before, text, after) {
+  const lines = text.split(/\r\n|\r|\n/);
+  lines[0] = before + lines[0];
+  lines[lines.length - 1] += after;
+  return lines;
+}

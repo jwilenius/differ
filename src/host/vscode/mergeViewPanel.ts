@@ -12,6 +12,7 @@ import {
   editLine,
   ignoreSide,
   joinWithPrevious,
+  replaceLine,
   splitLine,
   startMerge,
   tallyMerge,
@@ -231,7 +232,7 @@ export class MergeViewPanel {
     if (message.type === "editLine") {
       return;
     }
-    if (message.type === "splitLine" || message.type === "joinWithPrevious") {
+    if (message.type === "splitLine" || message.type === "joinWithPrevious" || message.type === "replaceLine") {
       return this.postLayout(message.seq, this.state);
     }
     if (this.state !== state) {
@@ -239,7 +240,7 @@ export class MergeViewPanel {
     }
   }
 
-  /** Tells the page where the chunks moved, so it can redraw tints and ribbons around the lines it changed itself. */
+  /** Tells the page where the chunks moved, so it can redraw tints and ribbons around the lines it added or removed itself. */
   private async postLayout(seq: number, state: MergeState): Promise<void> {
     const data = mergeClientData(state, describeMerge(state, { wordLevel: false }));
     const update: MergeLayoutUpdate = { type: "layout", seq, data };
@@ -317,6 +318,8 @@ function nextState(state: MergeState, message: Exclude<MergeMessage, { type: "ap
       return splitLine(state, message.line, message.offset);
     case "joinWithPrevious":
       return joinWithPrevious(state, message.line);
+    case "replaceLine":
+      return replaceLine(state, message.line, message.lines);
   }
 }
 
@@ -325,6 +328,7 @@ function fitsResult(state: MergeState, message: MergeMessage): boolean {
   switch (message.type) {
     case "editLine":
     case "splitLine":
+    case "replaceLine":
       return message.line < state.resultLines.length;
     case "joinWithPrevious":
       return message.line > 0 && message.line < state.resultLines.length;

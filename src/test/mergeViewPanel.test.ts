@@ -246,6 +246,7 @@ describe("MergeViewPanel edit the page and merge no longer agree on", () => {
     ["a line the result does not have", { type: "editLine", line: 99, text: "x" }],
     ["a split beyond the result", { type: "splitLine", line: 99, offset: 0, seq: 1 }],
     ["a join onto no line", { type: "joinWithPrevious", line: 0, seq: 1 }],
+    ["pasted lines replacing no line", { type: "replaceLine", line: 99, lines: ["a", "b"], seq: 1 }],
   ])("redraws the page for %s", async (_label, message) => {
     divergeBranches(repo, ["f.txt"]);
     mergeFeature(repo);
@@ -333,5 +334,27 @@ describe("MergeViewPanel splitting and joining result lines", () => {
 
     await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
     expect(fs.readFileSync(file, "utf8")).toBe("bas\ne\n");
+  });
+});
+
+describe("MergeViewPanel pasting lines into the result", () => {
+  it("keeps the page, answers with the chunk layout and applies the lines", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+    const page = webview.html;
+    vscodeMock.warningMessageResponse = () => "Apply";
+
+    webview.fireDidReceiveMessage({ type: "replaceLine", line: 0, lines: ["one", "two", "base"], seq: 1 });
+
+    await vi.waitFor(() => expect(webview.postedMessages).toHaveLength(1));
+    expect(webview.html).toBe(page);
+    expect(webview.postedMessages[0]).toMatchObject({ type: "layout", seq: 1, data: { resultLineCount: 4, chunks: [{ result: [0, 3] }] } });
+
+    webview.fireDidReceiveMessage({ type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(fs.readFileSync(file, "utf8")).toBe("one\ntwo\nbase\n");
   });
 });

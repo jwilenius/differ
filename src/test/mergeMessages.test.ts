@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_LINE_LENGTH, parseMergeMessage } from "../host/vscode/mergeMessages";
+import { MAX_LINE_LENGTH, MAX_REPLACED_LINES, parseMergeMessage } from "../host/vscode/mergeMessages";
 
 describe("parseMergeMessage", () => {
   it.each([
@@ -11,6 +11,7 @@ describe("parseMergeMessage", () => {
     { type: "editLine", line: 2, text: "const x = 1;" },
     { type: "splitLine", line: 2, offset: 3, seq: 1 },
     { type: "joinWithPrevious", line: 2, seq: 7 },
+    { type: "replaceLine", line: 2, lines: ["a", "", "b"], seq: 3 },
     { type: "apply" },
     { type: "cancel" },
   ])("accepts $type", (message) => {
@@ -34,6 +35,13 @@ describe("parseMergeMessage", () => {
     ["overlong text", { type: "editLine", line: 0, text: "x".repeat(MAX_LINE_LENGTH + 1) }],
     ["a missing sequence number", { type: "joinWithPrevious", line: 1 }],
     ["a fractional sequence number", { type: "splitLine", line: 1, offset: 0, seq: 0.5 }],
+    ["no replacement lines", { type: "replaceLine", line: 0, lines: [], seq: 1 }],
+    ["replacement lines that are not a list", { type: "replaceLine", line: 0, lines: "a", seq: 1 }],
+    ["replacement lines with a hole", { type: "replaceLine", line: 0, lines: new Array<string>(2), seq: 1 }],
+    ["a replacement line that is not text", { type: "replaceLine", line: 0, lines: ["a", 1], seq: 1 }],
+    ["a replacement line with a line break", { type: "replaceLine", line: 0, lines: ["a", "b\rc"], seq: 1 }],
+    ["an overlong replacement line", { type: "replaceLine", line: 0, lines: ["x".repeat(MAX_LINE_LENGTH + 1)], seq: 1 }],
+    ["too many replacement lines", { type: "replaceLine", line: 0, lines: Array<string>(MAX_REPLACED_LINES + 1).fill(""), seq: 1 }],
   ])("rejects %s", (_label, message) => {
     expect(parseMergeMessage(message)).toBeNull();
   });

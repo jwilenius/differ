@@ -803,3 +803,87 @@ describe("MergeViewPanel redrawing the page", () => {
     await vi.waitFor(() => expect(shownPage(webview)).toBe(2), { timeout: 2_000 });
   });
 });
+
+describe("MergeViewPanel colour theme change while applying", () => {
+  /** Colours every line by the colour theme kind, as a grammar's theme does. */
+  const themedHighlighter: TextHighlighter = {
+    highlight: async (text: string) => {
+      const style = { color: vscodeMock.colorThemeKind === ColorThemeKind.Light ? "#111111" : "#eeeeee", fontStyle: 0 };
+      return { styles: [style], lines: text.split("\n").map((line) => [{ length: line.length, styleIndex: 0 }]) };
+    },
+  };
+
+  /** Holds Apply's confirmation open until the returned function answers it. */
+  async function holdApplyConfirmation(): Promise<(answer: string | undefined) => void> {
+    let answerConfirmation: ((answer: string | undefined) => void) | undefined;
+    vscodeMock.warningMessageResponse = () => new Promise((resolve) => (answerConfirmation = resolve));
+    await vi.waitFor(() => expect(answerConfirmation).toBeDefined());
+    return answerConfirmation as (answer: string | undefined) => void;
+  }
+
+  async function openThemedPanel(file: string): Promise<FakeWebview> {
+    await createPanel(fileDocument(file), themedHighlighter);
+    return vscodeMock.webviewPanels[0].webview;
+  }
+
+  /** Longer than the host waits for the page to answer a colour theme change. */
+  const pastHeldBackEditTimeout = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 600));
+
+  it("does not redraw while Apply asks, and redraws with the new colours when Apply is called off", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openThemedPanel(path.join(repo, "f.txt"));
+    const confirmation = holdApplyConfirmation();
+    post(webview, { type: "apply" });
+    const answerConfirmation = await confirmation;
+
+    changeColorThemeKind(ColorThemeKind.Light);
+    await pastHeldBackEditTimeout();
+
+    expect(shownPage(webview)).toBe(1);
+    expect(postedOfType(webview, "redrawing")).toEqual([]);
+    answerConfirmation(undefined);
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
+    expect(webview.html).toContain(".tk-left-0{color:#111111}");
+    expect(webview.html).not.toContain("#eeeeee");
+  });
+
+  it("does not redraw when Apply begins while the page is told of a colour theme change", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openThemedPanel(path.join(repo, "f.txt"));
+    changeColorThemeKind(ColorThemeKind.Light);
+    const confirmation = holdApplyConfirmation();
+    post(webview, { type: "apply" });
+    const answerConfirmation = await confirmation;
+
+    post(webview, { type: "redrawReady" });
+    await pastHeldBackEditTimeout();
+
+    expect(shownPage(webview)).toBe(1);
+    answerConfirmation(undefined);
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
+    await pastHeldBackEditTimeout();
+    expect(shownPage(webview)).toBe(2);
+    expect(webview.html).toContain(".tk-left-0{color:#111111}");
+  });
+
+  it("closes the panel when Apply goes ahead after a colour theme change", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openThemedPanel(file);
+    const confirmation = holdApplyConfirmation();
+    post(webview, { type: "apply" });
+    const answerConfirmation = await confirmation;
+
+    changeColorThemeKind(ColorThemeKind.Light);
+    answerConfirmation("Apply");
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    await pastHeldBackEditTimeout();
+    expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning"]);
+    expect(shownPage(webview)).toBe(1);
+    expect(fs.readFileSync(file, "utf8")).toBe("base\n");
+  });
+});

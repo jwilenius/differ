@@ -181,9 +181,18 @@ export class MergeViewPanel {
    * Redraws a page the user may be typing in, as a colour theme change does: the page first sends the edit it
    * holds back, which a new page drawn before it arrived would drop. Other redraws need not wait: a page sends
    * its edit before the action that redraws it, and everything a page sends after a rejected message is dropped.
+   * Not while Apply runs: its page takes no edits, Apply drops the page's answer, and Apply closes or redraws the
+   * page once done.
    */
   private async redrawTypingPage(): Promise<void> {
+    if (this.isApplying) {
+      return;
+    }
     await this.takeHeldBackEdit();
+    // Apply may have begun while the page was told: it drops the answer and closes or redraws the page itself.
+    if (this.isApplying) {
+      return;
+    }
     await this.render();
   }
 

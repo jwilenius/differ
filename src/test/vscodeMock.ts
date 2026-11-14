@@ -245,8 +245,8 @@ export interface VscodeMockState {
   readonly quickPickRequests: QuickPickRequest[];
   /** Index of the item `showQuickPick` returns; undefined cancels the pick. */
   quickPickChoice: number | undefined;
-  /** Answers each `window.showWarningMessage` with the returned item; when absent, or returning undefined, it is dismissed. */
-  warningMessageResponse: ((text: string) => string | undefined) | undefined;
+  /** Answers each `window.showWarningMessage` with the returned item, which may come later; when absent, or answering undefined, it is dismissed. */
+  warningMessageResponse: ((text: string) => string | undefined | Promise<string | undefined>) | undefined;
   workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined;
   activeTextEditor: vscode.TextEditor | undefined;
   openDialogResponse: Uri[] | undefined;

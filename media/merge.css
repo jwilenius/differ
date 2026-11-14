@@ -1,0 +1,277 @@
+/* IntelliJ's merge dialog, layered on diff.css: left | strip | result | strip |
+   right, apply/ignore buttons in the side gutters, and a footer of decisions. */
+/* Sampled from IntelliJ's merge dialog: a soft tint on the lines, a stronger one
+   on the gutters, ribbons and changed words. */
+:root {
+  --chg-conflict: #241f1f;
+  --chg-conflict-strong: #312623;
+  --chg-modified: #222930;
+  --chg-modified-strong: #2f3d50;
+  --chg-modified-word: #2f3d50;
+  --chg-added: #25322a;
+  --chg-added-strong: #25322a;
+  --chg-deleted: #363737;
+  --chg-deleted-strong: #363737;
+  --act-color: #9da0a8;
+  --footer-height: 44px;
+}
+
+body.vscode-light {
+  --chg-conflict: #fff0ec;
+  --chg-conflict-strong: #fbd4ca;
+  --chg-modified: #edf3fd;
+  --chg-modified-strong: #c5d7f5;
+  --chg-modified-word: #c5d7f5;
+  --chg-added: #e3f3e6;
+  --chg-added-strong: #c9e8cf;
+  --chg-deleted: #ebebeb;
+  --chg-deleted-strong: #d6d6d6;
+  --act-color: #6c707e;
+}
+
+body.vscode-high-contrast {
+  --chg-conflict: #3d2421;
+  --chg-conflict-strong: #6b3a33;
+  --chg-modified-strong: #2e5788;
+  --chg-added-strong: #2b5537;
+  --chg-deleted-strong: #555555;
+  --act-color: var(--vscode-editor-foreground);
+}
+
+/* --- toolbar --- */
+
+.toolbar .separator {
+  width: 1px;
+  height: 16px;
+  background: var(--divider);
+}
+
+.toolbar .label {
+  white-space: nowrap;
+}
+
+button.tool.text-only {
+  padding: 0 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.toolbar .warning {
+  white-space: nowrap;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.toolbar .status {
+  white-space: nowrap;
+}
+
+/* --- layout --- */
+
+.merge {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--strip-width) minmax(0, 1fr) var(--strip-width) minmax(0, 1fr);
+  grid-template-rows: var(--header-height) minmax(0, 1fr);
+}
+
+.pane-header .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  opacity: 0.7;
+}
+
+/* Only the right pane shows scrollbars: one between a gutter and a strip would
+   detach the ribbons. The other panes scroll by wheel and follow the result. */
+.scroller.pane-left,
+.scroller.pane-result {
+  scrollbar-width: none;
+}
+
+.scroller.pane-left::-webkit-scrollbar,
+.scroller.pane-result::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.strip svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* --- gutters --- */
+
+.gutter {
+  position: sticky;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  background: var(--vscode-editor-background);
+}
+
+.pane-left .gutter {
+  right: 0;
+  border-left: 1px solid var(--divider);
+}
+
+.pane-right .gutter {
+  left: 0;
+  border-right: 1px solid var(--divider);
+}
+
+/* diff.css makes `.num` the sticky, tinted gutter; inside `.gutter` the wrapper
+   sticks and carries the tint instead. Specificity matches diff.css's tint rules. */
+.line .gutter .num {
+  position: static;
+  border: none;
+  background: none;
+}
+
+.pane-result .num {
+  left: 0;
+  border-right: 1px solid var(--divider);
+}
+
+.acts {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  width: 3.4em;
+}
+
+button.act {
+  height: var(--row-height);
+  min-width: 1.4em;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--act-color);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 1em;
+  line-height: var(--row-height);
+}
+
+button.act:hover {
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.line.chg-conflict {
+  background: var(--chg-conflict);
+}
+
+.line.chg-conflict .gutter,
+.pane-result .line.chg-conflict .num {
+  background: var(--chg-conflict-strong);
+}
+
+.line.chg-modified .gutter,
+.pane-result .line.chg-modified .num {
+  background: var(--chg-modified-strong);
+}
+
+.line.chg-added .gutter,
+.pane-result .line.chg-added .num {
+  background: var(--chg-added-strong);
+}
+
+.line.chg-deleted .gutter,
+.pane-result .line.chg-deleted .num {
+  background: var(--chg-deleted-strong);
+}
+
+.chg-conflict .word {
+  background: var(--chg-conflict-strong);
+}
+
+.gap-conflict {
+  --gap-color: var(--chg-conflict-strong);
+}
+
+.gap-modified {
+  --gap-color: var(--chg-modified-strong);
+}
+
+.gap-added {
+  --gap-color: var(--chg-added-strong);
+}
+
+.gap-deleted {
+  --gap-color: var(--chg-deleted-strong);
+}
+
+.conn-conflict {
+  fill: var(--chg-conflict-strong);
+  stroke: var(--chg-conflict-strong);
+}
+
+.conn-modified {
+  fill: var(--chg-modified-strong);
+  stroke: var(--chg-modified-strong);
+}
+
+.conn-added {
+  fill: var(--chg-added-strong);
+  stroke: var(--chg-added-strong);
+}
+
+.conn-deleted {
+  fill: var(--chg-deleted-strong);
+  stroke: var(--chg-deleted-strong);
+}
+
+/* --- the editable result --- */
+
+.pane-result .code {
+  outline: none;
+  caret-color: var(--vscode-editorCursor-foreground, currentColor);
+}
+
+/* --- footer --- */
+
+.footer {
+  flex: none;
+  box-sizing: border-box;
+  height: var(--footer-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  border-top: 1px solid var(--divider);
+  font-family: var(--vscode-font-family);
+}
+
+.footer .spacer {
+  flex: 1;
+}
+
+button.button {
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid var(--vscode-button-border, var(--divider));
+  border-radius: 4px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  font-size: 13px;
+}
+
+button.button:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+button.button.primary {
+  border-color: transparent;
+  color: var(--vscode-button-foreground, #ffffff);
+  background: var(--vscode-button-background, #3574f0);
+}
+
+button.button.primary:hover {
+  background: var(--vscode-button-hoverBackground, #2f68d8);
+}

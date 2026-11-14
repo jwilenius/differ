@@ -26,46 +26,8 @@ export interface StableSection {
 
 export type Section = StableSection | ConflictSection;
 
-/** How a block of aligned rows differs across the three sides. */
-export type BlockKind =
-  | "unchanged"
-  | "localChange"
-  | "remoteChange"
-  | "bothSame"
-  | "conflict";
-
 /** A character range inside a line that differs from the compared side. */
 export interface WordSpan {
   readonly start: number;
   readonly end: number;
-}
-
-/** One side's slot in an aligned row; `null` text means the pane has no line here. */
-export interface RowCell {
-  readonly text: string | null;
-  /** 0-based line number within that side's own text, or `null` for filler. */
-  readonly lineNumber: number | null;
-  readonly spans: readonly WordSpan[];
-}
-
-export interface AlignedRow {
-  readonly local: RowCell;
-  readonly base: RowCell;
-  readonly remote: RowCell;
-  readonly kind: BlockKind;
-  /** Index of the block this row belongs to, or `null` for unchanged context. */
-  readonly blockIndex: number | null;
-}
-
-/** A contiguous group of rows sharing one `BlockKind`. */
-export interface AlignedBlock {
-  readonly index: number;
-  readonly kind: BlockKind;
-  readonly rowStart: number;
-  readonly rowEnd: number;
-}
-
-export interface AlignedView {
-  readonly rows: readonly AlignedRow[];
-  readonly blocks: readonly AlignedBlock[];
 }

@@ -96,11 +96,6 @@
           "default": true,
           "description": "Highlight the changed words inside modified lines."
         },
-        "differ.showResultPane": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the working-copy pane (what will be committed) between the branch and incoming panes."
-        },
         "differ.historyDiffViewer": {
           "type": "string",
           "enum": [

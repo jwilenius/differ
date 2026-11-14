@@ -96,7 +96,7 @@ function blockKind(base: LineRange, result: LineRange): DiffBlockKind {
   return "modified";
 }
 
-function joinRange(lines: readonly string[], range: LineRange): string {
+export function joinRange(lines: readonly string[], range: LineRange): string {
   return lines.slice(range.start, range.end).join(LINE_SEPARATOR);
 }
 
@@ -104,7 +104,7 @@ function joinRange(lines: readonly string[], range: LineRange): string {
  * The block is word-diffed as one string so that lines can pair up even when
  * the counts differ; this maps the resulting offsets back onto its lines.
  */
-function splitSpansByLine(spans: readonly WordSpan[], lines: readonly string[], range: LineRange): LineWordSpans[] {
+export function splitSpansByLine(spans: readonly WordSpan[], lines: readonly string[], range: LineRange): LineWordSpans[] {
   const result: LineWordSpans[] = [];
   let lineOffset = 0;
 

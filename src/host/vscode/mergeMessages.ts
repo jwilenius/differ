@@ -19,7 +19,8 @@ export type MergeIntent =
   | { readonly type: "undo" }
   | { readonly type: "redo" }
   | { readonly type: "apply" }
-  | { readonly type: "cancel" };
+  | { readonly type: "cancel" }
+  | { readonly type: "redrawReady" };
 
 /** An intent that changes result lines on the page itself. */
 export type LineEdit = Extract<MergeIntent, { type: "editLine" | "splitLine" | "joinWithPrevious" | "replaceLines" }>;
@@ -36,8 +37,8 @@ export interface MergeLayoutUpdate {
 }
 
 /**
- * Posted to `media/merge.js` when the host starts redrawing the page: it sends the edit it holds back and
- * stops taking edits, which would be lost with it.
+ * Posted to `media/merge.js` before the host redraws the page: it sends the edit it holds back, stops taking
+ * edits, which would be lost with it, and then answers `redrawReady`, so the host draws the new page with that edit.
  */
 export interface MergeRedrawNotice {
   readonly type: "redrawing";
@@ -100,6 +101,7 @@ const SCHEMAS: Readonly<Record<MergeIntent["type"], (fields: Fields) => MergeInt
   redo: () => ({ type: "redo" }),
   apply: () => ({ type: "apply" }),
   cancel: () => ({ type: "cancel" }),
+  redrawReady: () => ({ type: "redrawReady" }),
 };
 
 const FIELDS: Readonly<Record<MergeIntent["type"], readonly string[]>> = {
@@ -115,6 +117,7 @@ const FIELDS: Readonly<Record<MergeIntent["type"], readonly string[]>> = {
   redo: [],
   apply: [],
   cancel: [],
+  redrawReady: [],
 };
 
 /** Returns a freshly built message when `value` has a page number and exactly the fields of one known type with valid values, otherwise null. */

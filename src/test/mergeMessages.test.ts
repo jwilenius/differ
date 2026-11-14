@@ -16,6 +16,7 @@ describe("parseMergeMessage", () => {
     { type: "cancel", page: 1 },
     { type: "undo", page: 1 },
     { type: "redo", page: 1 },
+    { type: "redrawReady", page: 1 },
   ])("accepts $type", (message) => {
     const parsed = parseMergeMessage(message);
 

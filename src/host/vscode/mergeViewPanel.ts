@@ -41,6 +41,8 @@ const NONCE_BYTES = 16;
 const HIGHLIGHT_TIMEOUT_MS = 3_000;
 /** Most changes to the merge that undo can take back. */
 const MAX_UNDO_STEPS = 200;
+/** How long a colour theme redraw waits for the page to send the edit it holds back. */
+const HELD_BACK_EDIT_TIMEOUT_MS = 500;
 /** The `shownPage` while no page takes messages: pages are numbered from 1. */
 const NO_PAGE = 0;
 
@@ -93,6 +95,8 @@ export class MergeViewPanel {
   /** The number of the page the webview shows; messages a replaced page sent are dropped. */
   private shownPage = NO_PAGE;
   private shownResult: ShownResult | null = null;
+  /** Called once the shown page answers `redrawReady`, having sent the edit it held back. */
+  private readonly heldBackEditWaiters: (() => void)[] = [];
   /** Calls off the result highlighting still running for an earlier edit. */
   private refreshAbort: AbortController | null = null;
   /** Earlier merge states, latest last; the page's own undo knows nothing of the lines it splits, joins and colours. */
@@ -158,7 +162,6 @@ export class MergeViewPanel {
       return;
     }
     const generation = ++this.renderGeneration;
-    this.warnPageOfRedraw();
     this.sideHighlights ??= this.highlightSides(state, context.languageId);
     const [[leftHighlight, rightHighlight], resultHighlight] = await Promise.all([
       this.sideHighlights,
@@ -186,15 +189,32 @@ export class MergeViewPanel {
   }
 
   /**
-   * Tells the page it is being replaced: it sends the edit it holds back, which arrives while highlighting
-   * runs and so reaches the new page, and takes no more.
+   * Redraws a page the user may be typing in, as a colour theme change does: the page first sends the edit it
+   * holds back, which a new page drawn before it arrived would drop. Other redraws need not wait: a page sends
+   * its edit before the action that redraws it, and everything a page sends after a rejected message is dropped.
    */
-  private warnPageOfRedraw(): void {
+  private async redrawTypingPage(): Promise<void> {
+    await this.takeHeldBackEdit();
+    await this.render();
+  }
+
+  /**
+   * Tells the shown page it is being replaced: it sends the edit it holds back, takes no more and answers
+   * `redrawReady`. A page that does not answer in time, as one still loading cannot, is replaced anyway.
+   */
+  private async takeHeldBackEdit(): Promise<void> {
     if (this.shownPage === NO_PAGE) {
       return;
     }
+    let timer: NodeJS.Timeout | undefined;
+    const answered = new Promise<void>((resolve) => {
+      this.heldBackEditWaiters.push(resolve);
+      timer = setTimeout(resolve, HELD_BACK_EDIT_TIMEOUT_MS);
+    });
     const notice: MergeRedrawNotice = { type: "redrawing", page: this.shownPage };
     void this.panel.webview.postMessage(notice);
+    await answered;
+    clearTimeout(timer);
   }
 
   private renderContext(context: MergeContext, page: number): MergeViewRenderContext {
@@ -248,7 +268,7 @@ export class MergeViewPanel {
 
   private onColorsChanged(): void {
     this.sideHighlights = null;
-    void this.render();
+    void this.redrawTypingPage();
   }
 
   private mediaUri(fileName: string): string {
@@ -286,6 +306,11 @@ export class MergeViewPanel {
   }
 
   private async dispatch(message: MergeMessage, state: MergeState): Promise<void> {
+    if (message.type === "redrawReady") {
+      // The page sent the edit it held back before answering, so the merge holds that edit by now.
+      this.heldBackEditWaiters.splice(0).forEach((resume) => resume());
+      return;
+    }
     if (message.type === "apply") {
       return this.applyResult(state);
     }
@@ -453,7 +478,7 @@ export class MergeViewPanel {
 }
 
 /** The merge state after a resolving or editing message. */
-function nextState(state: MergeState, message: Exclude<MergeMessage, { type: "apply" | "cancel" | "undo" | "redo" }>): MergeState {
+function nextState(state: MergeState, message: Exclude<MergeMessage, { type: "apply" | "cancel" | "undo" | "redo" | "redrawReady" }>): MergeState {
   switch (message.type) {
     case "applySide":
       return applySide(state, message.chunk, message.side);

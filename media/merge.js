@@ -564,7 +564,9 @@
       return;
     }
     if (update.type === "redrawing") {
+      // Sent after the held-back edit, so the host draws the new page with it.
       awaitRedraw();
+      send({ type: "redrawReady" });
     } else if (update.type === "layout" && update.seq === layoutSeq) {
       applyLayout(update.data);
     } else if (update.type === "highlight") {

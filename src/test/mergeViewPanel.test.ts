@@ -736,6 +736,31 @@ describe("MergeViewPanel redrawing the page", () => {
     changeColorThemeKind(ColorThemeKind.Light);
 
     expect(webview.postedMessages).toEqual([{ type: "redrawing", page: 1 }]);
+  });
+
+  it("replaces the page on a colour theme change only once the page sent the edit it held back", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    changeColorThemeKind(ColorThemeKind.Light);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const pageWhileWaiting = shownPage(webview);
+    post(webview, { type: "editLine", line: 0, text: "held back" });
+    post(webview, { type: "redrawReady" });
+
     await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
+    expect(pageWhileWaiting).toBe(1);
+    expect(/data-line="0">(.*?)<\/div>/.exec(webview.html)?.[1]).toContain(">held back<");
+  });
+
+  it("replaces a page that does not answer the colour theme change", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    changeColorThemeKind(ColorThemeKind.Light);
+
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2), { timeout: 2_000 });
   });
 });

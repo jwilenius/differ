@@ -17,8 +17,9 @@ export async function writeMergeResult(uri: vscode.Uri, text: string): Promise<b
   }
   // Not atomic with the save: a link put in place in between is followed. Closing that gap would mean writing
   // the file past VS Code, whose editors would then not follow; the check is for a link that appeared while
-  // the view was open, not one racing the save.
-  if (await isSymbolicLink(document.uri.fsPath)) {
+  // the view was open, not one racing the save. A missing file is not a link: saving creates it.
+  const isSymbolicLink = (await lstatOrNull(document.uri.fsPath))?.isSymbolicLink() ?? false;
+  if (isSymbolicLink) {
     const reason = "it is a symbolic link, and saving would change the file it points to";
     void vscode.window.showErrorMessage(`Differ will not write ${name}: ${reason}.`);
     return false;
@@ -38,32 +39,21 @@ async function openPresentDocument(uri: vscode.Uri): Promise<vscode.TextDocument
   try {
     return await vscode.workspace.openTextDocument(uri);
   } catch (error) {
-    if (await isPresent(uri.fsPath)) {
+    const isPresent = (await lstatOrNull(uri.fsPath)) !== null;
+    if (isPresent) {
       throw error;
     }
     return null;
   }
 }
 
-async function isPresent(filePath: string): Promise<boolean> {
+/** The file's own status, not that of a link's target; null when it is missing, as a deleted file is. */
+async function lstatOrNull(filePath: string): Promise<fs.Stats | null> {
   try {
-    await fs.promises.lstat(filePath);
-    return true;
+    return await fs.promises.lstat(filePath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return false;
-    }
-    throw error;
-  }
-}
-
-/** A missing file is not a link: saving creates it. */
-async function isSymbolicLink(filePath: string): Promise<boolean> {
-  try {
-    return (await fs.promises.lstat(filePath)).isSymbolicLink();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return false;
+      return null;
     }
     throw error;
   }

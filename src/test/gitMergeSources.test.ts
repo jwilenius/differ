@@ -279,3 +279,95 @@ describe("readMergeSources with versions that are not UTF-8 text", () => {
     expect(sources).toMatchObject({ base: "line1\nshared\n", ours: "line1\ntheirs\n", theirs: "line1\nmine\n" });
   });
 });
+
+describe("readMergeSources sides by the operation that left the conflict", () => {
+  let operationRepo: string;
+
+  /** Reads `f.txt` once `conflict` leaves it conflicted, starting on `trunk` with `f.txt` diverged from `feature`. */
+  async function readConflictAfter(conflict: (root: string) => void): Promise<MergeSources> {
+    operationRepo = createConflictRepository();
+    divergeBranches(operationRepo, ["f.txt"]);
+    conflict(operationRepo);
+    const conflicted = path.join(operationRepo, "f.txt");
+    return mergeable(await readMergeSources(conflicted, fs.readFileSync(conflicted, "utf8")));
+  }
+
+  /** Runs a Git command that is expected to stop on a conflict. */
+  function runConflicting(root: string, ...args: string[]): void {
+    try {
+      runGit(root, ...args);
+    } catch {
+      // The command is expected to conflict.
+    }
+  }
+
+  afterEach(() => {
+    fs.rmSync(operationRepo, { recursive: true, force: true });
+  });
+
+  it.each(["--merge", "--apply"])("reports a rebase with the %s backend as having the sides swapped", async (backend) => {
+    const sources = await readConflictAfter((root) => {
+      runGit(root, "checkout", "-q", "feature");
+      runConflicting(root, "rebase", backend, "trunk");
+    });
+
+    expect(sources).toMatchObject({ ours: "trunk\n", theirs: "feature\n", isSidesSwapped: true });
+  });
+
+  it("reports a rebase in a linked worktree, whose state is outside its own directory, as having the sides swapped", async () => {
+    operationRepo = createConflictRepository();
+    divergeBranches(operationRepo, ["f.txt"]);
+    const worktree = path.join(operationRepo, ".git", "linked");
+    runGit(operationRepo, "worktree", "add", "-q", worktree, "feature");
+    runConflicting(worktree, "rebase", "trunk");
+    const conflicted = path.join(worktree, "f.txt");
+
+    const sources = mergeable(await readMergeSources(conflicted, fs.readFileSync(conflicted, "utf8")));
+
+    expect(sources).toMatchObject({ ours: "trunk\n", theirs: "feature\n", isSidesSwapped: true });
+  });
+
+  it("reports a cherry-pick, which keeps your branch as ours, as not having the sides swapped", async () => {
+    const sources = await readConflictAfter((root) => runConflicting(root, "cherry-pick", "feature"));
+
+    expect(sources).toMatchObject({ ours: "trunk\n", theirs: "feature\n", ourLabel: "trunk", isSidesSwapped: false });
+  });
+
+  it("reports a revert as not having the sides swapped", async () => {
+    const sources = await readConflictAfter((root) => {
+      fs.writeFileSync(path.join(root, "f.txt"), "later\n");
+      runGit(root, "commit", "-qam", "later");
+      runConflicting(root, "revert", "--no-edit", "HEAD~1");
+    });
+
+    expect(sources).toMatchObject({ ours: "later\n", theirs: "base\n", isSidesSwapped: false });
+  });
+
+  it("reports a popped stash with neutral labels and the sides not swapped", async () => {
+    const sources = await readConflictAfter((root) => {
+      fs.writeFileSync(path.join(root, "f.txt"), "stashed\n");
+      runGit(root, "stash", "-q");
+      fs.writeFileSync(path.join(root, "f.txt"), "committed\n");
+      runGit(root, "commit", "-qam", "committed");
+      runConflicting(root, "stash", "pop", "-q");
+    });
+
+    expect(sources).toMatchObject({
+      ours: "committed\n",
+      theirs: "stashed\n",
+      ourLabel: "trunk",
+      theirLabel: "Incoming",
+      isSidesSwapped: false,
+    });
+  });
+
+  it("reports a three-way patch application as not having the sides swapped", async () => {
+    const sources = await readConflictAfter((root) => {
+      const patch = path.join(root, ".git", "feature.patch");
+      fs.writeFileSync(patch, execFileSync("git", ["diff", "trunk~1", "feature", "--", "f.txt"], { cwd: root }));
+      runConflicting(root, "apply", "-3", patch);
+    });
+
+    expect(sources).toMatchObject({ ours: "trunk\n", theirs: "feature\n", isSidesSwapped: false });
+  });
+});

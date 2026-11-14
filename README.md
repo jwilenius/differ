@@ -110,7 +110,7 @@ joined by connector ribbons.
 | **Right**  | The incoming version                                     | git stage 3 (`:3:<path>`) |
 
 - Add/add conflicts have no stage 1; the result starts empty.
-- During a **rebase or cherry-pick** git's sides are reversed; the toolbar warns.
+- During a **rebase** git's sides are reversed; the toolbar warns.
 - The result lives in the view until **Apply**; the file on disk is untouched until then. Apply refuses to write a file
   that has become a symbolic link. The check runs just before VS Code saves the file, not atomically with it: a link
   another process puts in place in between is followed, as VS Code's save always does.

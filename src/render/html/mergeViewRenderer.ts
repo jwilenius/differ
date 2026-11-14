@@ -36,7 +36,7 @@ export interface MergeViewRenderContext {
   readonly leftLabel: string;
   readonly rightLabel: string;
   readonly resultPath: string;
-  /** During a rebase or cherry-pick git's sides are reversed, which the toolbar warns about. */
+  /** During a rebase git's sides are reversed, which the toolbar warns about. */
   readonly isSidesSwapped: boolean;
   /** Numbers the page; the client stamps it on every message, so the host can tell a replaced page's messages apart. */
   readonly page: number;
@@ -167,7 +167,7 @@ function renderToolbar(input: MergeViewInput, context: MergeViewRenderContext): 
   const hasPendingChanges = input.chunks.some((chunk) => !chunk.isResolved && chunk.tint !== "conflict");
   const disabled = hasPendingChanges ? "" : " disabled";
   const swapWarning = context.isSidesSwapped
-    ? `<span class="warning" title="During a rebase or cherry-pick git replays your commits onto the other branch, so the sides are reversed">⚠ Sides are reversed during a rebase or cherry-pick</span>`
+    ? `<span class="warning" title="During a rebase git replays your commits onto the other branch, so the sides are reversed">⚠ Sides are reversed during a rebase</span>`
     : "";
 
   return `<header class="toolbar">

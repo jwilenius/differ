@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { type NonTextBlobReason, nonTextBlobReason } from "./gitBlobText";
 import {
@@ -22,8 +23,8 @@ export interface MergeSources {
   readonly ourLabel: string;
   readonly theirLabel: string;
   /**
-   * True during a rebase or cherry-pick, where git's "ours" is the branch being
-   * replayed onto and "theirs" is your own commit — the reverse of a merge.
+   * True during a rebase, where git's "ours" is the branch being replayed onto
+   * and "theirs" is your own commit — the reverse of a merge.
    */
   readonly isSidesSwapped: boolean;
 }
@@ -45,6 +46,11 @@ const BYTE_ORDER_MARK = "\uFEFF";
 const FATAL_EXIT_CODE = 128;
 /** Git's exit code when a `--quiet` lookup finds nothing, as a missing ref or a detached HEAD. */
 const NOT_FOUND_EXIT_CODE = 1;
+/**
+ * State a rebase keeps in the git directory: `rebase-merge` for the default backend, `rebase-apply/rebasing` for
+ * `--apply`, whose `rebase-apply` directory `git am` shares without the `rebasing` marker.
+ */
+const REBASE_STATE_PATHS: readonly string[] = ["rebase-merge", "rebase-apply/rebasing"];
 
 /**
  * Reads the three versions of a conflicted file from the git index, or why they cannot be merged. Git runs in the
@@ -68,7 +74,7 @@ export async function readMergeSources(filePath: string, result: string): Promis
     return { unmergeable: nonTextReason };
   }
 
-  const isSidesSwapped = await isReplayInProgress(directory);
+  const isSidesSwapped = await isRebaseInProgress(directory);
 
   return {
     ours: stageText(stages.ours),
@@ -143,10 +149,20 @@ function stageText(blob: Buffer): string {
   return text.startsWith(BYTE_ORDER_MARK) ? text.slice(BYTE_ORDER_MARK.length) : text;
 }
 
-/** Rebase and cherry-pick replay commits, which swaps the meaning of the two sides. */
-async function isReplayInProgress(directory: string): Promise<boolean> {
+/**
+ * A rebase replays your commits onto the other branch, which swaps the meaning of the two sides. Every other
+ * operation, such as a merge, cherry-pick, revert, popped stash or three-way patch, applies a change onto your
+ * branch, which stays "ours". The state paths are resolved by Git, which places them correctly in a worktree.
+ */
+async function isRebaseInProgress(directory: string): Promise<boolean> {
   const mergeHead = await git(directory, ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]);
-  return mergeHead === null;
+  if (mergeHead !== null) {
+    return false;
+  }
+  const args = ["rev-parse", ...REBASE_STATE_PATHS.flatMap((statePath) => ["--git-path", statePath])];
+  const { stdout } = await runHistoryGit({ cwd: directory, args });
+  const statePaths = stdout.toString("utf8").split("\n").filter((line) => line !== "");
+  return statePaths.some((statePath) => fs.existsSync(path.resolve(directory, statePath)));
 }
 
 async function describeHead(directory: string): Promise<string> {

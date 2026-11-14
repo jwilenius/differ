@@ -187,17 +187,27 @@ export class MergeViewPanel {
    * its edit before the action that redraws it, and everything a page sends after a rejected message is dropped.
    * Not while Apply runs: its page takes no edits, Apply drops the page's answer, and Apply closes or redraws the
    * page once done.
+   *
+   * An action's redraw may replace the page while it is told; that page was never told and may be typed in. When
+   * its render began after this redraw was asked for, it already shows what the redraw is for, so it stays;
+   * otherwise it is told in turn before it is replaced.
    */
   private async redrawTypingPage(): Promise<void> {
-    if (this.isApplying) {
-      return;
+    const lastOutdatedRender = this.renderGeneration;
+    for (;;) {
+      if (this.isApplying) {
+        return;
+      }
+      const toldPage = this.shownPage;
+      await this.takeHeldBackEdit();
+      // Apply may have begun while the page was told: it drops the answer and closes or redraws the page itself.
+      if (this.isApplying || this.shownPage > lastOutdatedRender) {
+        return;
+      }
+      if (this.shownPage === toldPage) {
+        return this.render();
+      }
     }
-    await this.takeHeldBackEdit();
-    // Apply may have begun while the page was told: it drops the answer and closes or redraws the page itself.
-    if (this.isApplying) {
-      return;
-    }
-    await this.render();
   }
 
   /**

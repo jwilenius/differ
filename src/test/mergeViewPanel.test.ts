@@ -804,15 +804,23 @@ describe("MergeViewPanel redrawing the page", () => {
   });
 });
 
-describe("MergeViewPanel colour theme change while applying", () => {
-  /** Colours every line by the colour theme kind, as a grammar's theme does. */
-  const themedHighlighter: TextHighlighter = {
-    highlight: async (text: string) => {
-      const style = { color: vscodeMock.colorThemeKind === ColorThemeKind.Light ? "#111111" : "#eeeeee", fontStyle: 0 };
-      return { styles: [style], lines: text.split("\n").map((line) => [{ length: line.length, styleIndex: 0 }]) };
-    },
-  };
+/** Colours every line by the colour theme kind, as a grammar's theme does. */
+const themedHighlighter: TextHighlighter = {
+  highlight: async (text: string) => {
+    const style = { color: vscodeMock.colorThemeKind === ColorThemeKind.Light ? "#111111" : "#eeeeee", fontStyle: 0 };
+    return { styles: [style], lines: text.split("\n").map((line) => [{ length: line.length, styleIndex: 0 }]) };
+  },
+};
 
+async function openThemedPanel(file: string): Promise<FakeWebview> {
+  await createPanel(fileDocument(file), themedHighlighter);
+  return vscodeMock.webviewPanels[0].webview;
+}
+
+/** Longer than the host waits for the page to answer a colour theme change. */
+const pastHeldBackEditTimeout = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 600));
+
+describe("MergeViewPanel colour theme change while applying", () => {
   /** Holds Apply's confirmation open until the returned function answers it. */
   async function holdApplyConfirmation(): Promise<(answer: string | undefined) => void> {
     let answerConfirmation: ((answer: string | undefined) => void) | undefined;
@@ -820,14 +828,6 @@ describe("MergeViewPanel colour theme change while applying", () => {
     await vi.waitFor(() => expect(answerConfirmation).toBeDefined());
     return answerConfirmation as (answer: string | undefined) => void;
   }
-
-  async function openThemedPanel(file: string): Promise<FakeWebview> {
-    await createPanel(fileDocument(file), themedHighlighter);
-    return vscodeMock.webviewPanels[0].webview;
-  }
-
-  /** Longer than the host waits for the page to answer a colour theme change. */
-  const pastHeldBackEditTimeout = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 600));
 
   it("does not redraw while Apply asks, and redraws with the new colours when Apply is called off", async () => {
     divergeBranches(repo, ["f.txt"]);
@@ -909,6 +909,37 @@ describe("MergeViewPanel waiting for the page to answer a colour theme change", 
 
     expect(waitsAfterTimeout).toBe(0);
     expect(pendingWaits(panel)).toBe(0);
+  });
+
+  it("keeps a page an action drew with the new colours while the replaced page was told of the change", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openThemedPanel(path.join(repo, "f.txt"));
+    changeColorThemeKind(ColorThemeKind.Light);
+
+    post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
+    webview.fireDidReceiveMessage({ type: "redrawReady", page: 1 });
+    await pastHeldBackEditTimeout();
+
+    expect(shownPage(webview)).toBe(2);
+    expect(webview.html).toContain(".tk-left-0{color:#111111}");
+  });
+
+  it("tells a page an action drew with the old colours during the wait before replacing it", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openThemedPanel(path.join(repo, "f.txt"));
+    post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
+    changeColorThemeKind(ColorThemeKind.Light);
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
+    webview.fireDidReceiveMessage({ type: "redrawReady", page: 1 });
+
+    await vi.waitFor(() => expect(postedOfType(webview, "redrawing")).toEqual([{ type: "redrawing", page: 1 }, { type: "redrawing", page: 2 }]));
+    expect(shownPage(webview)).toBe(2);
+    post(webview, { type: "redrawReady" });
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(3));
+    expect(webview.html).toContain(".tk-left-0{color:#111111}");
   });
 
   it("keeps waiting when a replaced page answers late", async () => {

@@ -657,11 +657,22 @@ export class FakeWebviewPanel {
 
   constructor(
     readonly viewType: string,
-    public title: string,
+    private titleText: string,
     readonly showOptions: ViewColumn | { readonly viewColumn: ViewColumn; readonly preserveFocus?: boolean },
     readonly options: vscode.WebviewPanelOptions & vscode.WebviewOptions,
   ) {
     this.webview.options = options;
+  }
+
+  /** Like VS Code's, the title can no longer be read or changed once the panel is disposed. */
+  get title(): string {
+    this.assertNotDisposed();
+    return this.titleText;
+  }
+
+  set title(value: string) {
+    this.assertNotDisposed();
+    this.titleText = value;
   }
 
   reveal(): void {
@@ -675,5 +686,11 @@ export class FakeWebviewPanel {
     this.isDisposed = true;
     this.webview.isDisposed = true;
     this.didDispose.fire();
+  }
+
+  private assertNotDisposed(): void {
+    if (this.isDisposed) {
+      throw new Error("Webview is disposed");
+    }
   }
 }

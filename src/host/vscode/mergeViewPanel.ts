@@ -56,6 +56,8 @@ interface MergeContext {
  */
 export class MergeViewPanel {
   private readonly panel: vscode.WebviewPanel;
+  /** The panel's title, which never changes; reading it from the panel throws once the panel is closed, as a log after an await may find. */
+  private readonly title: string;
   /** The conflicted file, which outlives the document captured at open. */
   private readonly uri: vscode.Uri;
   private readonly disposables: vscode.Disposable[] = [];
@@ -70,9 +72,10 @@ export class MergeViewPanel {
 
   private constructor(private readonly options: MergeViewPanelOptions) {
     this.uri = options.document.uri;
+    this.title = `Merge: ${path.basename(options.document.uri.fsPath)}`;
     this.panel = vscode.window.createWebviewPanel(
       VIEW_TYPE,
-      `Merge: ${path.basename(options.document.uri.fsPath)}`,
+      this.title,
       vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [options.mediaRoot] },
     );
@@ -154,7 +157,7 @@ export class MergeViewPanel {
     return {
       nonce: randomBytes(NONCE_BYTES).toString("base64"),
       cspSource: webview.cspSource,
-      title: this.panel.title,
+      title: this.title,
       styleUris: [this.mediaUri("diff.css"), this.mediaUri("merge.css")],
       scriptUris: [this.mediaUri("diffGeometry.js"), this.mediaUri("mergeLines.js"), this.mediaUri("merge.js")],
       leftLabel: context.leftLabel,
@@ -182,7 +185,7 @@ export class MergeViewPanel {
     try {
       return await Promise.race([this.options.highlighter.highlight(text, languageId, options), timeout]);
     } catch (error) {
-      this.options.log(`Syntax highlighting failed for ${this.panel.title}; showing plain text. ${messageOf(error)}`);
+      this.options.log(`Syntax highlighting failed for ${this.title}; showing plain text. ${messageOf(error)}`);
       return unstyledText(text);
     } finally {
       clearTimeout(timer);
@@ -209,13 +212,13 @@ export class MergeViewPanel {
     }
     const message = parseMergeMessage(value);
     if (message === null || !fitsResult(this.state, message)) {
-      this.options.log(`Dropped a merge message the result cannot take for ${this.panel.title}; redrawing the page.`);
+      this.options.log(`Dropped a merge message the result cannot take for ${this.title}; redrawing the page.`);
       return this.render();
     }
     try {
       await this.dispatch(message, this.state);
     } catch (error) {
-      this.options.log(`Merge action ${message.type} failed for ${this.panel.title}. ${messageOf(error)}`);
+      this.options.log(`Merge action ${message.type} failed for ${this.title}. ${messageOf(error)}`);
       void vscode.window.showErrorMessage(`Differ could not complete the merge action. ${messageOf(error)}`);
     }
   }

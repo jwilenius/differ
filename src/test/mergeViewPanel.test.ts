@@ -165,6 +165,26 @@ describe("MergeViewPanel apply after confirming an unresolved result", () => {
     expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning"]);
     expect(fs.readFileSync(file, "utf8")).toBe(vscodeMock.appliedEdits.at(-1)?.text);
   });
+
+  it("reports a failed apply when the panel was closed while the confirmation was open", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const document = fileDocument(path.join(repo, "f.txt"));
+    const webview = await openPanel(document);
+    vscodeMock.warningMessageResponse = () => {
+      vscodeMock.webviewPanels[0].dispose();
+      closeDocument(document);
+      vscodeMock.openFileDocument = () => {
+        throw new Error("The file cannot be opened.");
+      };
+      return "Apply";
+    };
+
+    webview.fireDidReceiveMessage({ type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning", "error"]));
+    expect(vscodeMock.messages[1].text).toBe("Differ could not complete the merge action. The file cannot be opened.");
+  });
 });
 
 describe("MergeViewPanel that fails to load", () => {
@@ -219,6 +239,22 @@ describe("MergeViewPanel closed while it loads", () => {
 
     await expect(opening).resolves.toBeInstanceOf(MergeViewPanel);
     expect(vscodeMock.webviewPanels[0].webview.html).toBe("");
+  });
+
+  it("opens without error when closed while highlighting fails", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const failingHighlighter: TextHighlighter = {
+      highlight: async () => {
+        vscodeMock.webviewPanels[0].dispose();
+        throw new Error("Highlighting failed.");
+      },
+    };
+
+    const opening = createPanel(fileDocument(path.join(repo, "f.txt")), failingHighlighter);
+
+    await expect(opening).resolves.toBeInstanceOf(MergeViewPanel);
+    expect(vscodeMock.messages).toEqual([]);
   });
 });
 

@@ -246,7 +246,7 @@ Press `F5` in VS Code to launch an Extension Development Host, then open `sample
 | `src/core/wordDiff.ts`                   | Intra-line changed character ranges                            |
 | `src/core/threeWayAligner.ts`            | Aligns the three sides into one row grid, classifies blocks    |
 | `src/core/mergeResolver.ts`              | Collapses a conflict under a chosen resolution                 |
-| `src/git/gitMergeSources.ts`             | Reads the three versions from the index and the working copy   |
+| `src/git/gitMergeSources.ts`             | Reads the three versions from the index                        |
 | `src/model/hunkSplitter.ts`              | Divides a conflict into separately decidable pieces            |
 | `src/model/hunkSelection.ts`             | Which side of which piece is pending inclusion                 |
 | `src/model/resolutionView.ts`            | Row model, conflict summaries, gutter controls                 |

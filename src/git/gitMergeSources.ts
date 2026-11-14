@@ -18,8 +18,6 @@ export interface MergeSources {
   readonly theirs: string;
   /** Common ancestor — git stage 1. Absent for add/add conflicts. */
   readonly base: string | null;
-  /** The working copy: what will actually be committed. */
-  readonly result: string;
   readonly ourLabel: string;
   readonly theirLabel: string;
   /**
@@ -58,7 +56,7 @@ const REBASE_STATE_PATHS: readonly string[] = ["rebase-merge", "rebase-apply/reb
  * relative to that root would leave the repository when the file was opened through a linked directory. Throws
  * `HistoryGitError` when Git is missing or fails other than by finding no repository.
  */
-export async function readMergeSources(filePath: string, result: string): Promise<MergeSources | UnmergeableConflict> {
+export async function readMergeSources(filePath: string): Promise<MergeSources | UnmergeableConflict> {
   const directory = path.dirname(filePath);
   const entries = await conflictEntries(directory, path.basename(filePath));
   if (!isMergeableConflict(entries)) {
@@ -80,7 +78,6 @@ export async function readMergeSources(filePath: string, result: string): Promis
     ours: stageText(stages.ours),
     theirs: stageText(stages.theirs),
     base: stages.base === null ? null : stageText(stages.base),
-    result,
     ourLabel: await describeHead(directory),
     theirLabel: await describeIncoming(directory),
     isSidesSwapped,

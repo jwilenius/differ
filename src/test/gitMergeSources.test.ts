@@ -67,40 +67,32 @@ function mergeable(sources: MergeSources | UnmergeableConflict): MergeSources {
 
 describe("readMergeSources", () => {
   it("reads the branch version from the ours stage", async () => {
-    const sources = mergeable(await readMergeSources(file, fs.readFileSync(file, "utf8")));
+    const sources = mergeable(await readMergeSources(file));
 
     expect(sources.ours).toBe("line1\nMINE\nline3\nextra-mine\n");
   });
 
   it("reads the incoming version from the theirs stage", async () => {
-    const sources = mergeable(await readMergeSources(file, fs.readFileSync(file, "utf8")));
+    const sources = mergeable(await readMergeSources(file));
 
     expect(sources.theirs).toBe("line1\nTHEIRS\nline3\n");
   });
 
   it("reads the common ancestor from the base stage", async () => {
-    const sources = mergeable(await readMergeSources(file, fs.readFileSync(file, "utf8")));
+    const sources = mergeable(await readMergeSources(file));
 
     expect(sources.base).toBe("line1\nshared\nline3\n");
   });
 
-  it("takes the result from the working copy, markers and all", async () => {
-    const working = fs.readFileSync(file, "utf8");
-    const sources = mergeable(await readMergeSources(file, working));
-
-    expect(sources.result).toBe(working);
-    expect(sources.result).toContain("<<<<<<<");
-  });
-
   it("labels the panes with the two branch names", async () => {
-    const sources = mergeable(await readMergeSources(file, fs.readFileSync(file, "utf8")));
+    const sources = mergeable(await readMergeSources(file));
 
     expect(sources.ourLabel).toBe("feature");
     expect(sources.theirLabel).toBe("trunk");
   });
 
   it("reports a merge as not having the sides swapped", async () => {
-    const sources = mergeable(await readMergeSources(file, fs.readFileSync(file, "utf8")));
+    const sources = mergeable(await readMergeSources(file));
 
     expect(sources.isSidesSwapped).toBe(false);
   });
@@ -108,7 +100,7 @@ describe("readMergeSources", () => {
   it("reads the repository Git finds from the file, ignoring an inherited GIT_DIR", async () => {
     vi.stubEnv("GIT_DIR", path.join(repo, "no-such-git-dir"));
 
-    const sources = mergeable(await readMergeSources(file, fs.readFileSync(file, "utf8")));
+    const sources = mergeable(await readMergeSources(file));
 
     expect(sources.ours).toBe("line1\nMINE\nline3\nextra-mine\n");
   });
@@ -117,7 +109,7 @@ describe("readMergeSources", () => {
     const clean = path.join(repo, "clean.txt");
     fs.writeFileSync(clean, "nothing to merge\n");
 
-    expect(await readMergeSources(clean, "nothing to merge\n")).toEqual({ unmergeable: "noMergeableConflict" });
+    expect(await readMergeSources(clean)).toEqual({ unmergeable: "noMergeableConflict" });
   });
 
   it("reports no mergeable conflict outside a git repository", async () => {
@@ -125,14 +117,14 @@ describe("readMergeSources", () => {
     const orphan = path.join(outside, "f.txt");
     fs.writeFileSync(orphan, "text");
 
-    expect(await readMergeSources(orphan, "text")).toEqual({ unmergeable: "noMergeableConflict" });
+    expect(await readMergeSources(orphan)).toEqual({ unmergeable: "noMergeableConflict" });
     fs.rmSync(outside, { recursive: true, force: true });
   });
 
   it("reports missing Git as an error instead of a file with no conflict", async () => {
     vi.stubEnv("PATH", repo);
 
-    const reading = readMergeSources(file, fs.readFileSync(file, "utf8"));
+    const reading = readMergeSources(file);
 
     await expect(reading).rejects.toMatchObject({ name: "HistoryGitError", kind: "missingGit" });
   });
@@ -163,7 +155,7 @@ describe("readMergeSources with an emptied side", () => {
   it("reads a side whose version is empty as empty text, not as missing", async () => {
     const emptied = path.join(emptiedRepo, "f.txt");
 
-    const sources = mergeable(await readMergeSources(emptied, fs.readFileSync(emptied, "utf8")));
+    const sources = mergeable(await readMergeSources(emptied));
 
     expect(sources.ours).toBe("trunk\n");
     expect(sources.theirs).toBe("");
@@ -195,7 +187,7 @@ describe("readMergeSources with a symbolic link conflict", () => {
   });
 
   it("reports no mergeable conflict, because saving a merge result would write through the link", async () => {
-    expect(await readMergeSources(path.join(linkRepo, "link"), "")).toEqual({ unmergeable: "noMergeableConflict" });
+    expect(await readMergeSources(path.join(linkRepo, "link"))).toEqual({ unmergeable: "noMergeableConflict" });
   });
 });
 
@@ -222,7 +214,7 @@ describe("readMergeSources through a symbolic link to a directory", () => {
     ["the checkout", "checkout/sub/f.txt"],
     ["the file's own directory", "sub/f.txt"],
   ])("reads the conflict of a file opened through a link to %s", async (_linked, linkedPath) => {
-    const sources = mergeable(await readMergeSources(path.join(links, linkedPath), ""));
+    const sources = mergeable(await readMergeSources(path.join(links, linkedPath)));
 
     expect(sources).toMatchObject({ base: "base\n", ours: "trunk\n", theirs: "feature\n", ourLabel: "trunk" });
   });
@@ -231,7 +223,7 @@ describe("readMergeSources through a symbolic link to a directory", () => {
     const alias = path.join(linkedRepo, "alias.txt");
     fs.symlinkSync(path.join(linkedRepo, "sub", "f.txt"), alias);
 
-    expect(await readMergeSources(alias, "")).toEqual({ unmergeable: "noMergeableConflict" });
+    expect(await readMergeSources(alias)).toEqual({ unmergeable: "noMergeableConflict" });
   });
 });
 
@@ -244,7 +236,7 @@ describe("readMergeSources with versions that are not UTF-8 text", () => {
     divergeFile(encodedRepo, "f.txt", versions);
     mergeFeature(encodedRepo);
     const conflicted = path.join(encodedRepo, "f.txt");
-    return readMergeSources(conflicted, fs.readFileSync(conflicted, "utf8"));
+    return readMergeSources(conflicted);
   }
 
   afterEach(() => {
@@ -289,7 +281,7 @@ describe("readMergeSources sides by the operation that left the conflict", () =>
     divergeBranches(operationRepo, ["f.txt"]);
     conflict(operationRepo);
     const conflicted = path.join(operationRepo, "f.txt");
-    return mergeable(await readMergeSources(conflicted, fs.readFileSync(conflicted, "utf8")));
+    return mergeable(await readMergeSources(conflicted));
   }
 
   /** Runs a Git command that is expected to stop on a conflict. */
@@ -322,7 +314,7 @@ describe("readMergeSources sides by the operation that left the conflict", () =>
     runConflicting(worktree, "rebase", "trunk");
     const conflicted = path.join(worktree, "f.txt");
 
-    const sources = mergeable(await readMergeSources(conflicted, fs.readFileSync(conflicted, "utf8")));
+    const sources = mergeable(await readMergeSources(conflicted));
 
     expect(sources).toMatchObject({ ours: "trunk\n", theirs: "feature\n", isSidesSwapped: true });
   });

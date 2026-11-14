@@ -14,9 +14,9 @@ interface StageRead {
 const stageReads = vi.hoisted(() => [] as Promise<void>[]);
 
 vi.mock("../git/gitMergeSources", () => ({
-  readMergeSources: async (_filePath: string, result: string) => {
+  readMergeSources: async () => {
     await stageReads.shift();
-    return { ours: "ours\n", theirs: "theirs\n", base: "base\n", result, ourLabel: "trunk", theirLabel: "feature", isSidesSwapped: false };
+    return { ours: "ours\n", theirs: "theirs\n", base: "base\n", ourLabel: "trunk", theirLabel: "feature", isSidesSwapped: false };
   },
 }));
 

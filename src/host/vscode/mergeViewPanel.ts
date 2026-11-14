@@ -139,7 +139,7 @@ export class MergeViewPanel {
 
   private async load(): Promise<void> {
     const { document } = this.options;
-    const sources = await readMergeSources(document.uri.fsPath, document.getText());
+    const sources = await readMergeSources(document.uri.fsPath);
     if (this.isDisposed) {
       return;
     }

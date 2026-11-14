@@ -84,6 +84,31 @@ describe("buildTwoWayDiff", () => {
     expect(diff.blocks[0]).toMatchObject({ kind: "modified", baseWords: [], resultWords: [] });
   });
 
+  it("gives up quickly on word spans for a divergent block of many short words under the size limit", () => {
+    const lines = (word: string): string => Array.from({ length: 2_490 }, () => `${word} ${word}`).join("\n");
+    const base = lines("a");
+    const result = lines("b");
+
+    const started = performance.now();
+    const diff = buildTwoWayDiff(base, result, WORDS);
+
+    expect(base.length + result.length).toBeLessThan(MAX_WORD_DIFF_CHARS);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(diff.blocks).toEqual([
+      { kind: "modified", base: { start: 0, end: 2_490 }, result: { start: 0, end: 2_490 }, baseWords: [], resultWords: [] },
+    ]);
+  });
+
+  it("still marks the changed words of a long block with one change per line", () => {
+    const lines = (offset: number): string => Array.from({ length: 200 }, (_, index) => `const value${index} = ${index + offset};`).join("\n");
+
+    const diff = buildTwoWayDiff(lines(0), lines(1_000), WORDS);
+
+    expect(diff.blocks).toHaveLength(1);
+    expect(diff.blocks[0].resultWords).toHaveLength(200);
+    expect(diff.blocks[0].resultWords[0]).toEqual({ line: 0, spans: [{ start: 15, end: 19 }] });
+  });
+
   it("shows fully divergent large texts as one modified block without word spans", () => {
     const lines = (tag: string): string => Array.from({ length: 10_000 }, (_, index) => `${tag} ${index}`).join("\n");
 

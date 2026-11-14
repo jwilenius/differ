@@ -1,4 +1,4 @@
-import { diffWordsWithSpace } from "diff";
+import { type Change, diffWordsWithSpace } from "diff";
 import type { WordSpan } from "./types";
 
 export interface WordDiffResult {
@@ -9,15 +9,28 @@ export interface WordDiffResult {
 const EMPTY: WordDiffResult = { leftSpans: [], rightSpans: [] };
 
 /**
+ * Most removed plus added words and whitespace runs that a word diff searches
+ * for. Myers' cost grows with this count times the token count: 1,000 takes
+ * about 0.1 s on a fully divergent block of one-letter words just under the
+ * caller's 20,000-character cap, where an unbounded search took over 10 s.
+ * Beyond it the block keeps only its line tint, as for blocks over the cap.
+ */
+const MAX_EDIT_LENGTH = 1_000;
+
+/**
  * Finds the differing character ranges between two versions of a line, so that
- * only the words that actually changed get highlighted.
+ * only the words that actually changed get highlighted. Reports no ranges when
+ * the versions differ in too many words to compare.
  */
 export function diffWords(left: string, right: string): WordDiffResult {
   if (left === right) {
     return EMPTY;
   }
 
-  const parts = diffWordsWithSpace(left, right);
+  const parts = diffWithinEditLimit(left, right);
+  if (parts === undefined) {
+    return EMPTY;
+  }
   const leftSpans: WordSpan[] = [];
   const rightSpans: WordSpan[] = [];
 
@@ -43,6 +56,11 @@ export function diffWords(left: string, right: string): WordDiffResult {
   }
 
   return { leftSpans, rightSpans };
+}
+
+/** jsdiff returns `undefined` once the edit length passes `maxEditLength`, which its typings leave out. */
+function diffWithinEditLimit(left: string, right: string): Change[] | undefined {
+  return diffWordsWithSpace(left, right, { maxEditLength: MAX_EDIT_LENGTH }) as Change[] | undefined;
 }
 
 /** Appends a span, merging it into the previous one when they touch. */

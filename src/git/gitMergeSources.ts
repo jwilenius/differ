@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process";
 import * as path from "node:path";
-import { promisify } from "node:util";
-
-const run = promisify(execFile);
+import { HistoryGitError, runHistoryGit } from "./historyGitCommand";
 
 /** Index stage numbers git assigns during a conflicted merge. */
 const STAGE_BASE = 1;
@@ -104,13 +101,16 @@ async function describeIncoming(root: string): Promise<string> {
   return "Incoming";
 }
 
-/** Runs git, returning `null` for any failure so callers can fall back. */
+/** Runs git, returning `null` for any Git failure so callers can fall back. */
 async function git(cwd: string, args: readonly string[]): Promise<string | null> {
   try {
-    const { stdout } = await run("git", [...args], { cwd, maxBuffer: 64 * 1024 * 1024 });
-    return stdout;
-  } catch {
-    return null;
+    const { stdout } = await runHistoryGit({ cwd, args });
+    return stdout.toString("utf8");
+  } catch (error) {
+    if (error instanceof HistoryGitError) {
+      return null;
+    }
+    throw error;
   }
 }
 

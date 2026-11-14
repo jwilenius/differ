@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { readMergeSources } from "../git/gitMergeSources";
 import { createConflictRepository, mergeFeature, runGit } from "./gitConflictFixture";
 
@@ -46,6 +46,10 @@ afterAll(() => {
   fs.rmSync(repo, { recursive: true, force: true });
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("readMergeSources", () => {
   it("reads the branch version from the ours stage", async () => {
     const sources = await readMergeSources(file, fs.readFileSync(file, "utf8"));
@@ -84,6 +88,14 @@ describe("readMergeSources", () => {
     const sources = await readMergeSources(file, fs.readFileSync(file, "utf8"));
 
     expect(sources?.isSidesSwapped).toBe(false);
+  });
+
+  it("reads the repository Git finds from the file, ignoring an inherited GIT_DIR", async () => {
+    vi.stubEnv("GIT_DIR", path.join(repo, "no-such-git-dir"));
+
+    const sources = await readMergeSources(file, fs.readFileSync(file, "utf8"));
+
+    expect(sources?.ours).toBe("line1\nMINE\nline3\nextra-mine\n");
   });
 
   it("returns null for a file with no conflict stages", async () => {

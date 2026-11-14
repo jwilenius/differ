@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { listConflictedFiles } from "../git/gitConflictedFiles";
+import { listConflictedFiles, markResolved } from "../git/gitConflictedFiles";
 import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
 
 let repo: string;
@@ -33,5 +33,16 @@ describe("listConflictedFiles", () => {
     runGit(repo, "add", "a.txt");
 
     expect(await listConflictedFiles(repo)).toEqual([path.join(repo, "b.txt")]);
+  });
+});
+
+describe("markResolved", () => {
+  it("stages only the named file, even when its name looks like a pattern", async () => {
+    divergeBranches(repo, ["app/[id].tsx", "app/i.tsx", "app/d.tsx"]);
+    mergeFeature(repo);
+
+    await markResolved(path.join(repo, "app/[id].tsx"));
+
+    expect([...(await listConflictedFiles(repo))].sort()).toEqual([path.join(repo, "app/d.tsx"), path.join(repo, "app/i.tsx")]);
   });
 });

@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { markResolved } from "../../git/gitConflictedFiles";
 import { readMergeSources } from "../../git/gitMergeSources";
-import { runHistoryGit } from "../../git/historyGitCommand";
 import { TOKENIZE_TIME_BUDGET_MS, unstyledText } from "../../highlight/textMateHighlighter";
 import {
   acceptSide,
@@ -227,9 +227,10 @@ export class MergeViewPanel {
   }
 
   private async stage(filePath: string): Promise<void> {
-    const result = await runHistoryGit({ cwd: path.dirname(filePath), args: ["add", "--", filePath], allowedExitCodes: [0, 1, 128] });
-    if (result.exitCode !== 0) {
-      this.options.log(`git add failed for ${filePath}: ${result.stderr.toString("utf8")}`);
+    try {
+      await markResolved(filePath);
+    } catch (error) {
+      this.options.log(`git add failed for ${filePath}: ${messageOf(error)}`);
       void vscode.window.showWarningMessage(`Differ wrote ${path.basename(filePath)} but could not stage it.`);
     }
   }

@@ -33,3 +33,20 @@ export interface HighlightedText {
   /** One entry per line of the source text (split on `\n`, a trailing `\r` kept in the text). */
   readonly lines: readonly (readonly SyntaxToken[])[];
 }
+
+/**
+ * `highlight` with its styles numbered by `table`: the styles `table` holds keep their indexes and the rest are
+ * appended. TextMate numbers styles in first-use order, so a page that keeps lines coloured by an earlier run
+ * needs every later run numbered alike.
+ */
+export function rebaseStyles(highlight: HighlightedText, table: readonly TokenStyle[]): HighlightedText {
+  const styles = [...table];
+  const indexes = highlight.styles.map((style) => {
+    const found = styles.findIndex((known) => known.color === style.color && known.fontStyle === style.fontStyle);
+    return found >= 0 ? found : styles.push(style) - 1;
+  });
+  return {
+    styles,
+    lines: highlight.lines.map((tokens) => tokens.map((token) => ({ ...token, styleIndex: indexes[token.styleIndex] }))),
+  };
+}

@@ -16,6 +16,15 @@ export interface MergeViewInput {
   readonly resultHighlight: HighlightedText;
 }
 
+/** What the result pane's markup depends on. */
+export type MergeResultInput = Pick<MergeViewInput, "state" | "chunks" | "resultHighlight">;
+
+/** A line's text as the page shows it, and the markup of its `.code`. */
+export interface LineMarkup {
+  readonly text: string;
+  readonly html: string;
+}
+
 export interface MergeViewRenderContext {
   readonly nonce: string;
   readonly cspSource: string;
@@ -73,6 +82,7 @@ const LOCK_ICON = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rec
  * ignore (×) buttons in the side gutters. The result is editable.
  *
  * Client contract: `#merge[data-merge]` holds {@link MergeClientData} and `#merge[data-page]` the page number;
+ * `style#result-styles` holds the result's token styles, which the client replaces with re-highlighted ones;
  * scrollers `#scroll-left`, `#scroll-result`, `#scroll-right` contain one
  * `.line` per text line; `svg#connectors-left` / `svg#connectors-right` sit in
  * the strips; a result `.line` holds `.num` and `.code[data-line]`, which the
@@ -87,11 +97,7 @@ export class HtmlMergeViewRenderer {
     }
     const { nonce } = context;
     const csp = ["default-src 'none'", `style-src ${context.cspSource} 'nonce-${nonce}'`, `script-src 'nonce-${nonce}'`].join("; ");
-    const tokenStyles = [
-      renderTokenStyles(input.leftHighlight.styles, "left"),
-      renderTokenStyles(input.resultHighlight.styles, "result"),
-      renderTokenStyles(input.rightHighlight.styles, "right"),
-    ].join("");
+    const sideTokenStyles = renderTokenStyles(input.leftHighlight.styles, "left") + renderTokenStyles(input.rightHighlight.styles, "right");
     const styles = context.styleUris.map((uri) => `<link href="${escapeHtml(uri)}" rel="stylesheet">`).join("\n");
     const scripts = context.scriptUris.map((uri) => `<script nonce="${nonce}" src="${escapeHtml(uri)}"></script>`).join("\n");
 
@@ -101,7 +107,8 @@ export class HtmlMergeViewRenderer {
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${escapeHtml(csp)}">
 ${styles}
-<style nonce="${nonce}">${tokenStyles}</style>
+<style nonce="${nonce}">${sideTokenStyles}</style>
+<style nonce="${nonce}" id="result-styles">${renderTokenStyles(input.resultHighlight.styles, "result")}</style>
 <title>${escapeHtml(context.title)}</title>
 </head>
 <body>
@@ -210,8 +217,14 @@ function layoutSide(input: MergeViewInput, side: MergeSide): PaneLayout {
   };
 }
 
+/** The markup of every result line, as the page draws it; re-highlighting after an edit compares it line by line. */
+export function resultLineMarkup(input: MergeResultInput): LineMarkup[] {
+  const layout = layoutResult(input);
+  return layout.lines.map((_, index) => lineMarkup(layout, index));
+}
+
 /** The result highlights every chunk still unresolved. */
-function layoutResult(input: MergeViewInput): PaneLayout {
+function layoutResult(input: MergeResultInput): PaneLayout {
   const unresolved = input.chunks.filter((chunk) => !chunk.isResolved);
   return {
     pane: "result",
@@ -247,7 +260,7 @@ function wordsByLine(entries: readonly { readonly line: number; readonly spans: 
 }
 
 function renderPane(layout: PaneLayout): string {
-  const lines = layout.lines.map((text, index) => renderLine(layout, text, index)).join("");
+  const lines = layout.lines.map((_, index) => renderLine(layout, index)).join("");
   // One line holding two chunks' buttons widens the whole gutter, which would otherwise jut out there.
   const isDouble = [...layout.actions.values()].some((chunks) => chunks.length > 1);
   const classes = `scroller pane-${layout.pane}${isDouble ? " double-acts" : ""}`;
@@ -255,8 +268,13 @@ function renderPane(layout: PaneLayout): string {
 }
 
 /** A trailing `\r` is dropped: the HTML parser would turn it into a line break. */
-function renderLine(layout: PaneLayout, rawText: string, index: number): string {
+function lineMarkup(layout: PaneLayout, index: number): LineMarkup {
+  const rawText = layout.lines[index];
   const text = rawText.endsWith("\r") ? rawText.slice(0, -1) : rawText;
+  return { text, html: renderCode(text, layout.highlight.lines[index] ?? [], layout.words.get(index) ?? [], layout.pane) };
+}
+
+function renderLine(layout: PaneLayout, index: number): string {
   const tint = layout.tints.get(index);
   const gapBefore = layout.gaps.get(index);
   const gapAfter = index === layout.lines.length - 1 ? layout.gaps.get(layout.lines.length) : undefined;
@@ -266,7 +284,7 @@ function renderLine(layout: PaneLayout, rawText: string, index: number): string 
     gapBefore ? `gap-before gap-${gapBefore}` : "",
     gapAfter ? `gap-after gap-${gapAfter}` : "",
   ].filter(Boolean).join(" ");
-  const code = renderCode(text, layout.highlight.lines[index] ?? [], layout.words.get(index) ?? [], layout.pane);
+  const code = lineMarkup(layout, index).html;
   const number = `<span class="num">${index + 1}</span>`;
 
   switch (layout.pane) {

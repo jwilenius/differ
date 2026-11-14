@@ -20,10 +20,19 @@ import {
   type MergeTally,
 } from "../../model/mergeSession";
 import { describeMerge } from "../../model/mergeView";
-import type { HighlightedText } from "../../model/syntaxTokens";
-import { HtmlMergeViewRenderer, mergeClientData, type MergeViewRenderContext } from "../../render/html/mergeViewRenderer";
+import { rebaseStyles, type HighlightedText, type TokenStyle } from "../../model/syntaxTokens";
+import { renderTokenStyles } from "../../render/html/codeMarkup";
+import { HtmlMergeViewRenderer, mergeClientData, resultLineMarkup, type MergeViewRenderContext } from "../../render/html/mergeViewRenderer";
 import { escapeHtml } from "../../render/html/webviewMarkup";
-import { parseMergeMessage, type MergeLayoutUpdate, type MergeMessage, type MergeRedrawNotice } from "./mergeMessages";
+import {
+  editedLines,
+  parseMergeMessage,
+  type LineEdit,
+  type MergeHighlightUpdate,
+  type MergeLayoutUpdate,
+  type MergeMessage,
+  type MergeRedrawNotice,
+} from "./mergeMessages";
 import type { TextHighlighter } from "./twoWayDiffPanel";
 
 const VIEW_TYPE = "differ.mergeView";
@@ -49,6 +58,16 @@ interface MergeContext {
   readonly languageId: string;
 }
 
+/** The result as the page shown draws it, so highlighting it again after an edit sends only the lines that changed. */
+interface ShownResult {
+  /** Each line's markup as last sent; null for a line the page changed itself. */
+  lines: (string | null)[];
+  /** The page's token style table; the indexes its lines use never change. */
+  styles: readonly TokenStyle[];
+  /** The `seq` of the latest edit the page numbered. */
+  seq: number;
+}
+
 /**
  * Hosts IntelliJ's merge dialog for one conflicted file. The result lives in
  * memory, starting from the common ancestor; Apply writes it to the file and
@@ -69,6 +88,7 @@ export class MergeViewPanel {
   private renderGeneration = 0;
   /** The number of the page the webview shows; messages a replaced page sent are dropped. */
   private shownPage = 0;
+  private shownResult: ShownResult | null = null;
   /** Closing the panel while it loads or renders is not an error; its webview just takes no more content. */
   private isDisposed = false;
 
@@ -143,10 +163,9 @@ export class MergeViewPanel {
     if (this.state !== state) {
       return this.render();
     }
-    const wordLevel = vscode.workspace.getConfiguration("differ").get<boolean>("wordLevelHighlighting", true);
     const input = {
       state,
-      chunks: describeMerge(state, { wordLevel }),
+      chunks: describeMerge(state, { wordLevel: isWordLevel() }),
       tally: tallyMerge(state),
       leftHighlight,
       rightHighlight,
@@ -154,6 +173,7 @@ export class MergeViewPanel {
     };
     this.panel.webview.html = new HtmlMergeViewRenderer().render(input, this.renderContext(context, generation));
     this.shownPage = generation;
+    this.shownResult = { lines: resultLineMarkup(input).map((line) => line.html), styles: resultHighlight.styles, seq: 0 };
   }
 
   /**
@@ -254,6 +274,10 @@ export class MergeViewPanel {
     }
     this.state = nextState(state, message);
     // Result edits are already on the page; rebuilding it would lose keystrokes, the caret and undo.
+    if (isLineEdit(message)) {
+      this.notePageEdit(message);
+      void this.refreshResultHighlight(message.page, this.state);
+    }
     if (message.type === "editLine") {
       return;
     }
@@ -268,6 +292,38 @@ export class MergeViewPanel {
   private async postLayout(page: number, seq: number, state: MergeState): Promise<void> {
     const data = mergeClientData(state, describeMerge(state, { wordLevel: false }));
     const update: MergeLayoutUpdate = { type: "layout", page, seq, data };
+    await this.panel.webview.postMessage(update);
+  }
+
+  /** The page drew the lines an edit left without highlighting them. */
+  private notePageEdit(edit: LineEdit): void {
+    const shown = this.shownResult;
+    if (shown === null) {
+      return;
+    }
+    const { line, removed, added } = editedLines(edit);
+    shown.lines.splice(line, removed, ...new Array<null>(added).fill(null));
+    if (edit.type !== "editLine") {
+      shown.seq = edit.seq;
+    }
+  }
+
+  /** Highlights the edited result and sends the page the lines whose markup changed; an edit made meanwhile supersedes the run. */
+  private async refreshResultHighlight(page: number, state: MergeState): Promise<void> {
+    const { context, shownResult } = this;
+    if (context === null || shownResult === null) {
+      return;
+    }
+    const highlight = await this.highlight(state.resultLines.join("\n"), context.languageId);
+    if (this.state !== state || this.shownResult !== shownResult || this.isDisposed) {
+      return;
+    }
+    const resultHighlight = rebaseStyles(highlight, shownResult.styles);
+    const markup = resultLineMarkup({ state, chunks: describeMerge(state, { wordLevel: isWordLevel() }), resultHighlight });
+    const lines = markup.flatMap((line, index) => (line.html === shownResult.lines[index] ? [] : [{ line: index, ...line }]));
+    shownResult.lines = markup.map((line) => line.html);
+    shownResult.styles = resultHighlight.styles;
+    const update: MergeHighlightUpdate = { type: "highlight", page, seq: shownResult.seq, styles: renderTokenStyles(resultHighlight.styles, "result"), lines };
     await this.panel.webview.postMessage(update);
   }
 
@@ -358,6 +414,14 @@ function nextState(state: MergeState, message: Exclude<MergeMessage, { type: "ap
     case "replaceLines":
       return replaceLines(state, message.line, message.count, message.lines);
   }
+}
+
+function isLineEdit(message: MergeMessage): message is LineEdit & { readonly page: number } {
+  return message.type === "editLine" || message.type === "splitLine" || message.type === "joinWithPrevious" || message.type === "replaceLines";
+}
+
+function isWordLevel(): boolean {
+  return vscode.workspace.getConfiguration("differ").get<boolean>("wordLevelHighlighting", true);
 }
 
 /** Whether an edit names lines the result has; any other message fits. */

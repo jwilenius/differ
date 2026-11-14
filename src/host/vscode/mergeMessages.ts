@@ -19,6 +19,9 @@ export type MergeIntent =
   | { readonly type: "apply" }
   | { readonly type: "cancel" };
 
+/** An intent that changes result lines on the page itself. */
+export type LineEdit = Extract<MergeIntent, { type: "editLine" | "splitLine" | "joinWithPrevious" | "replaceLines" }>;
+
 /** An intent stamped with the number of the page that posted it; a replaced page's messages arrive late, about lines it no longer shows. */
 export type MergeMessage = MergeIntent & { readonly page: number };
 
@@ -37,6 +40,41 @@ export interface MergeLayoutUpdate {
 export interface MergeRedrawNotice {
   readonly type: "redrawing";
   readonly page: number;
+}
+
+/**
+ * Posted to `media/merge.js` after the host highlighted the result again following a line edit: the lines whose
+ * markup changed, which the page takes where its text still matches. `seq` is that of the latest numbered edit
+ * the highlighting includes; the page moves the lines through the edits it has numbered since.
+ */
+export interface MergeHighlightUpdate {
+  readonly type: "highlight";
+  readonly page: number;
+  readonly seq: number;
+  /** The result's token stylesheet, in place of the page's; it keeps every index the page's lines use. */
+  readonly styles: string;
+  readonly lines: readonly { readonly line: number; readonly text: string; readonly html: string }[];
+}
+
+/** From `line`, `removed` result lines gave way to `added`. */
+export interface EditedLines {
+  readonly line: number;
+  readonly removed: number;
+  readonly added: number;
+}
+
+/** The result lines a line edit replaces; `editedLines` in `media/mergeLines.js` reckons them alike. */
+export function editedLines(edit: LineEdit): EditedLines {
+  switch (edit.type) {
+    case "editLine":
+      return { line: edit.line, removed: 1, added: 1 };
+    case "splitLine":
+      return { line: edit.line, removed: 1, added: 2 };
+    case "joinWithPrevious":
+      return { line: edit.line - 1, removed: 2, added: 1 };
+    case "replaceLines":
+      return { line: edit.line, removed: edit.count, added: edit.lines.length };
+  }
 }
 
 /** Longest line of text accepted from the webview. */

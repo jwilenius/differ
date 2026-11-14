@@ -51,3 +51,33 @@ function pastedLines(before, text, after) {
   lines[lines.length - 1] += after;
   return lines;
 }
+
+/**
+ * The result lines an edit message replaces: from `line`, `removed` lines
+ * gave way to `added`. `editedLines` in `mergeMessages.ts` reckons them alike.
+ */
+function editedLines(message) {
+  switch (message.type) {
+    case "splitLine":
+      return { line: message.line, removed: 1, added: 2 };
+    case "joinWithPrevious":
+      return { line: message.line - 1, removed: 2, added: 1 };
+    case "replaceLines":
+      return { line: message.line, removed: message.count, added: message.lines.length };
+    default:
+      return { line: message.line, removed: 1, added: 1 };
+  }
+}
+
+/** Where result line `line` went through `edits`, made in that order; null once an edit replaced it. */
+function lineAfterEdits(edits, line) {
+  let current = line;
+  for (const edit of edits) {
+    if (current >= edit.line + edit.removed) {
+      current += edit.added - edit.removed;
+    } else if (current >= edit.line) {
+      return null;
+    }
+  }
+  return current;
+}

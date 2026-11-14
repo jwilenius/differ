@@ -72,6 +72,11 @@ function shownPage(webview: FakeWebview): number {
   return Number(/id="merge" data-page="(\d+)"/.exec(webview.html)?.[1]);
 }
 
+/** The messages of one type the panel posted to its webview. */
+function postedOfType(webview: FakeWebview, type: string): unknown[] {
+  return webview.postedMessages.filter((message) => (message as { type: string }).type === type);
+}
+
 /** Delivers a message as the page the webview shows posts it, stamped with its number. */
 function post(webview: FakeWebview, message: Readonly<Record<string, unknown>>): void {
   webview.fireDidReceiveMessage({ ...message, page: shownPage(webview) });
@@ -381,10 +386,10 @@ describe("MergeViewPanel splitting and joining result lines", () => {
     post(webview, { type: "splitLine", line: 1, offset: 1, seq: 2 });
     post(webview, { type: "joinWithPrevious", line: 2, seq: 3 });
 
-    await vi.waitFor(() => expect(webview.postedMessages).toHaveLength(3));
+    await vi.waitFor(() => expect(postedOfType(webview, "layout")).toHaveLength(3));
     expect(webview.html).toBe(page);
-    expect(webview.postedMessages[0]).toMatchObject({ type: "layout", page: shownPage(webview), seq: 1, data: { resultLineCount: 3, chunks: [{ result: [0, 2] }] } });
-    expect(webview.postedMessages[2]).toMatchObject({ type: "layout", seq: 3, data: { resultLineCount: 3, chunks: [{ result: [0, 2] }] } });
+    expect(postedOfType(webview, "layout")[0]).toMatchObject({ page: shownPage(webview), seq: 1, data: { resultLineCount: 3, chunks: [{ result: [0, 2] }] } });
+    expect(postedOfType(webview, "layout")[2]).toMatchObject({ seq: 3, data: { resultLineCount: 3, chunks: [{ result: [0, 2] }] } });
   });
 
   it("applies the split and joined lines", async () => {
@@ -415,9 +420,9 @@ describe("MergeViewPanel pasting lines into the result", () => {
 
     post(webview, { type: "replaceLines", line: 0, count: 1, lines: ["one", "two", "base"], seq: 1 });
 
-    await vi.waitFor(() => expect(webview.postedMessages).toHaveLength(1));
+    await vi.waitFor(() => expect(postedOfType(webview, "layout")).toHaveLength(1));
     expect(webview.html).toBe(page);
-    expect(webview.postedMessages[0]).toMatchObject({ type: "layout", seq: 1, data: { resultLineCount: 4, chunks: [{ result: [0, 3] }] } });
+    expect(postedOfType(webview, "layout")[0]).toMatchObject({ seq: 1, data: { resultLineCount: 4, chunks: [{ result: [0, 3] }] } });
 
     post(webview, { type: "apply" });
 
@@ -436,13 +441,67 @@ describe("MergeViewPanel pasting lines over several result lines", () => {
 
     post(webview, { type: "replaceLines", line: 0, count: 2, lines: ["one", "two", "three"], seq: 1 });
 
-    await vi.waitFor(() => expect(webview.postedMessages).toHaveLength(1));
-    expect(webview.postedMessages[0]).toMatchObject({ type: "layout", seq: 1, data: { resultLineCount: 3 } });
+    await vi.waitFor(() => expect(postedOfType(webview, "layout")).toHaveLength(1));
+    expect(postedOfType(webview, "layout")[0]).toMatchObject({ seq: 1, data: { resultLineCount: 3 } });
 
     post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
     expect(fs.readFileSync(file, "utf8")).toBe("one\ntwo\nthree");
+  });
+});
+
+describe("MergeViewPanel highlighting edited result lines", () => {
+  const PLAIN = { color: null, fontStyle: 0 };
+  const KEYWORD = { color: "#569cd6", fontStyle: 0 };
+  /** Colours lines starting with "kw" as keywords, numbering styles in first-use order as TextMate does, so tables differ between runs. */
+  const keywordHighlighter: TextHighlighter = {
+    highlight: async (text: string) => {
+      const lineStyles = text.split("\n").map((line) => (line.startsWith("kw") ? KEYWORD : PLAIN));
+      const styles = [...new Set(lineStyles)];
+      return { styles, lines: text.split("\n").map((line, index) => [{ length: line.length, styleIndex: styles.indexOf(lineStyles[index]) }]) };
+    },
+  };
+
+  it("sends the edited line coloured again, with the stylesheet its markup uses", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    await createPanel(fileDocument(path.join(repo, "f.txt")), keywordHighlighter);
+    const { webview } = vscodeMock.webviewPanels[0];
+
+    post(webview, { type: "editLine", line: 0, text: "kw base" });
+
+    await vi.waitFor(() => expect(postedOfType(webview, "highlight")).toHaveLength(1));
+    expect(postedOfType(webview, "highlight")[0]).toEqual({
+      type: "highlight",
+      page: shownPage(webview),
+      seq: 0,
+      styles: ".tk-result-1{color:#569cd6}",
+      lines: [{ line: 0, text: "kw base", html: '<span class="tk-result-1">kw base</span>' }],
+    });
+  });
+
+  it("numbers the update after the latest split and sends only the lines whose markup changed", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    post(webview, { type: "splitLine", line: 0, offset: 2, seq: 1 });
+
+    await vi.waitFor(() => expect(postedOfType(webview, "highlight")).toHaveLength(1));
+    expect(postedOfType(webview, "highlight")[0]).toMatchObject({ seq: 1, lines: [{ line: 0, text: "ba" }, { line: 1, text: "se" }] });
+  });
+
+  it("sends nothing for an edit a newer one overtook", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    post(webview, { type: "editLine", line: 0, text: "a" });
+    post(webview, { type: "editLine", line: 0, text: "ab" });
+
+    await vi.waitFor(() => expect(postedOfType(webview, "highlight")).toHaveLength(1));
+    expect(postedOfType(webview, "highlight")[0]).toMatchObject({ lines: [{ line: 0, text: "ab" }] });
   });
 });
 

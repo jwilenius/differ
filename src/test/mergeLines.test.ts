@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ignoreSide, joinWithPrevious, splitLine, startMerge, tallyMerge, type MergeState } from "../model/mergeSession";
 import { describeMerge } from "../model/mergeView";
 import type { HighlightedText } from "../model/syntaxTokens";
+import { editedLines as editedLinesOnHost } from "../host/vscode/mergeMessages";
 import { HtmlMergeViewRenderer, type MergeClientData } from "../render/html/mergeViewRenderer";
 
 const LINES_SOURCE = fs.readFileSync(path.join(__dirname, "..", "..", "media", "mergeLines.js"), "utf8");
@@ -13,6 +14,8 @@ const LINES_SOURCE = fs.readFileSync(path.join(__dirname, "..", "..", "media", "
 interface MergeLines {
   resultLineClasses(chunks: MergeClientData["chunks"], lineCount: number): string[];
   pastedLines(before: string, text: string, after: string): string[];
+  editedLines(message: Record<string, unknown>): { line: number; removed: number; added: number };
+  lineAfterEdits(edits: readonly { line: number; removed: number; added: number }[], line: number): number | null;
 }
 
 function loadMergeLines(): MergeLines {
@@ -100,5 +103,37 @@ describe("pastedLines", () => {
 
   it("keeps empty lines, including a trailing line break", () => {
     expect(loadMergeLines().pastedLines("", "x\n\ny\n", "")).toEqual(["x", "", "y", ""]);
+  });
+});
+
+describe("editedLines", () => {
+  it.each([
+    [{ type: "splitLine", line: 3, offset: 1 }, { line: 3, removed: 1, added: 2 }],
+    [{ type: "joinWithPrevious", line: 3 }, { line: 2, removed: 2, added: 1 }],
+    [{ type: "replaceLines", line: 3, count: 2, lines: ["a", "b", "c"] }, { line: 3, removed: 2, added: 3 }],
+  ])("gives the lines %j replaces", (message, shape) => {
+    expect(loadMergeLines().editedLines(message)).toEqual(shape);
+  });
+
+  it("matches the host's reckoning", () => {
+    const message = { type: "replaceLines", line: 3, count: 2, lines: ["a", "b", "c"], seq: 1 } as const;
+
+    expect(loadMergeLines().editedLines(message)).toEqual(editedLinesOnHost(message));
+  });
+});
+
+describe("lineAfterEdits", () => {
+  const edits = [{ line: 2, removed: 1, added: 2 }, { line: 6, removed: 2, added: 1 }];
+
+  it.each([
+    [1, 1],
+    [2, null],
+    [3, 4],
+    [4, 5],
+    [5, null],
+    [6, null],
+    [7, 7],
+  ])("follows line %i through the edits made since", (line, expected) => {
+    expect(loadMergeLines().lineAfterEdits(edits, line)).toBe(expected);
   });
 });

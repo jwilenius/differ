@@ -50,6 +50,10 @@
   let pendingPaste = null;
   /** Numbers the splits and joins sent, so only the layout answering the latest one is drawn. */
   let layoutSeq = 0;
+  /** The numbered edits the host's highlighting may not include yet: `{ seq, line, removed, added }`. */
+  let numberedEdits = [];
+  /** An IME composition in the result; re-highlighting its line would end it. */
+  let isComposing = false;
   /** The page is rebuilt after every action; the panel title tells one merge from another. */
   const scrollStateKey = document.title;
 
@@ -358,6 +362,13 @@
     }
   });
 
+  resultLines.addEventListener("compositionstart", () => {
+    isComposing = true;
+  });
+  resultLines.addEventListener("compositionend", () => {
+    isComposing = false;
+  });
+
   // Losing focus must not lose the keystrokes still sitting in the debounce.
   resultLines.addEventListener("focusout", flushPendingEdit, true);
 
@@ -385,6 +396,7 @@
     renumberResultLines(message.line);
     placeCaret(resultLineElements()[caretLine].querySelector(".code"), caretColumn);
     layoutSeq += 1;
+    numberedEdits.push({ seq: layoutSeq, ...editedLines(message) });
     send({ ...message, seq: layoutSeq });
   }
 
@@ -481,6 +493,38 @@
     scheduleDraw();
   }
 
+  /**
+   * Colours result lines again after the host highlighted the edited result. Each line follows the edits
+   * numbered since, and keeps its markup when its text changed meanwhile: a later update brings that.
+   */
+  function applyHighlight(update) {
+    numberedEdits = numberedEdits.filter((edit) => edit.seq > update.seq);
+    document.getElementById("result-styles").textContent = update.styles;
+    const cells = resultLines.querySelectorAll(".code[data-line]");
+    for (const { line, text, html } of update.lines) {
+      const target = lineAfterEdits(numberedEdits, line);
+      const cell = target === null ? undefined : cells[target];
+      const isComposingIn = isComposing && cell === document.activeElement;
+      if (cell && cell.textContent === text && !isComposingIn) {
+        setMarkup(cell, html);
+      }
+    }
+  }
+
+  /** Replaces a cell's markup, keeping the caret or selection in it. */
+  function setMarkup(cell, html) {
+    const selection = window.getSelection();
+    const isSelectedIn = selection && selection.rangeCount > 0 && cell.contains(selection.anchorNode) && cell.contains(selection.focusNode);
+    const anchor = isSelectedIn ? textOffset(cell, selection.anchorNode, selection.anchorOffset) : 0;
+    const focus = isSelectedIn ? textOffset(cell, selection.focusNode, selection.focusOffset) : 0;
+    cell.innerHTML = html;
+    if (isSelectedIn) {
+      const from = textPosition(cell, anchor);
+      const to = textPosition(cell, focus);
+      selection.setBaseAndExtent(from.node, from.offset, to.node, to.offset);
+    }
+  }
+
   window.addEventListener("message", (event) => {
     const update = event.data;
     // A message for the page this one replaced can arrive after it loads.
@@ -491,6 +535,8 @@
       awaitRedraw();
     } else if (update.type === "layout" && update.seq === layoutSeq) {
       applyLayout(update.data);
+    } else if (update.type === "highlight") {
+      applyHighlight(update);
     }
   });
 

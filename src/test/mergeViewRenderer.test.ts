@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { applySide, startMerge, tallyMerge, type MergeState } from "../model/mergeSession";
 import { describeMerge } from "../model/mergeView";
 import type { HighlightedText } from "../model/syntaxTokens";
-import { HtmlMergeViewRenderer, type MergeClientData, type MergeViewRenderContext } from "../render/html/mergeViewRenderer";
+import { HtmlMergeViewRenderer, resultLineMarkup, type MergeClientData, type MergeViewRenderContext } from "../render/html/mergeViewRenderer";
 
 const CLIENT_SOURCE = fs.readFileSync(path.join(__dirname, "..", "..", "media", "merge.js"), "utf8");
 
@@ -138,6 +138,29 @@ describe("HtmlMergeViewRenderer", () => {
     const html = render(startMerge(BASE, LEFT, RIGHT), { isSidesSwapped: true });
 
     expect(html).toContain("Sides are reversed");
+  });
+
+  it("gives the result's token styles their own stylesheet, which the client replaces", () => {
+    const state = startMerge(BASE, LEFT, RIGHT);
+    const keyword = { color: "#569cd6", fontStyle: 0 };
+    const resultHighlight = { styles: [{ color: null, fontStyle: 0 }, keyword], lines: state.resultLines.map((line) => [{ length: line.length, styleIndex: 1 }]) };
+    const html = new HtmlMergeViewRenderer().render(
+      { state, chunks: describeMerge(state, { wordLevel: true }), tally: tallyMerge(state), leftHighlight: unstyled(state.leftLines), rightHighlight: unstyled(state.rightLines), resultHighlight },
+      CONTEXT,
+    );
+
+    expect(html).toContain('<style nonce="abcdefghijklmnop0123" id="result-styles">.tk-result-1{color:#569cd6}</style>');
+  });
+
+  it("publishes the markup of every result line as it renders it", () => {
+    const state = startMerge(BASE, LEFT, RIGHT);
+    const chunks = describeMerge(state, { wordLevel: true });
+    const html = render(state);
+
+    const markup = resultLineMarkup({ state, chunks, resultHighlight: unstyled(state.resultLines) });
+
+    expect(markup.map((line) => line.text)).toEqual(state.resultLines);
+    expect(paneLines(html, "result").map((line) => /data-line="\d+">(.*)<\/span>(?:<\/div>)?$/.exec(line)?.[1])).toEqual(markup.map((line) => line.html));
   });
 
   it("numbers the page for the client's messages", () => {

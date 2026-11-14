@@ -29,7 +29,13 @@ jobs:
           test "$GITHUB_REF_NAME" = "v$VERSION"
       - run: npm run typecheck
       - run: npm test
-      - run: npm run package
+      - name: Package release installer
+        if: github.ref_type == 'tag'
+        run: npm run package
+      # Development builds carry the last release's version, so name them by commit to avoid clashing with it.
+      - name: Package development installer
+        if: github.ref_type != 'tag'
+        run: npm run package -- --out "differ-main-${GITHUB_SHA::7}.vsix"
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: differ-vsix

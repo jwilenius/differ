@@ -218,7 +218,8 @@ their tag's run. Manual builds are also available.
 
 1. Open [Build VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml).
 2. Select a successful run and download the **differ-vsix** artifact (retained for 30 days).
-3. Extract the ZIP to get `differ-0.1.0.vsix`.
+3. Extract the ZIP to get `differ-main-<commit>.vsix`, named by its 7-character commit hash so it never clashes with a
+   release installer. Its internal version is still the last release's.
 4. In VS Code, run **Extensions: Install from VSIX...** and select that file.
 
 For a local installer, use Node.js 22, run `npm ci`, then `npm run package`.

@@ -198,10 +198,12 @@ reuse `ResolutionController` unchanged — including its editing operations, whi
 To publish a release, start with a clean `main` matching `origin/main`, with Node.js 22, npm, Bash, and Git available:
 
 ```sh
-npm run release -- 0.1.1
+bash scripts/release.sh 0.2.1   # same as: npm run release -- 0.2.1
 ```
 
-Choose an unused version greater than the current version. The script installs locked dependencies, runs typecheck
+Choose an unused version greater than the current version, as plain `X.Y.Z` without the `v`. The script refuses to
+run unless you are on `main` with a clean tree matching `origin/main` and tag `vX.Y.Z` does not exist. It puts
+`/tmp/node-v22.23.4-linux-x64/bin` on `PATH` when present; set `NODE_BIN` to use another Node.js 22. The script installs locked dependencies, runs typecheck
 and tests, updates both package files, builds the VSIX, commits, tags, and atomically pushes the commit and tag.
 GitHub Actions then attaches the installer to a release with generated notes.
 

@@ -25,9 +25,11 @@ export interface UnmergedEntry {
 export async function listConflictedFiles(root: string): Promise<readonly string[]> {
   const entries = await listUnmergedEntries(root);
   // A Map keeps paths in first-seen order, which is Git's order.
-  const entriesByPath = new Map<string, readonly UnmergedEntry[]>();
+  const entriesByPath = new Map<string, UnmergedEntry[]>();
   for (const entry of entries) {
-    entriesByPath.set(entry.path, [...(entriesByPath.get(entry.path) ?? []), entry]);
+    const pathEntries = entriesByPath.get(entry.path) ?? [];
+    pathEntries.push(entry);
+    entriesByPath.set(entry.path, pathEntries);
   }
   return [...entriesByPath]
     .filter(([, pathEntries]) => isMergeableConflict(pathEntries))

@@ -448,7 +448,6 @@ async function confirm(message: string, action: string): Promise<boolean> {
   return (await vscode.window.showWarningMessage(message, { modal: true }, action)) === action;
 }
 
-/** A missing file is not a link: saving creates it. */
 /** Opens a file's document; null when the file was deleted and no open document holds it, so there is none to open. */
 async function openPresentDocument(uri: vscode.Uri): Promise<vscode.TextDocument | null> {
   try {
@@ -473,6 +472,7 @@ async function isPresent(filePath: string): Promise<boolean> {
   }
 }
 
+/** A missing file is not a link: saving creates it. */
 async function isSymbolicLink(filePath: string): Promise<boolean> {
   try {
     return (await fs.promises.lstat(filePath)).isSymbolicLink();

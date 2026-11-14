@@ -12,7 +12,7 @@ import {
   editLine,
   ignoreSide,
   joinWithPrevious,
-  replaceLine,
+  replaceLines,
   splitLine,
   startMerge,
   tallyMerge,
@@ -257,7 +257,7 @@ export class MergeViewPanel {
     if (message.type === "editLine") {
       return;
     }
-    if (message.type === "splitLine" || message.type === "joinWithPrevious" || message.type === "replaceLine") {
+    if (message.type === "splitLine" || message.type === "joinWithPrevious" || message.type === "replaceLines") {
       return this.postLayout(message.page, message.seq, this.state);
     }
     // The page stops taking edits once it sends a resolving action, so it is redrawn even when nothing changed.
@@ -342,8 +342,8 @@ function nextState(state: MergeState, message: Exclude<MergeMessage, { type: "ap
       return splitLine(state, message.line, message.offset);
     case "joinWithPrevious":
       return joinWithPrevious(state, message.line);
-    case "replaceLine":
-      return replaceLine(state, message.line, message.lines);
+    case "replaceLines":
+      return replaceLines(state, message.line, message.count, message.lines);
   }
 }
 
@@ -352,8 +352,9 @@ function fitsResult(state: MergeState, message: MergeMessage): boolean {
   switch (message.type) {
     case "editLine":
     case "splitLine":
-    case "replaceLine":
       return message.line < state.resultLines.length;
+    case "replaceLines":
+      return message.line + message.count <= state.resultLines.length;
     case "joinWithPrevious":
       return message.line > 0 && message.line < state.resultLines.length;
     default:

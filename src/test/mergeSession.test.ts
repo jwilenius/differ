@@ -8,7 +8,7 @@ import {
   ignoreSide,
   isChunkResolved,
   joinWithPrevious,
-  replaceLine,
+  replaceLines,
   resultText,
   splitLine,
   startMerge,
@@ -170,13 +170,34 @@ describe("merge session", () => {
   it("moves chunks when one line is replaced by several, as splitting it does", () => {
     const start = startMerge(BASE, LEFT, RIGHT);
 
-    const pasted = replaceLine(start, 1, ["x", "b", "y"]);
+    const pasted = replaceLines(start, 1, 1, ["x", "b", "y"]);
 
     expect(resultText(pasted)).toBe("a\nx\nb\ny\nc\nd\ne\nf\ng");
     expect(pasted.chunks.map((chunkState) => chunkState.result)).toEqual(
       splitLine(splitLine(editLine(start, 1, "xby"), 1, 1), 2, 1).chunks.map((chunkState) => chunkState.result),
     );
     expect(pasted.chunks[0].result).toEqual({ start: 1, end: 4 });
+  });
+
+  it("moves chunks around lines pasted over several lines, keeping the pasted lines out of chunks they cut into", () => {
+    const start = startMerge(BASE, LEFT, RIGHT);
+
+    const pasted = replaceLines(start, 1, 3, ["P", "Q"]);
+
+    expect(resultText(pasted)).toBe("a\nP\nQ\ne\nf\ng");
+    expect(pasted.chunks.map((chunkState) => chunkState.result)).toEqual([
+      { start: 1, end: 1 },
+      { start: 3, end: 3 },
+      { start: 4, end: 4 },
+      { start: 5, end: 6 },
+    ]);
+    expect(resultText(applyNonConflicting(pasted, "all"))).toBe("a\nB\nP\nQ\nD\ne\nX\nf");
+  });
+
+  it("keeps a chunk around lines pasted over all of its lines", () => {
+    const pasted = replaceLines(startMerge(CONFLICT_BASE, CONFLICT_LEFT, CONFLICT_RIGHT), 1, 1, ["P", "Q"]);
+
+    expect(pasted.chunks[0].result).toEqual({ start: 1, end: 3 });
   });
 
   it("keeps a joined line out of an empty chunk at the join", () => {
@@ -255,6 +276,8 @@ describe("merge session", () => {
     expect(editLine(start, 99, "x")).toBe(start);
     expect(splitLine(start, -1, 0)).toBe(start);
     expect(joinWithPrevious(start, 0)).toBe(start);
-    expect(replaceLine(start, 7, ["x", "y"])).toBe(start);
+    expect(replaceLines(start, 7, 1, ["x", "y"])).toBe(start);
+    expect(replaceLines(start, 5, 3, ["x", "y"])).toBe(start);
+    expect(replaceLines(start, 1, 0, ["x", "y"])).toBe(start);
   });
 });

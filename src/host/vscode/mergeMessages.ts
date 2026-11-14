@@ -15,7 +15,7 @@ export type MergeIntent =
   | { readonly type: "editLine"; readonly line: number; readonly text: string }
   | { readonly type: "splitLine"; readonly line: number; readonly offset: number; readonly seq: number }
   | { readonly type: "joinWithPrevious"; readonly line: number; readonly seq: number }
-  | { readonly type: "replaceLine"; readonly line: number; readonly lines: readonly string[]; readonly seq: number }
+  | { readonly type: "replaceLines"; readonly line: number; readonly count: number; readonly lines: readonly string[]; readonly seq: number }
   | { readonly type: "apply" }
   | { readonly type: "cancel" };
 
@@ -42,7 +42,7 @@ export interface MergeRedrawNotice {
 /** Longest line of text accepted from the webview. */
 export const MAX_LINE_LENGTH = 1_000_000;
 
-/** Most lines accepted in place of one result line, as a paste brings them. */
+/** Most lines accepted in place of result lines, as a paste brings them. */
 export const MAX_REPLACED_LINES = 100_000;
 
 type Fields = Readonly<Record<string, unknown>>;
@@ -55,7 +55,7 @@ const SCHEMAS: Readonly<Record<MergeIntent["type"], (fields: Fields) => MergeInt
   editLine: parseEditLine,
   splitLine: parseSplitLine,
   joinWithPrevious: parseJoin,
-  replaceLine: parseReplaceLine,
+  replaceLines: parseReplaceLines,
   apply: () => ({ type: "apply" }),
   cancel: () => ({ type: "cancel" }),
 };
@@ -68,7 +68,7 @@ const FIELDS: Readonly<Record<MergeIntent["type"], readonly string[]>> = {
   editLine: ["line", "text"],
   splitLine: ["line", "offset", "seq"],
   joinWithPrevious: ["line", "seq"],
-  replaceLine: ["line", "lines", "seq"],
+  replaceLines: ["line", "count", "lines", "seq"],
   apply: [],
   cancel: [],
 };
@@ -115,9 +115,10 @@ function parseJoin(fields: Fields): MergeIntent | null {
   return isIndex(line) && isIndex(seq) ? { type: "joinWithPrevious", line, seq } : null;
 }
 
-function parseReplaceLine(fields: Fields): MergeIntent | null {
-  const { line, lines, seq } = fields;
-  return isIndex(line) && isLineList(lines) && isIndex(seq) ? { type: "replaceLine", line, lines: [...lines], seq } : null;
+function parseReplaceLines(fields: Fields): MergeIntent | null {
+  const { line, count, lines, seq } = fields;
+  const isValid = isIndex(line) && isIndex(count) && count > 0 && isLineList(lines) && isIndex(seq);
+  return isValid ? { type: "replaceLines", line, count, lines: [...lines], seq } : null;
 }
 
 /** `every` skips the holes a structured clone keeps, so the list is copied densely first. */

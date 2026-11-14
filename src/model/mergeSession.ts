@@ -153,12 +153,13 @@ export function joinWithPrevious(state: MergeState, line: number): MergeState {
   return replaceResultLines(state, { start: line - 1, end: line + 1 }, [joined]);
 }
 
-/** Replaces one result line with several, as pasting lines into it does. */
-export function replaceLine(state: MergeState, line: number, lines: readonly string[]): MergeState {
-  if (!isResultLine(state, line)) {
+/** Replaces `count` result lines from `line` with others, as pasting over them does. */
+export function replaceLines(state: MergeState, line: number, count: number, lines: readonly string[]): MergeState {
+  const isWithinResult = isResultLine(state, line) && Number.isInteger(count) && count > 0 && line + count <= state.resultLines.length;
+  if (!isWithinResult) {
     return state;
   }
-  return replaceResultLines(state, { start: line, end: line + 1 }, lines);
+  return replaceResultLines(state, { start: line, end: line + count }, lines);
 }
 
 function isResultLine(state: MergeState, line: number): boolean {

@@ -46,6 +46,8 @@
   let navigation = { index: -1, top: -1 };
   let pendingEdit = null;
   let pendingTimer = null;
+  /** The result lines a paste shortcut found selected, which the paste it brings replaces. */
+  let pendingPaste = null;
   /** Numbers the splits and joins sent, so only the layout answering the latest one is drawn. */
   let layoutSeq = 0;
   /** The page is rebuilt after every action; the panel title tells one merge from another. */
@@ -306,18 +308,30 @@
     }
   });
 
+  // A selection spanning result lines (dragged from the line numbers) is not editable, so Chrome
+  // pastes nothing into it: the caret moves into its first line so the paste lands there, and
+  // the paste handler replaces the lines the selection covered.
+  document.addEventListener("keydown", (event) => {
+    const selected = isPasteKey(event) ? selectedLines() : null;
+    pendingPaste = selected && selected.first !== selected.last ? selected : null;
+    if (pendingPaste) {
+      placeCaret(pendingPaste.first, pendingPaste.start);
+    }
+  });
+  document.addEventListener("mousedown", () => {
+    pendingPaste = null;
+  });
+
   // Pasted or dropped text with line breaks becomes result lines; native handling would put the breaks inside one cell.
   resultLines.addEventListener("paste", (event) => {
-    const cell = editableOf(event.target);
     const text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
-    if (!cell || !hasLineBreak(text)) {
+    const selected = pendingPaste ?? selectedLines();
+    pendingPaste = null;
+    if (!selected || text === "" || (selected.first === selected.last && !hasLineBreak(text))) {
       return;
     }
     event.preventDefault();
-    const selection = selectionOffsets(cell);
-    if (selection) {
-      insertLines(cell, selection.start, selection.end, text);
-    }
+    insertLines(selected, text);
   });
 
   resultLines.addEventListener("drop", (event) => {
@@ -331,7 +345,7 @@
     const cell = editableOf(node instanceof Text ? node.parentElement : node);
     if (cell && resultLines.contains(cell)) {
       const offset = textOffset(cell, point.startContainer, point.startOffset);
-      insertLines(cell, offset, offset, text);
+      insertLines({ first: cell, start: offset, last: cell, end: offset }, text);
     }
   });
 
@@ -383,20 +397,29 @@
     return /[\r\n]/.test(text);
   }
 
-  /** Puts `text`, which holds line breaks, in place of characters `start` to `end` of a cell, as result lines. */
-  function insertLines(cell, start, end, text) {
-    const current = cell.textContent;
-    const after = current.slice(end);
-    const lines = pastedLines(current.slice(0, start), text, after);
-    const line = Number(cell.dataset.line);
-    const last = lines.length - 1;
-    editLines({ type: "replaceLine", line, lines }, () => fillCells(cell, lines), line + last, lines[last].length - after.length);
+  function isPasteKey(event) {
+    const isInsert = event.shiftKey && event.keyCode === 45;
+    return isInsert || ((event.ctrlKey || event.metaKey) && !event.altKey && event.keyCode === 86);
   }
 
-  /** Gives a cell the first of `lines` and adds the rest as new lines below it. */
-  function fillCells(cell, lines) {
-    const line = cell.parentElement;
-    cell.textContent = lines[0];
+  /** Puts `text` in place of the selected result text, from `start` in cell `first` to `end` in cell `last`, as result lines. */
+  function insertLines(selected, text) {
+    const { first, start, last, end } = selected;
+    const after = last.textContent.slice(end);
+    const lines = pastedLines(first.textContent.slice(0, start), text, after);
+    const line = Number(first.dataset.line);
+    const count = Number(last.dataset.line) - line + 1;
+    const caretLine = line + lines.length - 1;
+    const caretColumn = lines[lines.length - 1].length - after.length;
+    editLines({ type: "replaceLines", line, count, lines }, () => fillCells(first, last, lines), caretLine, caretColumn);
+  }
+
+  /** Gives cell `first` the first of `lines`, drops the lines after it through cell `last`, and adds the rest of `lines` below. */
+  function fillCells(first, last, lines) {
+    const line = first.parentElement;
+    const dropped = resultLineElements().slice(Number(first.dataset.line) + 1, Number(last.dataset.line) + 1);
+    dropped.forEach((element) => element.remove());
+    first.textContent = lines[0];
     line.after(...lines.slice(1).map((text) => createResultLine(line, text)));
   }
 
@@ -476,20 +499,42 @@
     return textOffset(cell, caret.endContainer, caret.endOffset);
   }
 
-  /** Where the selection starts and ends in a cell, in characters; null unless it lies within the cell. */
-  function selectionOffsets(cell) {
+  /**
+   * The result text the selection covers: the cells of its first and last lines and its character
+   * offsets in them; null unless both of its ends lie in result lines.
+   */
+  function selectedLines() {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) {
       return null;
     }
     const range = selection.getRangeAt(0);
-    if (!cell.contains(range.startContainer) || !cell.contains(range.endContainer)) {
+    const first = cellOfLine(range.startContainer);
+    const last = cellOfLine(range.endContainer);
+    if (!first || !last) {
       return null;
     }
     return {
-      start: textOffset(cell, range.startContainer, range.startOffset),
-      end: textOffset(cell, range.endContainer, range.endOffset),
+      first,
+      start: offsetIn(first, range.startContainer, range.startOffset),
+      last,
+      end: offsetIn(last, range.endContainer, range.endOffset),
     };
+  }
+
+  /** The editable cell of the result line holding a node, its line number included. */
+  function cellOfLine(node) {
+    const element = node instanceof Element ? node : node.parentElement;
+    const line = element && resultLines.contains(element) ? element.closest(".line") : null;
+    return line ? line.querySelector(".code[data-line]") : null;
+  }
+
+  /** How many characters of a cell come before a DOM position: none when it lies before the cell, all when after. */
+  function offsetIn(cell, node, offset) {
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    const side = range.comparePoint(node, offset);
+    return side < 0 ? 0 : side > 0 ? cell.textContent.length : textOffset(cell, node, offset);
   }
 
   /** How many characters of a cell come before a DOM position inside it. */

@@ -11,7 +11,7 @@ describe("parseMergeMessage", () => {
     { type: "editLine", page: 1, line: 2, text: "const x = 1;" },
     { type: "splitLine", page: 1, line: 2, offset: 3, seq: 1 },
     { type: "joinWithPrevious", page: 1, line: 2, seq: 7 },
-    { type: "replaceLine", page: 1, line: 2, lines: ["a", "", "b"], seq: 3 },
+    { type: "replaceLines", page: 1, line: 2, count: 2, lines: ["a", "", "b"], seq: 3 },
     { type: "apply", page: 1 },
     { type: "cancel", page: 1 },
   ])("accepts $type", (message) => {
@@ -37,13 +37,14 @@ describe("parseMergeMessage", () => {
     ["overlong text", { type: "editLine", page: 1, line: 0, text: "x".repeat(MAX_LINE_LENGTH + 1) }],
     ["a missing sequence number", { type: "joinWithPrevious", page: 1, line: 1 }],
     ["a fractional sequence number", { type: "splitLine", page: 1, line: 1, offset: 0, seq: 0.5 }],
-    ["no replacement lines", { type: "replaceLine", page: 1, line: 0, lines: [], seq: 1 }],
-    ["replacement lines that are not a list", { type: "replaceLine", page: 1, line: 0, lines: "a", seq: 1 }],
-    ["replacement lines with a hole", { type: "replaceLine", page: 1, line: 0, lines: new Array<string>(2), seq: 1 }],
-    ["a replacement line that is not text", { type: "replaceLine", page: 1, line: 0, lines: ["a", 1], seq: 1 }],
-    ["a replacement line with a line break", { type: "replaceLine", page: 1, line: 0, lines: ["a", "b\rc"], seq: 1 }],
-    ["an overlong replacement line", { type: "replaceLine", page: 1, line: 0, lines: ["x".repeat(MAX_LINE_LENGTH + 1)], seq: 1 }],
-    ["too many replacement lines", { type: "replaceLine", page: 1, line: 0, lines: Array<string>(MAX_REPLACED_LINES + 1).fill(""), seq: 1 }],
+    ["no lines to replace", { type: "replaceLines", page: 1, line: 0, count: 0, lines: ["a"], seq: 1 }],
+    ["no replacement lines", { type: "replaceLines", page: 1, line: 0, count: 1, lines: [], seq: 1 }],
+    ["replacement lines that are not a list", { type: "replaceLines", page: 1, line: 0, count: 1, lines: "a", seq: 1 }],
+    ["replacement lines with a hole", { type: "replaceLines", page: 1, line: 0, count: 1, lines: new Array<string>(2), seq: 1 }],
+    ["a replacement line that is not text", { type: "replaceLines", page: 1, line: 0, count: 1, lines: ["a", 1], seq: 1 }],
+    ["a replacement line with a line break", { type: "replaceLines", page: 1, line: 0, count: 1, lines: ["a", "b\rc"], seq: 1 }],
+    ["an overlong replacement line", { type: "replaceLines", page: 1, line: 0, count: 1, lines: ["x".repeat(MAX_LINE_LENGTH + 1)], seq: 1 }],
+    ["too many replacement lines", { type: "replaceLines", page: 1, line: 0, count: 1, lines: Array<string>(MAX_REPLACED_LINES + 1).fill(""), seq: 1 }],
   ])("rejects %s", (_label, message) => {
     expect(parseMergeMessage(message)).toBeNull();
   });

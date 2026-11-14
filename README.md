@@ -213,7 +213,8 @@ If pushing fails, the release commit and tag remain local; fix the push error an
 
 ## Install a development build
 
-Every push to `main` builds a VS Code installer after typecheck and tests pass. Manual builds are also available.
+Every push to `main` builds a VS Code installer after typecheck and tests pass; release commits are built once, by
+their tag's run. Manual builds are also available.
 
 1. Open [Build VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml).
 2. Select a successful run and download the **differ-vsix** artifact (retained for 30 days).

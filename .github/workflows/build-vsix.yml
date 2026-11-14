@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   package:
+    # scripts/release.sh pushes its release commit and tag together; the tag run builds and publishes that commit.
+    if: "github.ref_type == 'tag' || !startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

@@ -8,7 +8,7 @@ import { unstyledText } from "../highlight/textMateHighlighter";
 import { MergeViewPanel } from "../host/vscode/mergeViewPanel";
 import type { TextHighlighter } from "../host/vscode/twoWayDiffPanel";
 import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
-import { type FakeWebview, fireDidCloseTextDocument, resetVscodeMock, vscodeMock } from "./vscodeMock";
+import { ColorThemeKind, changeColorThemeKind, type FakeWebview, fireDidCloseTextDocument, resetVscodeMock, vscodeMock } from "./vscodeMock";
 
 let repo: string;
 let outside: string;
@@ -434,8 +434,34 @@ describe("MergeViewPanel messages from a replaced page", () => {
     webview.fireDidReceiveMessage({ type: "splitLine", line: 0, offset: 1, seq: 1, page: firstPage });
     post(webview, { type: "splitLine", line: 0, offset: 2, seq: 1 });
 
-    await vi.waitFor(() => expect(webview.postedMessages).toHaveLength(1));
+    const layouts = (): unknown[] => webview.postedMessages.filter((message) => (message as { type: string }).type === "layout");
+    await vi.waitFor(() => expect(layouts()).toHaveLength(1));
     expect(webview.html).toBe(redrawn);
-    expect(webview.postedMessages[0]).toMatchObject({ page: shownPage(webview), data: { resultLineCount: 3 } });
+    expect(layouts()[0]).toMatchObject({ page: shownPage(webview), data: { resultLineCount: 3 } });
+  });
+});
+
+describe("MergeViewPanel redrawing the page", () => {
+  it("redraws for a resolving action that changes nothing, as the page stops taking edits until it is replaced", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+    post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
+
+    post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
+
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(3));
+  });
+
+  it("tells the page before a colour theme change replaces it, so it sends the edit it holds back and stops taking more", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    changeColorThemeKind(ColorThemeKind.Light);
+
+    expect(webview.postedMessages).toEqual([{ type: "redrawing", page: 1 }]);
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
   });
 });

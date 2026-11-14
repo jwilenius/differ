@@ -212,10 +212,21 @@
       return;
     }
     const message = actionOf(button);
-    if (message) {
-      post(message);
+    if (!message) {
+      return;
+    }
+    post(message);
+    // Apply and Cancel may be called off in a dialog; every other action redraws the page.
+    if (message.type !== "apply" && message.type !== "cancel") {
+      awaitRedraw();
     }
   });
+
+  /** Edits made on a page the host is replacing would be lost with it: send the one held back and take no more. */
+  function awaitRedraw() {
+    flushPendingEdit();
+    scrollers.result.inert = true;
+  }
 
   function actionOf(button) {
     const { dataset } = button;
@@ -440,9 +451,13 @@
 
   window.addEventListener("message", (event) => {
     const update = event.data;
-    // An answer to the page this one replaced can arrive after it loads.
-    const isLatestLayout = update && update.type === "layout" && update.page === page && update.seq === layoutSeq;
-    if (isLatestLayout) {
+    // A message for the page this one replaced can arrive after it loads.
+    if (!update || update.page !== page) {
+      return;
+    }
+    if (update.type === "redrawing") {
+      awaitRedraw();
+    } else if (update.type === "layout" && update.seq === layoutSeq) {
       applyLayout(update.data);
     }
   });

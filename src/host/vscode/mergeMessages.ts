@@ -30,6 +30,15 @@ export interface MergeLayoutUpdate {
   readonly data: MergeClientData;
 }
 
+/**
+ * Posted to `media/merge.js` when the host starts redrawing the page: it sends the edit it holds back and
+ * stops taking edits, which would be lost with it.
+ */
+export interface MergeRedrawNotice {
+  readonly type: "redrawing";
+  readonly page: number;
+}
+
 /** Longest line of text accepted from the webview. */
 export const MAX_LINE_LENGTH = 1_000_000;
 

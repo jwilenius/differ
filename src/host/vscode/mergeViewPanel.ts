@@ -23,7 +23,7 @@ import { describeMerge } from "../../model/mergeView";
 import type { HighlightedText } from "../../model/syntaxTokens";
 import { HtmlMergeViewRenderer, mergeClientData, type MergeViewRenderContext } from "../../render/html/mergeViewRenderer";
 import { escapeHtml } from "../../render/html/webviewMarkup";
-import { parseMergeMessage, type MergeLayoutUpdate, type MergeMessage } from "./mergeMessages";
+import { parseMergeMessage, type MergeLayoutUpdate, type MergeMessage, type MergeRedrawNotice } from "./mergeMessages";
 import type { TextHighlighter } from "./twoWayDiffPanel";
 
 const VIEW_TYPE = "differ.mergeView";
@@ -129,6 +129,7 @@ export class MergeViewPanel {
       return;
     }
     const generation = ++this.renderGeneration;
+    this.warnPageOfRedraw();
     this.sideHighlights ??= this.highlightSides(state, context.languageId);
     const [[leftHighlight, rightHighlight], resultHighlight] = await Promise.all([
       this.sideHighlights,
@@ -153,6 +154,18 @@ export class MergeViewPanel {
     };
     this.panel.webview.html = new HtmlMergeViewRenderer().render(input, this.renderContext(context, generation));
     this.shownPage = generation;
+  }
+
+  /**
+   * Tells the page it is being replaced: it sends the edit it holds back, which arrives while highlighting
+   * runs and so reaches the new page, and takes no more.
+   */
+  private warnPageOfRedraw(): void {
+    if (this.shownPage === 0) {
+      return;
+    }
+    const notice: MergeRedrawNotice = { type: "redrawing", page: this.shownPage };
+    void this.panel.webview.postMessage(notice);
   }
 
   private renderContext(context: MergeContext, page: number): MergeViewRenderContext {
@@ -247,9 +260,8 @@ export class MergeViewPanel {
     if (message.type === "splitLine" || message.type === "joinWithPrevious" || message.type === "replaceLine") {
       return this.postLayout(message.page, message.seq, this.state);
     }
-    if (this.state !== state) {
-      await this.render();
-    }
+    // The page stops taking edits once it sends a resolving action, so it is redrawn even when nothing changed.
+    await this.render();
   }
 
   /** Tells the page where the chunks moved, so it can redraw tints and ribbons around the lines it added or removed itself. */

@@ -75,6 +75,45 @@ describe("MergeViewPanel apply", () => {
   });
 });
 
+describe("MergeViewPanel apply after confirming an unresolved result", () => {
+  it("refuses a file that became a symbolic link while the confirmation was open", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const target = path.join(outside, "target.txt");
+    fs.writeFileSync(target, "precious\n");
+    const webview = await openPanel(fileDocument(file));
+    vscodeMock.warningMessageResponse = () => {
+      fs.rmSync(file);
+      fs.symlinkSync(target, file);
+      return "Apply";
+    };
+
+    webview.fireDidReceiveMessage({ type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning", "error"]));
+    expect(vscodeMock.messages[1].text).toContain("symbolic link");
+    expect(fs.readFileSync(target, "utf8")).toBe("precious\n");
+  });
+
+  it("writes the result when the file was deleted, as saving recreates it", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+    vscodeMock.warningMessageResponse = () => {
+      fs.rmSync(file);
+      return "Apply";
+    };
+
+    webview.fireDidReceiveMessage({ type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning"]);
+    expect(fs.readFileSync(file, "utf8")).toBe(vscodeMock.appliedEdits.at(-1)?.text);
+  });
+});
+
 describe("MergeViewPanel for a conflict it cannot merge", () => {
   it("says why instead of claiming no merge is in progress", async () => {
     divergeBranches(repo, ["f.txt"]);

@@ -207,19 +207,17 @@ export class MergeViewPanel {
 
   /** Writes the result to the file and saves it; stages it only when nothing is left unresolved. */
   private async applyResult(state: MergeState): Promise<void> {
-    const filePath = this.options.document.uri.fsPath;
-    const isSymbolicLink = (await fs.promises.lstat(filePath)).isSymbolicLink();
-    if (isSymbolicLink) {
-      const reason = "it is a symbolic link, and saving would change the file it points to";
-      void vscode.window.showErrorMessage(`Differ will not write ${path.basename(filePath)}: ${reason}.`);
-      return;
-    }
     const tally = tallyMerge(state);
     const isComplete = tally.changes === 0 && tally.conflicts === 0;
     if (!isComplete && !(await confirm(`${describeTally(tally)} Apply the result anyway? The file will not be staged.`, "Apply"))) {
       return;
     }
     const { document } = this.options;
+    if (await isSymbolicLink(document.uri.fsPath)) {
+      const reason = "it is a symbolic link, and saving would change the file it points to";
+      void vscode.window.showErrorMessage(`Differ will not write ${path.basename(document.uri.fsPath)}: ${reason}.`);
+      return;
+    }
     const edit = new vscode.WorkspaceEdit();
     const wholeDocument = new vscode.Range(new vscode.Position(0, 0), document.lineAt(document.lineCount - 1).range.end);
     edit.replace(document.uri, wholeDocument, state.resultLines.join(this.context?.eol ?? "\n"));
@@ -287,6 +285,18 @@ function describeTally(tally: MergeTally): string {
 
 async function confirm(message: string, action: string): Promise<boolean> {
   return (await vscode.window.showWarningMessage(message, { modal: true }, action)) === action;
+}
+
+/** A missing file is not a link: saving creates it. */
+async function isSymbolicLink(filePath: string): Promise<boolean> {
+  try {
+    return (await fs.promises.lstat(filePath)).isSymbolicLink();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 /** Git's stages may use CRLF; the merge works on bare lines and Apply restores the document's line ending. */

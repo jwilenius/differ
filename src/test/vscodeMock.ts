@@ -245,6 +245,8 @@ export interface VscodeMockState {
   readonly quickPickRequests: QuickPickRequest[];
   /** Index of the item `showQuickPick` returns; undefined cancels the pick. */
   quickPickChoice: number | undefined;
+  /** Answers each `window.showWarningMessage` with the returned item; when absent, or returning undefined, it is dismissed. */
+  warningMessageResponse: ((text: string) => string | undefined) | undefined;
   workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined;
   activeTextEditor: vscode.TextEditor | undefined;
   openDialogResponse: Uri[] | undefined;
@@ -273,6 +275,7 @@ export const vscodeMock: VscodeMockState = {
   openDialogRequests: [],
   quickPickRequests: [],
   quickPickChoice: undefined,
+  warningMessageResponse: undefined,
   workspaceFolders: undefined,
   activeTextEditor: undefined,
   openDialogResponse: undefined,
@@ -304,6 +307,7 @@ export function resetVscodeMock(): void {
   vscodeMock.openDialogRequests.length = 0;
   vscodeMock.quickPickRequests.length = 0;
   vscodeMock.quickPickChoice = undefined;
+  vscodeMock.warningMessageResponse = undefined;
   vscodeMock.workspaceFolders = undefined;
   vscodeMock.activeTextEditor = undefined;
   vscodeMock.openDialogResponse = undefined;
@@ -545,7 +549,10 @@ export const window = {
   },
 
   showErrorMessage: (text: string) => showMessage("error", text),
-  showWarningMessage: (text: string) => showMessage("warning", text),
+  async showWarningMessage(text: string): Promise<string | undefined> {
+    await showMessage("warning", text);
+    return vscodeMock.warningMessageResponse?.(text);
+  },
   showInformationMessage: (text: string) => showMessage("information", text),
 
   onDidChangeActiveTextEditor(

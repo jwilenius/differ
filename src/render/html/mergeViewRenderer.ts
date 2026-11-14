@@ -57,8 +57,8 @@ interface PaneLayout {
   /** Empty ranges by the line they precede; the line count stands for "after the last line". */
   readonly gaps: ReadonlyMap<number, ChunkTint>;
   readonly words: ReadonlyMap<number, readonly WordSpan[]>;
-  /** Chunk index whose apply/ignore buttons sit on a line. */
-  readonly actions: ReadonlyMap<number, number>;
+  /** Chunk indexes whose apply/ignore buttons sit on a line; a gap before the last line shares it with a gap ending the file. */
+  readonly actions: ReadonlyMap<number, readonly number[]>;
 }
 
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
@@ -192,9 +192,10 @@ function layoutSide(input: MergeViewInput, side: MergeSide): PaneLayout {
   const lines = side === "left" ? input.state.leftLines : input.state.rightLines;
   const highlight = side === "left" ? input.leftHighlight : input.rightHighlight;
   const pending = input.chunks.filter((chunk) => chunk[side].resolution === "pending");
-  const actions = new Map<number, number>();
+  const actions = new Map<number, number[]>();
   for (const chunk of pending) {
-    actions.set(actionLine(chunk[side].range, lines.length), chunk.index);
+    const line = actionLine(chunk[side].range, lines.length);
+    actions.set(line, [...(actions.get(line) ?? []), chunk.index]);
   }
 
   return {
@@ -275,12 +276,12 @@ function renderLine(layout: PaneLayout, rawText: string, index: number): string 
 
 /** IntelliJ's gutter: `× »` beside the left pane, `« ×` beside the right, always pointing at the result. */
 function renderActions(layout: PaneLayout, line: number): string {
-  const chunk = layout.actions.get(line);
-  if (chunk === undefined) {
-    return `<span class="acts"></span>`;
-  }
-  const side = layout.pane;
+  const chunks = layout.actions.get(line) ?? [];
+  return `<span class="acts">${chunks.map((chunk) => renderChunkActions(layout.pane, chunk)).join("")}</span>`;
+}
+
+function renderChunkActions(side: Pane, chunk: number): string {
   const apply = `<button class="act apply" data-chunk="${chunk}" data-side="${side}" data-action="apply" title="Accept" aria-label="Accept">${side === "left" ? "»" : "«"}</button>`;
   const ignore = `<button class="act ignore" data-chunk="${chunk}" data-side="${side}" data-action="ignore" title="Ignore" aria-label="Ignore">×</button>`;
-  return `<span class="acts">${side === "left" ? ignore + apply : apply + ignore}</span>`;
+  return side === "left" ? ignore + apply : apply + ignore;
 }

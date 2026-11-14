@@ -141,7 +141,8 @@ button.tool.text-only {
   display: flex;
   justify-content: center;
   gap: 2px;
-  width: 3.4em;
+  /* Grows on the rare line holding two chunks' buttons. */
+  min-width: 3.4em;
 }
 
 button.act {

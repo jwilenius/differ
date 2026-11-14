@@ -80,6 +80,17 @@ describe("HtmlMergeViewRenderer", () => {
     expect(left[0]).not.toContain("button");
   });
 
+  it("keeps the buttons of a gap before the last line and a gap ending the file on the same line", () => {
+    const html = render(startMerge("a\nX\nb\nY", "a\nb", "a\nX\nb\nY"));
+    const left = paneLines(html, "left");
+    const leftChunks = [...html.matchAll(/data-chunk="(\d+)" data-side="left" data-action="apply"/g)].map((match) => match[1]);
+
+    expect(clientData(html).chunks.map((chunk) => chunk.left)).toEqual([[1, 1], [2, 2]]);
+    expect(leftChunks).toEqual(["0", "1"]);
+    expect(left[1]).toContain('data-chunk="0"');
+    expect(left[1]).toContain('data-chunk="1"');
+  });
+
   it("draws an addition's empty range in the result as a gap after the last line", () => {
     const result = paneLines(render(startMerge(BASE, LEFT, RIGHT)), "result");
 

@@ -236,5 +236,6 @@ describe("MergeViewPanel for a conflict it cannot merge", () => {
     const { html } = vscodeMock.webviewPanels[0].webview;
     expect(html).not.toContain("No merge in progress");
     expect(html).toContain("Differ cannot merge f.txt");
+    expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">`);
   });
 });

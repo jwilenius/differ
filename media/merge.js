@@ -222,16 +222,22 @@
       return;
     }
     post(message);
-    // Apply and Cancel may be called off in a dialog; every other action redraws the page.
-    if (message.type !== "apply" && message.type !== "cancel") {
+    // Cancel may be called off in a dialog; every other action redraws the page, or closes it once applied.
+    if (message.type !== "cancel") {
       awaitRedraw();
     }
   });
 
-  /** Edits made on a page the host is replacing would be lost with it: send the one held back and take no more. */
+  /**
+   * Edits and actions on a page the host is replacing would be lost with it, or name lines and chunks the host
+   * has changed: send the edit held back and take no more.
+   */
   function awaitRedraw() {
     flushPendingEdit();
     scrollers.result.inert = true;
+    for (const button of document.querySelectorAll("button")) {
+      button.disabled = true;
+    }
   }
 
   function actionOf(button) {

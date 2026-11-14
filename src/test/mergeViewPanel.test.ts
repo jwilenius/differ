@@ -223,6 +223,45 @@ describe("MergeViewPanel apply after confirming an unresolved result", () => {
   });
 });
 
+describe("MergeViewPanel while applying", () => {
+  it("asks and writes once when Apply is clicked twice", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+    vscodeMock.warningMessageResponse = () => "Apply";
+
+    post(webview, { type: "apply" });
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning"]);
+    expect(vscodeMock.appliedEdits).toHaveLength(1);
+  });
+
+  it("drops an edit sent while Apply asks, and redraws the page when Apply is called off", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+    const page = shownPage(webview);
+    vscodeMock.warningMessageResponse = () => {
+      post(webview, { type: "editLine", line: 0, text: "typed while asked" });
+      return undefined;
+    };
+
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(shownPage(webview)).not.toBe(page));
+    expect(webview.html).not.toContain("typed while asked");
+    vscodeMock.warningMessageResponse = () => "Apply";
+    post(webview, { type: "apply" });
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(fs.readFileSync(file, "utf8")).toBe("base\n");
+  });
+});
+
 describe("MergeViewPanel that fails to load", () => {
   it("closes its panel instead of leaving it blank", async () => {
     divergeBranches(repo, ["f.txt"]);

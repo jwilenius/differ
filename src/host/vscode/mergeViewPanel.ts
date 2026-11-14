@@ -102,6 +102,8 @@ export class MergeViewPanel {
   /** Earlier merge states, latest last; the page's own undo knows nothing of the lines it splits, joins and colours. */
   private readonly undoStates: MergeState[] = [];
   private readonly redoStates: MergeState[] = [];
+  /** Apply writes the merge as it was asked for, so the merge takes no other message until it is done. */
+  private isApplying = false;
   /** Closing the panel while it loads or renders is not an error; its webview just takes no more content. */
   private isDisposed = false;
 
@@ -287,6 +289,10 @@ export class MergeViewPanel {
     if (this.state === null) {
       return;
     }
+    if (this.isApplying) {
+      this.options.log(`Dropped a merge message sent while the result of ${this.title} is applied.`);
+      return;
+    }
     const message = parseMergeMessage(value);
     if (message !== null && message.page !== this.shownPage) {
       this.options.log(`Dropped a ${message.type} message from a replaced merge page for ${this.title}.`);
@@ -407,20 +413,35 @@ export class MergeViewPanel {
     await this.panel.webview.postMessage(update);
   }
 
-  /** Writes the result to the file and saves it; stages it only when nothing is left unresolved. */
+  /** Applies the result and closes the panel; the page stops taking edits once it asks, so it is redrawn when the result was not applied. */
   private async applyResult(state: MergeState): Promise<void> {
+    this.isApplying = true;
+    try {
+      if (await this.writeAndStage(state)) {
+        this.panel.dispose();
+      }
+    } finally {
+      this.isApplying = false;
+      if (!this.isDisposed) {
+        void this.render();
+      }
+    }
+  }
+
+  /** Writes the result to the file and saves it; stages it only when nothing is left unresolved. False when it was not written. */
+  private async writeAndStage(state: MergeState): Promise<boolean> {
     const tally = tallyMerge(state);
     const isComplete = tally.changes === 0 && tally.conflicts === 0;
     if (!isComplete && !(await confirm(`${describeTally(tally)} Apply the result anyway? The file will not be staged.`, "Apply"))) {
-      return;
+      return false;
     }
     if (!(await this.writeResult(state.resultLines.join(this.context?.eol ?? "\n")))) {
-      return;
+      return false;
     }
     if (isComplete) {
       await this.stage(this.uri.fsPath);
     }
-    this.panel.dispose();
+    return true;
   }
 
   /** Writes the result through the file's document, so editors showing it follow; false, once the user is told, when it was not written. */

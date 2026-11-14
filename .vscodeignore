@@ -11,4 +11,4 @@ AGENTS.md
 MEMORY.local.md
 .claude/**
 scripts/**
-vitest.config.ts
+vitest.config.mts

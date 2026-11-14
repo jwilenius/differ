@@ -1,5 +1,5 @@
 /**
- * Minimal runtime stand-in for the `vscode` module, aliased in `vitest.config.ts` for tests only.
+ * Minimal runtime stand-in for the `vscode` module, aliased in `vitest.config.mts` for tests only.
  *
  * It records registrations, executed commands, shown messages and created UI items in `vscodeMock`, and lets tests
  * fire the events a host would raise. It is a fixture, not an emulator: only the members host code consumes exist.

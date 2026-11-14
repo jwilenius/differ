@@ -41,6 +41,8 @@ const NONCE_BYTES = 16;
 const HIGHLIGHT_TIMEOUT_MS = 3_000;
 /** Most changes to the merge that undo can take back. */
 const MAX_UNDO_STEPS = 200;
+/** The `shownPage` while no page takes messages: pages are numbered from 1. */
+const NO_PAGE = 0;
 
 export interface MergeViewPanelOptions {
   /** Read only while the panel opens: VS Code may close the document while the panel stays open. */
@@ -89,7 +91,7 @@ export class MergeViewPanel {
   /** Counts renders so a slow one never overwrites a newer page; each page carries its render's number. */
   private renderGeneration = 0;
   /** The number of the page the webview shows; messages a replaced page sent are dropped. */
-  private shownPage = 0;
+  private shownPage = NO_PAGE;
   private shownResult: ShownResult | null = null;
   /** Calls off the result highlighting still running for an earlier edit. */
   private refreshAbort: AbortController | null = null;
@@ -188,7 +190,7 @@ export class MergeViewPanel {
    * runs and so reaches the new page, and takes no more.
    */
   private warnPageOfRedraw(): void {
-    if (this.shownPage === 0) {
+    if (this.shownPage === NO_PAGE) {
       return;
     }
     const notice: MergeRedrawNotice = { type: "redrawing", page: this.shownPage };
@@ -258,6 +260,8 @@ export class MergeViewPanel {
    * gets redrawn, since a dropped edit, or one naming lines the result lacks, means the page shows
    * a result the merge does not hold. A message from a replaced page is dropped without a redraw:
    * it arrives after the page now shown was drawn without it, so dropping it keeps the two agreeing.
+   * The page counts as replaced from the dropped message on: what it sends next may name lines the
+   * dropped edit added or removed on the page.
    */
   private async handleMessage(value: unknown): Promise<void> {
     if (this.state === null) {
@@ -270,6 +274,7 @@ export class MergeViewPanel {
     }
     if (message === null || !fitsResult(this.state, message)) {
       this.options.log(`Dropped a merge message the result cannot take for ${this.title}; redrawing the page.`);
+      this.shownPage = NO_PAGE;
       return this.render();
     }
     try {

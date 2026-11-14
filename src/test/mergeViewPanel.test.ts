@@ -330,6 +330,23 @@ describe("MergeViewPanel edit the page and merge no longer agree on", () => {
 
     await vi.waitFor(() => expect(webview.html).not.toBe(page));
   });
+
+  it("drops what the page sends after the rejected edit, whose lines may assume it", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+    const page = shownPage(webview);
+    vscodeMock.warningMessageResponse = () => "Apply";
+
+    post(webview, { type: "replaceLines", line: 1, count: 2, lines: ["a", "b"], seq: 1 });
+    post(webview, { type: "editLine", line: 0, text: "sent before the redraw" });
+    await vi.waitFor(() => expect(shownPage(webview)).not.toBe(page));
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(fs.readFileSync(file, "utf8")).toBe("base\n");
+  });
 });
 
 describe("MergeViewPanel typing in the result", () => {

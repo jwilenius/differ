@@ -267,10 +267,8 @@ function renderPane(layout: PaneLayout): string {
   return `<div class="${classes}" id="scroll-${layout.pane}"><div class="lines">${lines}</div></div>`;
 }
 
-/** A trailing `\r` is dropped: the HTML parser would turn it into a line break. */
 function lineMarkup(layout: PaneLayout, index: number): LineMarkup {
-  const rawText = layout.lines[index];
-  const text = rawText.endsWith("\r") ? rawText.slice(0, -1) : rawText;
+  const text = layout.lines[index];
   return { text, html: renderCode(text, layout.highlight.lines[index] ?? [], layout.words.get(index) ?? [], layout.pane) };
 }
 

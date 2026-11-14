@@ -92,6 +92,15 @@ describe("HtmlMergeViewRenderer", () => {
     expect(left[1]).toContain('data-chunk="1"');
   });
 
+  it("widens every gutter of a pane holding two chunks' buttons on one line, so the gutter stays straight", () => {
+    const shared = render(startMerge("a\nX\nb\nY", "a\nb", "a\nX\nb\nY"));
+    const single = render(startMerge(BASE, LEFT, RIGHT));
+
+    expect(shared).toContain('class="scroller pane-left double-acts" id="scroll-left"');
+    expect(shared).toContain('class="scroller pane-right" id="scroll-right"');
+    expect(single).not.toContain("double-acts");
+  });
+
   it("draws an addition's empty range in the result as a gap after the last line", () => {
     const result = paneLines(render(startMerge(BASE, LEFT, RIGHT)), "result");
 

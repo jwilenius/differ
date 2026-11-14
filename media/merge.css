@@ -141,8 +141,12 @@ button.tool.text-only {
   display: flex;
   justify-content: center;
   gap: 2px;
-  /* Grows on the rare line holding two chunks' buttons. */
-  min-width: 3.4em;
+  width: 3.4em;
+}
+
+/* A pane with a line holding two chunks' buttons; every gutter widens so their edge stays straight. */
+.double-acts .acts {
+  width: 6.8em;
 }
 
 button.act {

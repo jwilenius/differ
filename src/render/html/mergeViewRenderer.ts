@@ -248,7 +248,10 @@ function wordsByLine(entries: readonly { readonly line: number; readonly spans: 
 
 function renderPane(layout: PaneLayout): string {
   const lines = layout.lines.map((text, index) => renderLine(layout, text, index)).join("");
-  return `<div class="scroller pane-${layout.pane}" id="scroll-${layout.pane}"><div class="lines">${lines}</div></div>`;
+  // One line holding two chunks' buttons widens the whole gutter, which would otherwise jut out there.
+  const isDouble = [...layout.actions.values()].some((chunks) => chunks.length > 1);
+  const classes = `scroller pane-${layout.pane}${isDouble ? " double-acts" : ""}`;
+  return `<div class="${classes}" id="scroll-${layout.pane}"><div class="lines">${lines}</div></div>`;
 }
 
 /** A trailing `\r` is dropped: the HTML parser would turn it into a line break. */

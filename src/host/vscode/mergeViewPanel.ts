@@ -31,6 +31,7 @@ const NONCE_BYTES = 16;
 const HIGHLIGHT_TIMEOUT_MS = 3_000;
 
 export interface MergeViewPanelOptions {
+  /** Read only while the panel opens: VS Code may close the document while the panel stays open. */
   readonly document: vscode.TextDocument;
   readonly mediaRoot: vscode.Uri;
   readonly highlighter: TextHighlighter;
@@ -54,6 +55,8 @@ interface MergeContext {
  */
 export class MergeViewPanel {
   private readonly panel: vscode.WebviewPanel;
+  /** The conflicted file, which outlives the document captured at open. */
+  private readonly uri: vscode.Uri;
   private readonly disposables: vscode.Disposable[] = [];
   private context: MergeContext | null = null;
   private state: MergeState | null = null;
@@ -63,6 +66,7 @@ export class MergeViewPanel {
   private renderGeneration = 0;
 
   private constructor(private readonly options: MergeViewPanelOptions) {
+    this.uri = options.document.uri;
     this.panel = vscode.window.createWebviewPanel(
       VIEW_TYPE,
       `Merge: ${path.basename(options.document.uri.fsPath)}`,
@@ -138,7 +142,7 @@ export class MergeViewPanel {
       scriptUris: [this.mediaUri("diffGeometry.js"), this.mediaUri("merge.js")],
       leftLabel: context.leftLabel,
       rightLabel: context.rightLabel,
-      resultPath: vscode.workspace.asRelativePath(this.options.document.uri),
+      resultPath: vscode.workspace.asRelativePath(this.uri),
       isSidesSwapped: context.isSidesSwapped,
       focus,
     };
@@ -212,7 +216,8 @@ export class MergeViewPanel {
     if (!isComplete && !(await confirm(`${describeTally(tally)} Apply the result anyway? The file will not be staged.`, "Apply"))) {
       return;
     }
-    const { document } = this.options;
+    // The document captured at open may have been closed since; a closed one can no longer be saved.
+    const document = await vscode.workspace.openTextDocument(this.uri);
     if (await isSymbolicLink(document.uri.fsPath)) {
       const reason = "it is a symbolic link, and saving would change the file it points to";
       void vscode.window.showErrorMessage(`Differ will not write ${path.basename(document.uri.fsPath)}: ${reason}.`);

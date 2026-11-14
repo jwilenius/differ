@@ -259,6 +259,8 @@ export interface VscodeMockState {
   readonly textDocuments: vscode.TextDocument[];
   /** Language ids `openTextDocument` assigns by file extension, such as `.ts` → `typescript`; else `plaintext`. */
   readonly languageIds: Map<string, string>;
+  /** Opens `file:` documents for `openTextDocument`; when absent, they open like content-provider documents. */
+  openFileDocument: ((uri: Uri) => vscode.TextDocument) | undefined;
   readonly webviewPanels: FakeWebviewPanel[];
   /** Replacements of every `workspace.applyEdit` call, in order. */
   readonly appliedEdits: FakeReplacement[];
@@ -284,6 +286,7 @@ export const vscodeMock: VscodeMockState = {
   colorThemeKind: ColorThemeKind.Dark,
   textDocuments: [],
   languageIds: new Map(),
+  openFileDocument: undefined,
   webviewPanels: [],
   appliedEdits: [],
 };
@@ -316,6 +319,7 @@ export function resetVscodeMock(): void {
   vscodeMock.colorThemeKind = ColorThemeKind.Dark;
   vscodeMock.textDocuments.length = 0;
   vscodeMock.languageIds.clear();
+  vscodeMock.openFileDocument = undefined;
   vscodeMock.webviewPanels.length = 0;
   vscodeMock.appliedEdits.length = 0;
   didCloseTextDocument = new EventEmitter();
@@ -416,8 +420,20 @@ export const workspace = {
     return vscodeMock.textDocuments;
   },
 
-  /** Serves registered content-provider documents; the language comes from `vscodeMock.languageIds`. */
+  /**
+   * Serves `file:` documents from `vscodeMock.openFileDocument` when set, reusing one still open as VS Code does, else
+   * registered content-provider documents whose language comes from `vscodeMock.languageIds`.
+   */
   async openTextDocument(uri: Uri): Promise<vscode.TextDocument> {
+    if (uri.scheme === "file" && vscodeMock.openFileDocument) {
+      const openDocument = vscodeMock.textDocuments.find((open) => open.uri.toString() === uri.toString());
+      if (openDocument) {
+        return openDocument;
+      }
+      const fileDocument = vscodeMock.openFileDocument(uri);
+      vscodeMock.textDocuments.push(fileDocument);
+      return fileDocument;
+    }
     const text = vscodeMock.contentProviders.get(uri.scheme)?.provideTextDocumentContent(uri as unknown as vscode.Uri, {} as vscode.CancellationToken);
     const languageId = vscodeMock.languageIds.get(path.posix.extname(uri.path)) ?? "plaintext";
     const document = { uri, languageId, getText: () => text ?? "" } as unknown as vscode.TextDocument;

@@ -7,31 +7,45 @@ import { listUnmergedEntries } from "../git/gitConflictedFiles";
 import { unstyledText } from "../highlight/textMateHighlighter";
 import { MergeViewPanel } from "../host/vscode/mergeViewPanel";
 import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
-import { type FakeWebview, resetVscodeMock, vscodeMock } from "./vscodeMock";
+import { type FakeWebview, fireDidCloseTextDocument, resetVscodeMock, vscodeMock } from "./vscodeMock";
 
 let repo: string;
 let outside: string;
 
-/** A file document whose save writes the last applied edit to disk, following symbolic links as the editor's save does. */
+/**
+ * A file document whose save writes the last applied edit to disk, following symbolic links as the editor's save does.
+ * Like VS Code's, it refuses to save once closed.
+ */
 function fileDocument(filePath: string): vscode.TextDocument {
   const text = fs.readFileSync(filePath, "utf8");
   const lines = text.split("\n");
-  const save = async (): Promise<boolean> => {
-    fs.writeFileSync(filePath, vscodeMock.appliedEdits.at(-1)?.text ?? text);
-    return true;
-  };
-  return {
+  const document = {
     uri: vscode.Uri.file(filePath),
     languageId: "plaintext",
     eol: vscode.EndOfLine.LF,
     lineCount: lines.length,
+    isClosed: false,
     getText: () => text,
     lineAt: (line: number) => ({ range: new vscode.Range(new vscode.Position(line, 0), new vscode.Position(line, lines[line].length)) }),
-    save,
-  } as unknown as vscode.TextDocument;
+    save: async (): Promise<boolean> => {
+      if (document.isClosed) {
+        throw new Error("Document has been closed");
+      }
+      fs.writeFileSync(filePath, vscodeMock.appliedEdits.at(-1)?.text ?? text);
+      return true;
+    },
+  };
+  return document as unknown as vscode.TextDocument;
+}
+
+/** Closes a document as VS Code does when its tab closes or an unshown document is collected. */
+function closeDocument(document: vscode.TextDocument): void {
+  (document as { isClosed: boolean }).isClosed = true;
+  fireDidCloseTextDocument(document);
 }
 
 async function openPanel(document: vscode.TextDocument): Promise<FakeWebview> {
+  vscodeMock.textDocuments.push(document);
   await MergeViewPanel.create({
     document,
     mediaRoot: vscode.Uri.file(os.tmpdir()),
@@ -44,6 +58,7 @@ async function openPanel(document: vscode.TextDocument): Promise<FakeWebview> {
 
 beforeEach(() => {
   resetVscodeMock();
+  vscodeMock.openFileDocument = (uri) => fileDocument(uri.fsPath);
   repo = createConflictRepository();
   outside = fs.mkdtempSync(path.join(os.tmpdir(), "differ-outside-"));
 });
@@ -72,6 +87,28 @@ describe("MergeViewPanel apply", () => {
     expect(vscodeMock.messages[0].text).toContain("symbolic link");
     expect(fs.readFileSync(target, "utf8")).toBe("precious\n");
     expect(await listUnmergedEntries(repo, ["f.txt"])).not.toEqual([]);
+  });
+});
+
+describe("MergeViewPanel apply after VS Code closed the document", () => {
+  it("writes and stages the result through a freshly opened document", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const document = fileDocument(file);
+    const webview = await openPanel(document);
+    closeDocument(document);
+    fs.appendFileSync(file, "changed while closed\n");
+    const lastLine = fs.readFileSync(file, "utf8").split("\n").length - 1;
+
+    webview.fireDidReceiveMessage({ type: "acceptSide", side: "left" });
+    webview.fireDidReceiveMessage({ type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(vscodeMock.messages).toEqual([]);
+    expect(vscodeMock.appliedEdits.at(-1)?.range.end.line).toBe(lastLine);
+    expect(fs.readFileSync(file, "utf8")).toBe("trunk\n");
+    expect(await listUnmergedEntries(repo, ["f.txt"])).toEqual([]);
   });
 });
 

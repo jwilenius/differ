@@ -87,107 +87,86 @@ Files open in an IntelliJ-style side-by-side diff rather than VS Code's padded o
 
 ## Merge conflict resolution
 
-Renders a conflicted file as one aligned tri-pane grid — local, base, remote — with per-side change bars, word-level
-highlighting inside modified lines, and per-conflict resolution buttons.
+IntelliJ's merge dialog: your branch on the left, the editable result in the middle, the incoming version on the right,
+joined by connector ribbons.
 
-## Panes
+### Opening it
 
-| Pane       | Content                                     | Source                    |
-| ---------- | ------------------------------------------- | ------------------------- |
-| **Left**   | Your branch's version                       | git stage 2 (`:2:<path>`) |
-| **Middle** | The working copy — _what will be committed_ | The file on disk          |
-| **Right**  | The incoming version conflicting with yours | git stage 3 (`:3:<path>`) |
+- **Differ: Resolve Conflicts** lists the conflicted (unmerged) files of every repository holding a workspace folder or
+  the active editor; pick one to open it.
+- **Differ: Open Three-Way Merge View**, or the merge button in the title bar of a file with conflict markers, opens the
+  active file.
 
-The middle pane is the pivot: both sides are diffed **against what you are about to commit**, so each side shows only
-what it still disagrees with. Base (stage 1) is read too, and backs the "Revert to base" action.
+### Panes
 
-During a **rebase or cherry-pick** git replays commits onto the other branch, reversing the sense of the two sides. The
-toolbar says so when that is the case.
+| Pane       | Content                                                  | Source                    |
+| ---------- | -------------------------------------------------------- | ------------------------- |
+| **Left**   | Your branch's version                                    | git stage 2 (`:2:<path>`) |
+| **Middle** | The result, starting as the common ancestor (no markers) | git stage 1 (`:1:<path>`) |
+| **Right**  | The incoming version                                     | git stage 3 (`:3:<path>`) |
 
-## Change indication
+- Add/add conflicts have no stage 1; the result starts empty.
+- During a **rebase or cherry-pick** git's sides are reversed; the toolbar warns.
+- The result lives in the view until **Apply**; the file on disk is untouched until then.
 
-Colours and layout follow IntelliJ's merge dialog: branch text, its gutter, the working copy's gutter and text, then the
-incoming gutter and text. Each block takes one colour describing what applying a side would do to the working copy.
+### Changes and conflicts
 
-| Colour | Meaning                                                 |
-| ------ | ------------------------------------------------------- |
-| Red    | Unresolved conflict — still inside `<<<<<<<` markers    |
-| Blue   | Modified — the side has different lines from the result |
-| Green  | Added — the side has lines the working copy lacks       |
-| Grey   | Deleted — the working copy has lines the side lacks     |
-| None   | All three agree, or the side matches the working copy   |
+Each side is diffed against the base. A **change** is a block only one side touched; a **conflict** is a block both
+sides touched differently. The toolbar reports `N changes. M conflicts.`, then `All changes have been processed.`
 
-Changed words inside a block take a stronger shade of the block's colour. Marker lines are dimmed and italic. Light
-themes use IntelliJ Light's equivalents.
+| Colour | Meaning                                      |
+| ------ | -------------------------------------------- |
+| Red    | Conflict — both sides changed the block      |
+| Blue   | Modified — the side changed base lines       |
+| Green  | Added — the side has lines the base lacks    |
+| Grey   | Deleted — the base has lines the side lacks  |
+| None   | Unchanged, or that side is already processed |
 
-## Editing and resolving
+Lines get a soft tint; gutters, ribbons and changed words a stronger shade. Light and high-contrast themes have their
+own palettes.
 
-The **middle pane is editable** — it is a real text surface, and what you type is what gets committed. The left and
-right panes are read-only references.
+### Resolving
 
-| Key                  | Effect                                           |
-| -------------------- | ------------------------------------------------ |
-| Any text             | Edits that line of the working copy              |
-| `Enter`              | Splits the line                                  |
-| `Backspace` at col 0 | Joins onto the line above                        |
-| `↑` / `↓`            | Moves between editable lines, keeping the column |
-| `F7` / `Shift+F7`    | Next / previous unresolved conflict              |
+- **»** / **«** in a side's gutter applies that side's block to the result; **×** ignores it. Each side of a block is
+  decided separately: applying both sides of a conflict keeps both, left first.
+- **Apply non-conflicting changes:** (toolbar) applies every pending non-conflicting change from the left, the right, or
+  both.
+- **Accept Left** / **Accept Right** (footer) replaces the whole result with that side's version, discarding edits.
+- **Apply** writes the result to the file and saves it; when every block is resolved it also stages the file
+  (`git add`). Unresolved blocks ask for confirmation first. **Cancel** discards the view's edits, after confirmation
+  if there are any.
 
-Each unresolved conflict gets IntelliJ's gutter arrows on its first row: **»** beside your branch accepts it, **«**
-beside the incoming side accepts that. Right-click a conflict (outside the editable lines) for the full menu:
-**Accept &lt;your branch&gt;**, **Accept &lt;incoming&gt;**, **Keep both**, **Revert to base** and **Apply selection**.
+### Editing the result
 
-The `<<<<<<<` marker lines themselves are deliberately **not** editable — they are structural, and a half-typed marker
-would corrupt the region. Resolve them with the gutter arrows or the conflict menu, which remove them properly.
+| Key                  | Effect                                            |
+| -------------------- | ------------------------------------------------- |
+| Any text             | Edits that result line (debounced 400 ms)         |
+| `Enter`              | Splits the line                                   |
+| `Backspace` at col 0 | Joins onto the line above                         |
+| `↑` / `↓`            | Moves between result lines, keeping the column    |
+| `F7` / `Shift+F7`    | Next / previous unresolved block (also ↓/↑ icons) |
 
-## Partial resolution (hunk splitting)
-
-Taking a whole side is often too coarse. Each conflict is therefore split into the smallest pieces the two sides
-actually disagree about, and every piece can be decided on its own.
-
-- Lines **both sides agree on** are settled: they are always kept and carry no control.
-- Every other piece gets a **checkbox in the gutter beside the middle pane** — one for the branch's lines, one for the
-  incoming lines, coloured to match their pane.
-- Tick any combination, then choose **Apply selection** from the conflict's right-click menu, which reports how many lines it would commit.
-- Ticking both sides of a piece keeps both, branch first. Ticking neither drops that piece.
-
-The two sides are compared **directly against each other** rather than through the merge base: what matters is where
-they disagree, and content both sides arrived at independently is already settled. This also works for 2-way markers,
-which carry no base at all.
-
-A conflict keeps its markers while you tick — that is what keeps its pieces derivable — and is rewritten once, on
-apply. Selections are pending intent held in the model, not file content, so resolving an earlier conflict renumbers
-them rather than losing them.
-
-All edits go through the host's document port, so undo works, and the file is never saved for you.
-
-Typing is debounced before it reaches the document, and the view suppresses the rebuild it would otherwise trigger for
-its own edits, so the caret survives. Structural edits (split, join) renumber lines and so apply immediately, with the
-caret restored at the join or the start of the new line.
+Scrolling is synchronised across the three panes, aligned on the blocks.
 
 ## Architecture
 
-The merge and history logic know nothing about VS Code or HTML, so a second front end — a TUI — only has to supply a renderer and a
-document port. `src/test/layering.test.ts` asserts these boundaries rather than trusting them.
+The merge and history logic know nothing about VS Code or HTML, so a second front end — a TUI — only has to supply a
+renderer. `src/test/layering.test.ts` asserts these boundaries rather than trusting them.
 
 ```
-src/core/    diff, alignment, conflict parsing, resolution   (pure, no I/O)
-src/git/     merge sources; history reads, replay, file content (pure Node)
-src/model/   view models + controllers — renderer-agnostic    <-- the seam
-src/render/  MergeRenderer<TOutput>; html/ implements it
-src/host/    VS Code wiring: webview, WorkspaceEdit adapter
+src/core/    line and word diff, conflict-marker detection     (pure, no I/O)
+src/git/     merge sources, conflicted files; history reads, replay, file content (pure Node)
+src/model/   merge session + view models, history controller — renderer-agnostic   <-- the seam
+src/render/  html/ renderers for the merge, diff and history webviews
+src/host/    VS Code wiring: webview panels, commands, message validation
 ```
 
-To add a terminal UI: implement `MergeRenderer<string[]>` in `src/render/tui/`, implement `MergeDocument` over `fs`, and
-reuse `ResolutionController` unchanged — including its editing operations, which are host-independent.
-
-| Port / seam              | Contract                                                                                  |
-| ------------------------ | ----------------------------------------------------------------------------------------- |
-| `MergeRenderer<TOutput>` | `render(model, context) => TOutput`                                                       |
-| `MergeDocument`          | `getText()`, `replaceLines(start, end, lines)`                                            |
-| `ResolutionController`   | `load(options)`, `resolve(index, resolution)`, `toggleHunk(...)`, `applySelection(index)` |
-| `HistoryRepository`      | `loadHistory`, `resolveRef`, `compare`, `readFile`, `releaseSnapshot` (Git adapter port)  |
-| `HistoryController`      | `load()`, `setSelection(oids)`, `setBase(ref)`, `setMainline(oid, parent)`, `compare()`   |
+| Port / seam         | Contract                                                                                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mergeSession`      | Immutable `MergeState`: `startMerge`, `applySide`, `ignoreSide`, `applyNonConflicting`, `acceptSide`, `editLine`, `splitLine`, `joinWithPrevious`, `tallyMerge` |
+| `describeMerge`     | `MergeState` → per-block view (`tint`, side ranges, resolutions, changed words)                                                                                 |
+| `HistoryRepository` | `loadHistory`, `resolveRef`, `compare`, `readFile`, `releaseSnapshot` (Git adapter port)                                                                        |
+| `HistoryController` | `load()`, `setSelection(oids)`, `setBase(ref)`, `setMainline(oid, parent)`, `compare()`                                                                         |
 
 ## Install from GitHub Releases
 

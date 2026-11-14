@@ -13,12 +13,11 @@ const CONTEXT: MergeViewRenderContext = {
   cspSource: "https://res",
   title: "Merge: a.ts",
   styleUris: ["https://res/diff.css", "https://res/merge.css"],
-  scriptUris: ["https://res/diffGeometry.js", "https://res/merge.js"],
+  scriptUris: ["https://res/diffGeometry.js", "https://res/mergeLines.js", "https://res/merge.js"],
   leftLabel: "main",
   rightLabel: "feature/<sku>",
   resultPath: "src/a.ts",
   isSidesSwapped: false,
-  focus: null,
 };
 
 // One conflict on line 1, a left-only change on line 3, a right-only addition at the end.
@@ -114,11 +113,10 @@ describe("HtmlMergeViewRenderer", () => {
     expect(html).toMatch(/data-non-conflicting="all"[^>]* disabled>/);
   });
 
-  it("warns when the sides are swapped and restores the caret", () => {
-    const html = render(startMerge(BASE, LEFT, RIGHT), { isSidesSwapped: true, focus: { line: 2, offset: 1 } });
+  it("warns when the sides are swapped", () => {
+    const html = render(startMerge(BASE, LEFT, RIGHT), { isSidesSwapped: true });
 
     expect(html).toContain("Sides are reversed");
-    expect(html).toContain('<body data-focus-line="2" data-focus-offset="1">');
   });
 
   it("rejects a weak nonce", () => {

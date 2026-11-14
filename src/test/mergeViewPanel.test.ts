@@ -244,8 +244,8 @@ describe("MergeViewPanel edit the page and merge no longer agree on", () => {
   it.each([
     ["a line break the message cannot carry", { type: "editLine", line: 0, text: "a\nb" }],
     ["a line the result does not have", { type: "editLine", line: 99, text: "x" }],
-    ["a split beyond the result", { type: "splitLine", line: 99, offset: 0, focus: { line: 100, offset: 0 } }],
-    ["a join onto no line", { type: "joinWithPrevious", line: 0, focus: { line: 0, offset: 0 } }],
+    ["a split beyond the result", { type: "splitLine", line: 99, offset: 0, seq: 1 }],
+    ["a join onto no line", { type: "joinWithPrevious", line: 0, seq: 1 }],
   ])("redraws the page for %s", async (_label, message) => {
     divergeBranches(repo, ["f.txt"]);
     mergeFeature(repo);
@@ -298,5 +298,40 @@ describe("MergeViewPanel typing in the result", () => {
 
     await vi.waitFor(() => expect(webview?.html).not.toBe(page));
     await vi.waitFor(() => expect(webview?.html).toContain("typed meanwhile"));
+  });
+});
+
+describe("MergeViewPanel splitting and joining result lines", () => {
+  it("keeps the page and answers each edit with the chunk layout it left", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+    const page = webview.html;
+
+    webview.fireDidReceiveMessage({ type: "splitLine", line: 0, offset: 2, seq: 1 });
+    webview.fireDidReceiveMessage({ type: "splitLine", line: 1, offset: 1, seq: 2 });
+    webview.fireDidReceiveMessage({ type: "joinWithPrevious", line: 2, seq: 3 });
+
+    await vi.waitFor(() => expect(webview.postedMessages).toHaveLength(3));
+    expect(webview.html).toBe(page);
+    expect(webview.postedMessages[0]).toMatchObject({ type: "layout", seq: 1, data: { resultLineCount: 3, chunks: [{ result: [0, 2] }] } });
+    expect(webview.postedMessages[2]).toMatchObject({ type: "layout", seq: 3, data: { resultLineCount: 3, chunks: [{ result: [0, 2] }] } });
+  });
+
+  it("applies the split and joined lines", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+    vscodeMock.warningMessageResponse = () => "Apply";
+
+    webview.fireDidReceiveMessage({ type: "splitLine", line: 0, offset: 2, seq: 1 });
+    webview.fireDidReceiveMessage({ type: "splitLine", line: 1, offset: 1, seq: 2 });
+    webview.fireDidReceiveMessage({ type: "joinWithPrevious", line: 1, seq: 3 });
+    webview.fireDidReceiveMessage({ type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(fs.readFileSync(file, "utf8")).toBe("bas\ne\n");
   });
 });

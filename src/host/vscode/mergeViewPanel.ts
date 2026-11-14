@@ -20,9 +20,9 @@ import {
 } from "../../model/mergeSession";
 import { describeMerge } from "../../model/mergeView";
 import type { HighlightedText } from "../../model/syntaxTokens";
-import { HtmlMergeViewRenderer, type FocusRequest, type MergeViewRenderContext } from "../../render/html/mergeViewRenderer";
+import { HtmlMergeViewRenderer, mergeClientData, type MergeViewRenderContext } from "../../render/html/mergeViewRenderer";
 import { escapeHtml } from "../../render/html/webviewMarkup";
-import { parseMergeMessage, type MergeMessage } from "./mergeMessages";
+import { parseMergeMessage, type MergeLayoutUpdate, type MergeMessage } from "./mergeMessages";
 import type { TextHighlighter } from "./twoWayDiffPanel";
 
 const VIEW_TYPE = "differ.mergeView";
@@ -114,10 +114,10 @@ export class MergeViewPanel {
       languageId: document.languageId,
     };
     this.state = startMerge(normalizeEol(sources.base ?? ""), normalizeEol(sources.ours), normalizeEol(sources.theirs));
-    await this.render(null);
+    await this.render();
   }
 
-  private async render(focus: FocusRequest | null): Promise<void> {
+  private async render(): Promise<void> {
     const { state, context } = this;
     if (state === null || context === null) {
       return;
@@ -134,7 +134,7 @@ export class MergeViewPanel {
     }
     // An edit typed while highlighting ran is already on the page, so the new page must show it too.
     if (this.state !== state) {
-      return this.render(focus);
+      return this.render();
     }
     const wordLevel = vscode.workspace.getConfiguration("differ").get<boolean>("wordLevelHighlighting", true);
     const input = {
@@ -145,22 +145,21 @@ export class MergeViewPanel {
       rightHighlight,
       resultHighlight,
     };
-    this.panel.webview.html = new HtmlMergeViewRenderer().render(input, this.renderContext(context, focus));
+    this.panel.webview.html = new HtmlMergeViewRenderer().render(input, this.renderContext(context));
   }
 
-  private renderContext(context: MergeContext, focus: FocusRequest | null): MergeViewRenderContext {
+  private renderContext(context: MergeContext): MergeViewRenderContext {
     const { webview } = this.panel;
     return {
       nonce: randomBytes(NONCE_BYTES).toString("base64"),
       cspSource: webview.cspSource,
       title: this.panel.title,
       styleUris: [this.mediaUri("diff.css"), this.mediaUri("merge.css")],
-      scriptUris: [this.mediaUri("diffGeometry.js"), this.mediaUri("merge.js")],
+      scriptUris: [this.mediaUri("diffGeometry.js"), this.mediaUri("mergeLines.js"), this.mediaUri("merge.js")],
       leftLabel: context.leftLabel,
       rightLabel: context.rightLabel,
       resultPath: vscode.workspace.asRelativePath(this.uri),
       isSidesSwapped: context.isSidesSwapped,
-      focus,
     };
   }
 
@@ -191,7 +190,7 @@ export class MergeViewPanel {
 
   private onColorsChanged(): void {
     this.sideHighlights = null;
-    void this.render(null);
+    void this.render();
   }
 
   private mediaUri(fileName: string): string {
@@ -210,7 +209,7 @@ export class MergeViewPanel {
     const message = parseMergeMessage(value);
     if (message === null || !fitsResult(this.state, message)) {
       this.options.log(`Dropped a merge message the result cannot take for ${this.panel.title}; redrawing the page.`);
-      return this.render(null);
+      return this.render();
     }
     try {
       await this.dispatch(message, this.state);
@@ -228,11 +227,23 @@ export class MergeViewPanel {
       return this.cancel(state);
     }
     this.state = nextState(state, message);
-    // A typed edit is already on the page; rebuilding it would lose keystrokes, the caret and undo.
-    const isShownByPage = message.type === "editLine";
-    if (this.state !== state && !isShownByPage) {
-      await this.render("focus" in message ? message.focus : null);
+    // Result edits are already on the page; rebuilding it would lose keystrokes, the caret and undo.
+    if (message.type === "editLine") {
+      return;
     }
+    if (message.type === "splitLine" || message.type === "joinWithPrevious") {
+      return this.postLayout(message.seq, this.state);
+    }
+    if (this.state !== state) {
+      await this.render();
+    }
+  }
+
+  /** Tells the page where the chunks moved, so it can redraw tints and ribbons around the lines it changed itself. */
+  private async postLayout(seq: number, state: MergeState): Promise<void> {
+    const data = mergeClientData(state, describeMerge(state, { wordLevel: false }));
+    const update: MergeLayoutUpdate = { type: "layout", seq, data };
+    await this.panel.webview.postMessage(update);
   }
 
   /** Writes the result to the file and saves it; stages it only when nothing is left unresolved. */

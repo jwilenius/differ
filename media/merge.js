@@ -19,13 +19,14 @@
   const SIDES = ["left", "right"];
 
   const vscode = acquireVsCodeApi();
-  const data = JSON.parse(document.getElementById("merge").dataset.merge);
+  /** Replaced by the host's layout after the client splits or joins result lines. */
+  let data = JSON.parse(document.getElementById("merge").dataset.merge);
   const lineCounts = { left: data.leftLineCount, result: data.resultLineCount, right: data.rightLineCount };
   const anchors = {
     left: buildAnchors(blocksOf("left"), lineCounts.left, lineCounts.result),
     right: buildAnchors(blocksOf("right"), lineCounts.right, lineCounts.result),
   };
-  const unresolved = data.chunks.filter((chunk) => !chunk.isResolved);
+  let unresolved = data.chunks.filter((chunk) => !chunk.isResolved);
   const scrollers = {
     left: document.getElementById("scroll-left"),
     result: document.getElementById("scroll-result"),
@@ -42,6 +43,8 @@
   let navigation = { index: -1, top: -1 };
   let pendingEdit = null;
   let pendingTimer = null;
+  /** Numbers the splits and joins sent, so only the layout answering the latest one is drawn. */
+  let layoutSeq = 0;
   /** The page is rebuilt after every action; the panel title tells one merge from another. */
   const scrollStateKey = document.title;
 
@@ -246,7 +249,8 @@
 
   resultLines.addEventListener("keydown", (event) => {
     const cell = editableOf(event.target);
-    if (!cell) {
+    // Keys that finish an IME composition belong to the composition.
+    if (!cell || event.isComposing) {
       return;
     }
     const line = Number(cell.dataset.line);
@@ -254,7 +258,7 @@
 
     if (event.key === "Enter") {
       event.preventDefault();
-      post({ type: "splitLine", line, offset, focus: { line: line + 1, offset: 0 } });
+      editLines({ type: "splitLine", line, offset }, () => splitCell(cell, offset), line + 1, 0);
       return;
     }
     // Backspace at column zero joins onto the line above, as in a normal editor.
@@ -262,7 +266,8 @@
       event.preventDefault();
       const previous = neighbourEditable(cell, -1);
       if (previous) {
-        post({ type: "joinWithPrevious", line, focus: { line: Number(previous.dataset.line), offset: previous.textContent.length } });
+        const joinOffset = previous.textContent.length;
+        editLines({ type: "joinWithPrevious", line }, () => joinCells(previous, cell), line - 1, joinOffset);
       }
       return;
     }
@@ -273,6 +278,13 @@
         flushPendingEdit();
         placeCaret(target, Math.min(offset, target.textContent.length));
       }
+    }
+  });
+
+  // A line break typed any other way would put two lines into one cell.
+  resultLines.addEventListener("beforeinput", (event) => {
+    if (event.inputType === "insertParagraph" || event.inputType === "insertLineBreak") {
+      event.preventDefault();
     }
   });
 
@@ -292,6 +304,90 @@
     pendingEdit = null;
     vscode.postMessage(message);
   }
+
+  /**
+   * Changes result lines on the page itself, so typing goes on undisturbed, and
+   * tells the host, whose layout answer then redraws tints and ribbons.
+   */
+  function editLines(message, changeCells, caretLine, caretColumn) {
+    flushPendingEdit();
+    changeCells();
+    renumberResultLines(message.line);
+    placeCaret(resultLineElements()[caretLine].querySelector(".code"), caretColumn);
+    layoutSeq += 1;
+    vscode.postMessage({ ...message, seq: layoutSeq });
+  }
+
+  /** Moves the text after `offset` onto a new line below, keeping its highlighting. */
+  function splitCell(cell, offset) {
+    const line = cell.parentElement;
+    if (offset >= cell.textContent.length) {
+      line.after(createResultLine(line, ""));
+      return;
+    }
+    const tail = document.createRange();
+    tail.selectNodeContents(cell);
+    const start = textPosition(cell, offset);
+    tail.setStart(start.node, start.offset);
+    line.after(createResultLine(line, tail.extractContents()));
+  }
+
+  function joinCells(previous, cell) {
+    previous.append(...Array.from(cell.childNodes));
+    cell.parentElement.remove();
+  }
+
+  /**
+   * A result line as the host renders it, holding `content` (text or nodes); `renumberResultLines`
+   * numbers it. It shares the tint of `neighbour` until the host's layout arrives.
+   */
+  function createResultLine(neighbour, content) {
+    const line = document.createElement("div");
+    line.className = Array.from(neighbour.classList).filter((name) => name === "line" || name.startsWith("chg-")).join(" ");
+    const number = document.createElement("span");
+    number.className = "num";
+    const code = document.createElement("span");
+    code.className = "code";
+    code.setAttribute("contenteditable", "plaintext-only");
+    code.setAttribute("spellcheck", "false");
+    code.append(content);
+    line.append(number, code);
+    return line;
+  }
+
+  function resultLineElements() {
+    return Array.from(resultLines.querySelectorAll(".line"));
+  }
+
+  function renumberResultLines(start) {
+    const lines = resultLineElements();
+    for (let index = start; index < lines.length; index++) {
+      lines[index].querySelector(".num").textContent = String(index + 1);
+      lines[index].querySelector(".code").dataset.line = String(index);
+    }
+  }
+
+  /** Takes the host's chunk layout after a split or join: tints, ribbons and scroll anchors follow the moved lines. */
+  function applyLayout(layout) {
+    data = layout;
+    lineCounts.result = layout.resultLineCount;
+    anchors.left = buildAnchors(blocksOf("left"), lineCounts.left, lineCounts.result);
+    anchors.right = buildAnchors(blocksOf("right"), lineCounts.right, lineCounts.result);
+    unresolved = data.chunks.filter((chunk) => !chunk.isResolved);
+    const classes = resultLineClasses(data.chunks, lineCounts.result);
+    resultLineElements().forEach((line, index) => {
+      line.className = classes[index] ?? "line";
+    });
+    scheduleDraw();
+  }
+
+  window.addEventListener("message", (event) => {
+    const update = event.data;
+    const isLatestLayout = update && update.type === "layout" && update.seq === layoutSeq;
+    if (isLatestLayout) {
+      applyLayout(update.data);
+    }
+  });
 
   function neighbourEditable(cell, step) {
     const cells = Array.from(resultLines.querySelectorAll(".code[data-line]"));
@@ -317,23 +413,27 @@
 
   function placeCaret(cell, offset) {
     cell.focus({ preventScroll: true });
-    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
-    let remaining = Math.max(0, Math.min(offset, cell.textContent.length));
+    const position = textPosition(cell, offset);
     const range = document.createRange();
-    range.selectNodeContents(cell);
-    range.collapse(false);
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (remaining <= node.textContent.length) {
-        range.setStart(node, remaining);
-        range.collapse(true);
-        break;
-      }
-      remaining -= node.textContent.length;
-    }
+    range.setStart(position.node, position.offset);
+    range.collapse(true);
     const selection = window.getSelection();
     selection.removeAllRanges();
     selection.addRange(range);
+  }
+
+  /** The DOM position `offset` characters into a cell; its end when the cell is shorter. */
+  function textPosition(cell, offset) {
+    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+    let remaining = Math.max(0, offset);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (remaining <= node.textContent.length) {
+        return { node, offset: remaining };
+      }
+      remaining -= node.textContent.length;
+    }
+    return { node: cell, offset: cell.childNodes.length };
   }
 
   // --- wiring ---
@@ -367,10 +467,5 @@
     syncFrom("result");
   }
 
-  const focusLine = document.body.dataset.focusLine;
-  const focusCell = focusLine === undefined ? null : resultLines.querySelector(`.code[data-line="${focusLine}"]`);
-  if (focusCell) {
-    placeCaret(focusCell, Number(document.body.dataset.focusOffset ?? 0));
-  }
   scheduleDraw();
 })();

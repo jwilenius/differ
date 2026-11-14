@@ -7,12 +7,6 @@ import type { LineRange } from "../../model/twoWayDiff";
 import { renderCode, renderTokenStyles } from "./codeMarkup";
 import { escapeHtml } from "./webviewMarkup";
 
-/** Where the caret goes in the result after the page is rebuilt. */
-export interface FocusRequest {
-  readonly line: number;
-  readonly offset: number;
-}
-
 export interface MergeViewInput {
   readonly state: MergeState;
   readonly chunks: readonly ChunkView[];
@@ -34,7 +28,6 @@ export interface MergeViewRenderContext {
   readonly resultPath: string;
   /** During a rebase or cherry-pick git's sides are reversed, which the toolbar warns about. */
   readonly isSidesSwapped: boolean;
-  readonly focus: FocusRequest | null;
 }
 
 /** Published as JSON in `#merge[data-merge]`; ranges are `[start, end)` line pairs. */
@@ -80,7 +73,8 @@ const LOCK_ICON = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rec
  * Client contract: `#merge[data-merge]` holds {@link MergeClientData};
  * scrollers `#scroll-left`, `#scroll-result`, `#scroll-right` contain one
  * `.line` per text line; `svg#connectors-left` / `svg#connectors-right` sit in
- * the strips; result lines carry `.code[data-line]`; buttons
+ * the strips; a result `.line` holds `.num` and `.code[data-line]`, which the
+ * client also builds when it splits or joins lines (classes from `mergeLines.js`); buttons
  * `button.act[data-chunk][data-side][data-action]`, `#prev`, `#next`,
  * `button[data-non-conflicting]`, `button[data-accept]`, `#cancel`, `#apply`.
  */
@@ -108,9 +102,9 @@ ${styles}
 <style nonce="${nonce}">${tokenStyles}</style>
 <title>${escapeHtml(context.title)}</title>
 </head>
-<body${focusAttributes(context.focus)}>
+<body>
 ${renderToolbar(input, context)}
-<main class="merge" id="merge" data-merge="${escapeHtml(JSON.stringify(clientData(input)))}">
+<main class="merge" id="merge" data-merge="${escapeHtml(JSON.stringify(mergeClientData(input.state, input.chunks)))}">
 ${renderSideHeader("left", context.leftLabel)}
 <div class="strip-header"></div>
 <div class="pane-header pane-result"><b>Result</b><span class="path">${escapeHtml(context.resultPath)}</span></div>
@@ -129,10 +123,11 @@ ${scripts}
   }
 }
 
-function clientData(input: MergeViewInput): MergeClientData {
+/** The chunk layout the client draws from; result edits change only the result ranges and line count. */
+export function mergeClientData(state: MergeState, chunks: readonly ChunkView[]): MergeClientData {
   const pair = (range: LineRange): readonly [number, number] => [range.start, range.end];
   return {
-    chunks: input.chunks.map((chunk) => ({
+    chunks: chunks.map((chunk) => ({
       tint: chunk.tint,
       isResolved: chunk.isResolved,
       isLeftPending: chunk.left.resolution === "pending",
@@ -141,14 +136,10 @@ function clientData(input: MergeViewInput): MergeClientData {
       right: pair(chunk.right.range),
       result: pair(chunk.result),
     })),
-    leftLineCount: input.state.leftLines.length,
-    rightLineCount: input.state.rightLines.length,
-    resultLineCount: input.state.resultLines.length,
+    leftLineCount: state.leftLines.length,
+    rightLineCount: state.rightLines.length,
+    resultLineCount: state.resultLines.length,
   };
-}
-
-function focusAttributes(focus: FocusRequest | null): string {
-  return focus === null ? "" : ` data-focus-line="${focus.line}" data-focus-offset="${focus.offset}"`;
 }
 
 function renderToolbar(input: MergeViewInput, context: MergeViewRenderContext): string {

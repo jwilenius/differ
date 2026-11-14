@@ -119,7 +119,9 @@ async function openMergeView(document: vscode.TextDocument, services: Services):
   const key = document.uri.toString();
   const existing = openPanels.get(key);
   if (existing) {
-    (await existing).reveal();
+    // The call that started a failed open reports the failure.
+    const panel = await existing.catch(() => null);
+    panel?.reveal();
     return;
   }
   const opening = MergeViewPanel.create({

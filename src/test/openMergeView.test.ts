@@ -66,4 +66,24 @@ describe("Differ: Open Merge View", () => {
     await vi.waitFor(() => expect(vscodeMock.webviewPanels[1].revealCount).toBe(1));
     expect(vscodeMock.webviewPanels).toHaveLength(2);
   });
+
+  it("reports a failed open once, without an unhandled rejection, when it was opened again meanwhile", async () => {
+    const unhandledReasons: unknown[] = [];
+    const recordUnhandled = (reason: unknown): void => void unhandledReasons.push(reason);
+    process.on("unhandledRejection", recordUnhandled);
+    try {
+      const read = queueStageRead();
+      openActiveMergeView();
+      openActiveMergeView();
+      read.reject(new Error("git failed"));
+      await vi.waitFor(() => expect(vscodeMock.messages).toHaveLength(1));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } finally {
+      process.off("unhandledRejection", recordUnhandled);
+    }
+
+    expect(unhandledReasons).toEqual([]);
+    expect(vscodeMock.messages).toEqual([{ level: "error", text: "Differ could not open the merge view." }]);
+    expect(vscodeMock.webviewPanels).toHaveLength(1);
+  });
 });

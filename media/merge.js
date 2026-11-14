@@ -304,7 +304,13 @@
     // Over a selection across lines, Enter is typed over it, as any text is.
     if (event.key === "Enter" && !isSelectionAcrossLines()) {
       event.preventDefault();
-      editLines({ type: "splitLine", line, offset }, () => splitCell(cell, offset), line + 1, 0);
+      const selected = isSelectionEmpty() ? null : selectedLines();
+      if (selected) {
+        // The line break takes the place of the text selected within the line, in the same one edit.
+        insertLines(selected, "\n");
+      } else {
+        editLines({ type: "splitLine", line, offset }, () => splitCell(cell, offset), line + 1, 0);
+      }
       return;
     }
     // Backspace at column zero joins onto the line above, as in a normal editor.

@@ -147,7 +147,7 @@ own palettes.
 | Key                                                              | Effect                                            |
 | ---------------------------------------------------------------- | ------------------------------------------------- |
 | Any text                                                         | Edits that result line (debounced 400 ms)         |
-| `Enter`                                                          | Splits the line                                   |
+| `Enter`                                                          | Splits the line, replacing any selected text      |
 | `Backspace` at col 0                                             | Joins onto the line above                         |
 | `↑` / `↓`                                                        | Moves between result lines, keeping the column    |
 | `Shift+↑` / `Shift+↓`                                            | Extends the selection to the line above / below   |

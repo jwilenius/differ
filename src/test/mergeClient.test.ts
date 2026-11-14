@@ -424,3 +424,25 @@ describe("a selection across result lines", () => {
     expect(selectionOf(page)).toEqual({ anchor: { line: 0, column: 1 }, focus: { line: 0, column: 1 } });
   });
 });
+
+describe("Enter over a selection within a result line", () => {
+  it("replaces the selection with a line break as one edit, after the held-back edit", () => {
+    const page = openPage();
+    page.type(page.resultCell(0), "abc");
+    page.select(textOf(page.resultCell(0)), 1, textOf(page.resultCell(0)), 2);
+
+    page.key(page.resultCell(0), { key: "Enter" });
+    vi.runAllTimers();
+
+    expect(page.posted).toEqual([
+      editLine(0, "abc"),
+      { type: "replaceLines", line: 0, count: 1, lines: ["a", "c"], seq: 1, page: PAGE },
+    ]);
+    const cells = page.document.getElementById("scroll-result")!.querySelectorAll(".code[data-line]");
+    expect(cells.map((cell) => cell.textContent)).toEqual(["a", "c", "b", "c", "d"]);
+    const { selection } = page.window;
+    expect(selection.isCollapsed).toBe(true);
+    expect(selection.focusNode!.parentElement!.closest(".code[data-line]")).toBe(cells[1]);
+    expect(selection.focusOffset).toBe(0);
+  });
+});

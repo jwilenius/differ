@@ -239,3 +239,21 @@ describe("MergeViewPanel for a conflict it cannot merge", () => {
     expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">`);
   });
 });
+
+describe("MergeViewPanel edit the page and merge no longer agree on", () => {
+  it.each([
+    ["a line break the message cannot carry", { type: "editLine", line: 0, text: "a\nb", focus: { line: 0, offset: 1 } }],
+    ["a line the result does not have", { type: "editLine", line: 99, text: "x", focus: { line: 99, offset: 1 } }],
+    ["a split beyond the result", { type: "splitLine", line: 99, offset: 0, focus: { line: 100, offset: 0 } }],
+    ["a join onto no line", { type: "joinWithPrevious", line: 0, focus: { line: 0, offset: 0 } }],
+  ])("redraws the page for %s", async (_label, message) => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+    const page = webview.html;
+
+    webview.fireDidReceiveMessage(message);
+
+    await vi.waitFor(() => expect(webview.html).not.toBe(page));
+  });
+});

@@ -194,11 +194,19 @@ export class MergeViewPanel {
     return this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.options.mediaRoot, fileName)).toString();
   }
 
-  /** The webview is untrusted input: anything but a well-formed message is dropped. */
+  /**
+   * The webview is untrusted input: anything but a well-formed message is dropped. The page then
+   * gets redrawn, since a dropped edit, or one naming lines the result lacks, means the page shows
+   * a result the merge does not hold.
+   */
   private async handleMessage(value: unknown): Promise<void> {
-    const message = parseMergeMessage(value);
-    if (message === null || this.state === null) {
+    if (this.state === null) {
       return;
+    }
+    const message = parseMergeMessage(value);
+    if (message === null || !fitsResult(this.state, message)) {
+      this.options.log(`Dropped a merge message the result cannot take for ${this.panel.title}; redrawing the page.`);
+      return this.render(null);
     }
     try {
       await this.dispatch(message, this.state);
@@ -292,6 +300,19 @@ function nextState(state: MergeState, message: Exclude<MergeMessage, { type: "ap
       return splitLine(state, message.line, message.offset);
     case "joinWithPrevious":
       return joinWithPrevious(state, message.line);
+  }
+}
+
+/** Whether an edit names lines the result has; any other message fits. */
+function fitsResult(state: MergeState, message: MergeMessage): boolean {
+  switch (message.type) {
+    case "editLine":
+    case "splitLine":
+      return message.line < state.resultLines.length;
+    case "joinWithPrevious":
+      return message.line > 0 && message.line < state.resultLines.length;
+    default:
+      return true;
   }
 }
 

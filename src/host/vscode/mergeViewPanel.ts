@@ -387,6 +387,9 @@ export class MergeViewPanel {
       await fs.promises.writeFile(this.uri.fsPath, text, { flag: "wx" });
       return true;
     }
+    // Not atomic with the save: a link put in place in between is followed. Closing that gap would mean writing
+    // the file past VS Code, whose editors would then not follow; the check is for a link that appeared while
+    // the view was open, not one racing the save.
     if (await isSymbolicLink(document.uri.fsPath)) {
       const reason = "it is a symbolic link, and saving would change the file it points to";
       void vscode.window.showErrorMessage(`Differ will not write ${name}: ${reason}.`);

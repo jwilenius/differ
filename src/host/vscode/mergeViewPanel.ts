@@ -84,8 +84,12 @@ export class MergeViewPanel {
   /** The number of the page the webview shows; messages a replaced page sent are dropped. */
   private shownPage = NO_PAGE;
   private shownResult: ShownMergeResult | null = null;
-  /** Called once the shown page answers `redrawReady`, having sent the edit it held back. */
-  private readonly heldBackEditWaiters: (() => void)[] = [];
+  /**
+   * Called once the shown page answers `redrawReady`, having sent the edit it held back; each wait removes its own
+   * when it ends. Any answer resumes every wait: it comes from the shown page, as answers from replaced pages are
+   * dropped, and that page answers only once it took no more edits.
+   */
+  private readonly heldBackEditWaiters = new Set<() => void>();
   /** Calls off the result highlighting still running for an earlier edit. */
   private refreshAbort: AbortController | null = null;
   private readonly history = new MergeHistory();
@@ -204,15 +208,15 @@ export class MergeViewPanel {
     if (this.shownPage === NO_PAGE) {
       return;
     }
-    let timer: NodeJS.Timeout | undefined;
-    const answered = new Promise<void>((resolve) => {
-      this.heldBackEditWaiters.push(resolve);
-      timer = setTimeout(resolve, HELD_BACK_EDIT_TIMEOUT_MS);
-    });
+    let resume = (): void => undefined;
+    const answered = new Promise<void>((resolve) => (resume = resolve));
+    this.heldBackEditWaiters.add(resume);
+    const timer = setTimeout(resume, HELD_BACK_EDIT_TIMEOUT_MS);
     const notice: MergeRedrawNotice = { type: "redrawing", page: this.shownPage };
     void this.panel.webview.postMessage(notice);
     await answered;
     clearTimeout(timer);
+    this.heldBackEditWaiters.delete(resume);
   }
 
   private renderContext(context: MergeContext, page: number): MergeViewRenderContext {
@@ -310,7 +314,7 @@ export class MergeViewPanel {
   private async dispatch(message: MergeMessage, state: MergeState): Promise<void> {
     if (message.type === "redrawReady") {
       // The page sent the edit it held back before answering, so the merge holds that edit by now.
-      this.heldBackEditWaiters.splice(0).forEach((resume) => resume());
+      this.heldBackEditWaiters.forEach((resume) => resume());
       return;
     }
     if (message.type === "apply") {

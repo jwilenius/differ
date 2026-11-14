@@ -887,3 +887,43 @@ describe("MergeViewPanel colour theme change while applying", () => {
     expect(fs.readFileSync(file, "utf8")).toBe("base\n");
   });
 });
+
+describe("MergeViewPanel waiting for the page to answer a colour theme change", () => {
+  /** The waits for a page's answer the panel still holds; one that ended must not linger until a later answer. */
+  function pendingWaits(panel: MergeViewPanel): number {
+    return [...(panel as unknown as { heldBackEditWaiters: Iterable<unknown> }).heldBackEditWaiters].length;
+  }
+
+  it("forgets a wait once it ends, whether the page answered or not", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const panel = await createPanel(fileDocument(path.join(repo, "f.txt")));
+    const { webview } = vscodeMock.webviewPanels[0];
+
+    changeColorThemeKind(ColorThemeKind.Light);
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2), { timeout: 2_000 });
+    const waitsAfterTimeout = pendingWaits(panel);
+    changeColorThemeKind(ColorThemeKind.Dark);
+    post(webview, { type: "redrawReady" });
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(3));
+
+    expect(waitsAfterTimeout).toBe(0);
+    expect(pendingWaits(panel)).toBe(0);
+  });
+
+  it("keeps waiting when a replaced page answers late", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+    changeColorThemeKind(ColorThemeKind.Light);
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2), { timeout: 2_000 });
+
+    changeColorThemeKind(ColorThemeKind.Dark);
+    webview.fireDidReceiveMessage({ type: "redrawReady", page: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(shownPage(webview)).toBe(2);
+    post(webview, { type: "redrawReady" });
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(3));
+  });
+});

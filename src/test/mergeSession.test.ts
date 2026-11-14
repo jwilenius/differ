@@ -166,6 +166,76 @@ describe("merge session", () => {
     expect(edited.chunks.map((chunkState) => chunkState.result)).toEqual(start.chunks.map((chunkState) => chunkState.result));
   });
 
+  it("keeps a joined line out of an empty chunk at the join", () => {
+    const joined = joinWithPrevious(startMerge("a\nb\nc\nd", "a\nb\nX\nc\nd", "a\nb\nc\nd"), 2);
+
+    expect(resultText(joined)).toBe("a\nbc\nd");
+    expect(joined.chunks[0].result).toEqual({ start: 2, end: 2 });
+    expect(resultText(applySide(joined, 0, "left"))).toBe("a\nbc\nX\nd");
+  });
+
+  it("keeps a line joined from outside a chunk when applying a side", () => {
+    const joined = joinWithPrevious(startMerge("a\nb\nc", "A\nb\nc", "a\nb\nc"), 1);
+
+    expect(resultText(joined)).toBe("ab\nc");
+    expect(joined.chunks[0].result).toEqual({ start: 0, end: 0 });
+    expect(resultText(applySide(joined, 0, "left"))).toBe("A\nab\nc");
+  });
+
+  it("moves a line joined across a chunk edge out of the chunk", () => {
+    const start = startMerge("a\nb\nc\nd\ne", "a\nB\nC\nd\ne", "a\nb\nc\nd\ne");
+
+    const atStart = joinWithPrevious(start, 1);
+    expect(atStart.chunks[0].result).toEqual({ start: 1, end: 2 });
+    expect(resultText(applySide(atStart, 0, "left"))).toBe("ab\nB\nC\nd\ne");
+
+    const atEnd = joinWithPrevious(start, 3);
+    expect(atEnd.chunks[0].result).toEqual({ start: 1, end: 2 });
+    expect(resultText(applySide(atEnd, 0, "left"))).toBe("a\nB\nC\ncd\ne");
+
+    const inside = joinWithPrevious(start, 2);
+    expect(inside.chunks[0].result).toEqual({ start: 1, end: 2 });
+    expect(resultText(applySide(inside, 0, "left"))).toBe("a\nB\nC\nd\ne");
+  });
+
+  it("keeps chunks in order after joins remove the lines between them", () => {
+    const start = startMerge("a\nb\nc\nd\ne", "a\nB\nc\nd\ne", "a\nb\nc\nD\ne");
+    const joined = joinWithPrevious(joinWithPrevious(start, 2), 2);
+
+    expect(resultText(joined)).toBe("a\nbcd\ne");
+    expect(joined.chunks.map((chunkState) => chunkState.result)).toEqual([
+      { start: 1, end: 1 },
+      { start: 2, end: 2 },
+    ]);
+    expect(resultText(applyNonConflicting(joined, "all"))).toBe("a\nB\nbcd\nD\ne");
+  });
+
+  it("applies empty chunks a join brought to the same line in order", () => {
+    const joined = joinWithPrevious(startMerge("a\nb\nc", "a\nX\nb\nY\nc", "a\nb\nc"), 1);
+
+    expect(resultText(joined)).toBe("ab\nc");
+    expect(resultText(applyNonConflicting(joined, "left"))).toBe("ab\nX\nY\nc");
+  });
+
+  it("leaves empty chunks at the ends of the file in place across a join", () => {
+    const joined = joinWithPrevious(startMerge("a\nb", "X\na\nb\nY", "a\nb"), 1);
+
+    expect(resultText(joined)).toBe("ab");
+    expect(joined.chunks.map((chunkState) => chunkState.result)).toEqual([
+      { start: 0, end: 0 },
+      { start: 1, end: 1 },
+    ]);
+    expect(resultText(applyNonConflicting(joined, "left"))).toBe("X\nab\nY");
+  });
+
+  it("resolves a conflict without losing a line joined into it", () => {
+    const joined = joinWithPrevious(startMerge(CONFLICT_BASE, CONFLICT_LEFT, CONFLICT_RIGHT), 1);
+
+    expect(resultText(joined)).toBe("ab\nc\nd\ne");
+    expect(resultText(applySide(ignoreSide(joined, 0, "left"), 0, "right"))).toBe("ab\nR\nc\nd\ne");
+    expect(resultText(applySide(applySide(joined, 0, "left"), 0, "right"))).toBe("ab\nL1\nL2\nR\nc\nd\ne");
+  });
+
   it("ignores edits outside the result", () => {
     const start = startMerge(BASE, LEFT, RIGHT);
 

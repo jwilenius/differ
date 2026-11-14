@@ -159,8 +159,9 @@ function isResultLine(state: MergeState, line: number): boolean {
 
 /**
  * Replaces result lines and moves the chunks to match: a chunk before the
- * edit stays, one after it shifts, and one the edit overlaps grows to cover
- * it. The chunk at `ownerIndex`, if any, is left for the caller to place.
+ * edit stays, one after it shifts, and one around it resizes. The chunk at
+ * `ownerIndex`, if any, is left for the caller to place, and every chunk after
+ * it shifts, even an empty one at the line where the owner's lines go.
  */
 function replaceResultLines(state: MergeState, range: LineRange, lines: readonly string[], ownerIndex = -1): MergeState {
   const shift = lines.length - (range.end - range.start);
@@ -169,22 +170,37 @@ function replaceResultLines(state: MergeState, range: LineRange, lines: readonly
     if (index === ownerIndex) {
       return chunkState;
     }
-    return { ...chunkState, result: movedRange(chunkState.result, range, shift) };
+    const followsOwner = ownerIndex !== -1 && index > ownerIndex;
+    const result = followsOwner
+      ? { start: chunkState.result.start + shift, end: chunkState.result.end + shift }
+      : movedRange(chunkState.result, range, shift);
+    return { ...chunkState, result };
   });
 
   return { ...state, resultLines, chunks, isModified: true };
 }
 
+/**
+ * Moves a chunk past an edit without taking in lines from outside it: a
+ * boundary inside the edited lines, which only a join across the chunk's edge
+ * produces, moves out of them, so the joined line leaves the chunk and applying
+ * a side never replaces text the user brought in from around the chunk.
+ */
 function movedRange(chunkRange: LineRange, edited: LineRange, shift: number): LineRange {
-  const isBeforeEdit = chunkRange.end <= edited.start;
-  if (isBeforeEdit) {
-    return chunkRange;
+  const start = movedBoundary(chunkRange.start, edited, shift, edited.end + shift);
+  const end = movedBoundary(chunkRange.end, edited, shift, edited.start);
+  return { start, end: Math.max(start, end) };
+}
+
+/** Where a chunk boundary lands after an edit; one inside the edited lines goes to `outside`. */
+function movedBoundary(line: number, edited: LineRange, shift: number, outside: number): number {
+  if (line <= edited.start) {
+    return line;
   }
-  const isAfterEdit = chunkRange.start >= edited.end;
-  if (isAfterEdit) {
-    return { start: chunkRange.start + shift, end: chunkRange.end + shift };
+  if (line >= edited.end) {
+    return line + shift;
   }
-  return { start: Math.min(chunkRange.start, edited.start), end: Math.max(chunkRange.end, edited.end) + shift };
+  return outside;
 }
 
 /** Both sides made the same change in a non-conflicting chunk with two sides, so one decision settles both. */

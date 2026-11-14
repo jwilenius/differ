@@ -3,6 +3,12 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# npm is not on PATH on every machine; use this Node.js 22 install when present. Override with NODE_BIN.
+node_bin="${NODE_BIN:-/tmp/node-v22.23.4-linux-x64/bin}"
+if [[ -d "$node_bin" ]]; then
+  export PATH="$node_bin:$PATH"
+fi
+
 if [[ $# -ne 1 || ! "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   echo 'Usage: npm run release -- <version> (for example, 0.1.1)' >&2
   exit 1

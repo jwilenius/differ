@@ -241,7 +241,7 @@ Press `F5` in VS Code to launch an Extension Development Host, then open `sample
 
 | Path                                     | Role                                                           |
 | ---------------------------------------- | -------------------------------------------------------------- |
-| `src/core/conflictParser.ts`             | Splits a document into stable and conflict sections            |
+| `src/core/conflictParser.ts`             | Detects git conflict markers in a document                     |
 | `src/core/lineDiff.ts`                   | Line diff → hunks + base↔side position maps                    |
 | `src/core/wordDiff.ts`                   | Intra-line changed character ranges                            |
 | `src/core/threeWayAligner.ts`            | Aligns the three sides into one row grid, classifies blocks    |

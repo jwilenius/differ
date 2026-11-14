@@ -84,6 +84,16 @@ describe("buildTwoWayDiff", () => {
     expect(diff.blocks[0]).toMatchObject({ kind: "modified", baseWords: [], resultWords: [] });
   });
 
+  it("shows fully divergent large texts as one modified block without word spans", () => {
+    const lines = (tag: string): string => Array.from({ length: 10_000 }, (_, index) => `${tag} ${index}`).join("\n");
+
+    const diff = buildTwoWayDiff(`same\n${lines("base")}`, `same\n${lines("result")}`, WORDS);
+
+    expect(diff.blocks).toEqual([
+      { kind: "modified", base: { start: 1, end: 10_001 }, result: { start: 1, end: 10_001 }, baseWords: [], resultWords: [] },
+    ]);
+  });
+
   it("reports separate blocks in order", () => {
     const diff = buildTwoWayDiff("a\nb\nc\nd\ne", "a\nB\nc\nd", WORDS);
 

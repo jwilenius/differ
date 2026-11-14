@@ -349,6 +349,15 @@
     }
   });
 
+  // A selection across result lines starts in the line numbers and is not editable, so dropping it
+  // would copy it, line numbers included, instead of moving it. Drags within one line move natively.
+  resultLines.addEventListener("dragstart", (event) => {
+    const selected = selectedLines();
+    if (selected && selected.first !== selected.last) {
+      event.preventDefault();
+    }
+  });
+
   // Losing focus must not lose the keystrokes still sitting in the debounce.
   resultLines.addEventListener("focusout", flushPendingEdit, true);
 

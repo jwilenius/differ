@@ -449,6 +449,40 @@ describe("MergeViewPanel undo and redo", () => {
   });
 });
 
+describe("MergeViewPanel for a file with lone carriage returns", () => {
+  /** Conflicts `f.txt` whose common ancestor is `base`, as `divergeBranches` does for its fixed texts. */
+  function conflictFromBase(base: string): string {
+    const file = path.join(repo, "f.txt");
+    fs.writeFileSync(file, base);
+    runGit(repo, "add", ".");
+    runGit(repo, "commit", "-qm", "base");
+    runGit(repo, "checkout", "-q", "-b", "feature");
+    fs.writeFileSync(file, "feature\n");
+    runGit(repo, "commit", "-qam", "feature");
+    runGit(repo, "checkout", "-q", "trunk");
+    fs.writeFileSync(file, "trunk\n");
+    runGit(repo, "commit", "-qam", "trunk");
+    mergeFeature(repo);
+    return file;
+  }
+
+  it("breaks lines at them, as VS Code does, so every line can be edited and applied as shown", async () => {
+    const file = conflictFromBase("one\rtwo\r\nthree\n");
+    const webview = await openPanel(fileDocument(file));
+    const page = webview.html;
+    vscodeMock.warningMessageResponse = () => "Apply";
+
+    post(webview, { type: "editLine", line: 1, text: "two!" });
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(page).not.toContain("\r");
+    expect(/data-line="1">(.*?)<\/div>/.exec(page)?.[1]).toContain(">two<");
+    expect(webview.html).toBe(page);
+    expect(fs.readFileSync(file, "utf8")).toBe("one\ntwo!\nthree\n");
+  });
+});
+
 describe("MergeViewPanel splitting and joining result lines", () => {
   it("keeps the page and answers each edit with the chunk layout it left", async () => {
     divergeBranches(repo, ["f.txt"]);

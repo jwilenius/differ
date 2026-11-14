@@ -537,9 +537,12 @@ async function isSymbolicLink(filePath: string): Promise<boolean> {
   }
 }
 
-/** Git's stages may use CRLF; the merge works on bare lines and Apply restores the document's line ending. */
+/**
+ * Git's stages may use CRLF; the merge works on bare lines and Apply restores the document's line ending. A lone
+ * CR breaks the line too, as in VS Code's editor: a page cannot show one inside a line, nor send it back.
+ */
 function normalizeEol(text: string): string {
-  return text.replace(/\r\n/g, "\n");
+  return text.replace(/\r\n?/g, "\n");
 }
 
 function renderUnavailable(fileName: string): string {

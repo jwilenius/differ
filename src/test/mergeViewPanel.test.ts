@@ -44,15 +44,28 @@ function closeDocument(document: vscode.TextDocument): void {
   fireDidCloseTextDocument(document);
 }
 
-async function openPanel(document: vscode.TextDocument): Promise<FakeWebview> {
+/** A file document that fails once git's stages are read, as reading its line ending does. */
+function failingDocument(filePath: string): vscode.TextDocument {
+  return Object.defineProperty(fileDocument(filePath), "eol", {
+    get: () => {
+      throw new Error("The document failed.");
+    },
+  });
+}
+
+function createPanel(document: vscode.TextDocument): Promise<MergeViewPanel> {
   vscodeMock.textDocuments.push(document);
-  await MergeViewPanel.create({
+  return MergeViewPanel.create({
     document,
     mediaRoot: vscode.Uri.file(os.tmpdir()),
     highlighter: { highlight: async (text: string) => unstyledText(text) },
     log: () => undefined,
     onDispose: () => undefined,
   });
+}
+
+async function openPanel(document: vscode.TextDocument): Promise<FakeWebview> {
+  await createPanel(document);
   return vscodeMock.webviewPanels[0].webview;
 }
 
@@ -148,6 +161,17 @@ describe("MergeViewPanel apply after confirming an unresolved result", () => {
     await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
     expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning"]);
     expect(fs.readFileSync(file, "utf8")).toBe(vscodeMock.appliedEdits.at(-1)?.text);
+  });
+});
+
+describe("MergeViewPanel that fails to load", () => {
+  it("closes its panel instead of leaving it blank", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+
+    await expect(createPanel(failingDocument(path.join(repo, "f.txt")))).rejects.toThrow("The document failed.");
+
+    expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true);
   });
 });
 

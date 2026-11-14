@@ -78,9 +78,15 @@ export class MergeViewPanel {
     vscode.window.onDidChangeActiveColorTheme(() => this.onColorsChanged(), undefined, this.disposables);
   }
 
+  /** Closes the panel again when loading fails, so no blank panel is left behind. */
   static async create(options: MergeViewPanelOptions): Promise<MergeViewPanel> {
     const view = new MergeViewPanel(options);
-    await view.load();
+    try {
+      await view.load();
+    } catch (error) {
+      view.panel.dispose();
+      throw error;
+    }
     return view;
   }
 

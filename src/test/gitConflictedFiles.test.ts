@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listConflictedFiles, markResolved } from "../git/gitConflictedFiles";
@@ -70,5 +71,20 @@ describe("markResolved", () => {
     await markResolved(path.join(repo, "app/[id].tsx"));
 
     expect([...(await listConflictedFiles(repo))].sort()).toEqual([path.join(repo, "app/d.tsx"), path.join(repo, "app/i.tsx")]);
+  });
+
+  it("stages a file opened through a symbolic link to its directory", async () => {
+    divergeBranches(repo, ["sub/f.txt", "other.txt"]);
+    mergeFeature(repo);
+    const links = fs.mkdtempSync(path.join(os.tmpdir(), "differ-links-"));
+    try {
+      fs.symlinkSync(path.join(repo, "sub"), path.join(links, "sub"));
+
+      await markResolved(path.join(links, "sub", "f.txt"));
+
+      expect(await listConflictedFiles(repo)).toEqual([path.join(repo, "other.txt")]);
+    } finally {
+      fs.rmSync(links, { recursive: true, force: true });
+    }
   });
 });

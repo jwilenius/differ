@@ -39,10 +39,13 @@ export async function listConflictedFiles(root: string): Promise<readonly string
 
 /**
  * Stages `filePath`, marking its conflict resolved. The path is taken literally, so `[id].tsx` never also stages
- * `i.tsx`. Throws `HistoryGitError` when Git fails.
+ * `i.tsx`. Git is given only the file's name in its own directory, because it resolves symbolic links in the
+ * repository root and would reject the full path of a file opened through a linked directory. Throws
+ * `HistoryGitError` when Git fails.
  */
 export async function markResolved(filePath: string): Promise<void> {
-  await runHistoryGit({ cwd: path.dirname(filePath), args: ["--literal-pathspecs", "add", "--", filePath] });
+  const args = ["--literal-pathspecs", "add", "--", path.basename(filePath)];
+  await runHistoryGit({ cwd: path.dirname(filePath), args });
 }
 
 /**

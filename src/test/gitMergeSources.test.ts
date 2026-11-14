@@ -4,7 +4,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { type MergeSources, readMergeSources, type UnmergeableConflict } from "../git/gitMergeSources";
-import { createConflictRepository, divergeFile, type FileVersions, mergeFeature, runGit } from "./gitConflictFixture";
+import {
+  createConflictRepository,
+  divergeBranches,
+  divergeFile,
+  type FileVersions,
+  mergeFeature,
+  runGit,
+} from "./gitConflictFixture";
 
 let repo: string;
 let file: string;
@@ -181,6 +188,42 @@ describe("readMergeSources with a symbolic link conflict", () => {
 
   it("reports no mergeable conflict, because saving a merge result would write through the link", async () => {
     expect(await readMergeSources(path.join(linkRepo, "link"), "")).toEqual({ unmergeable: "noMergeableConflict" });
+  });
+});
+
+describe("readMergeSources through a symbolic link to a directory", () => {
+  let linkedRepo: string;
+  let links: string;
+
+  /** Opens `sub/f.txt` both through a link to the whole checkout and through a link to its own directory. */
+  beforeAll(() => {
+    linkedRepo = createConflictRepository();
+    divergeBranches(linkedRepo, ["sub/f.txt"]);
+    mergeFeature(linkedRepo);
+    links = fs.mkdtempSync(path.join(os.tmpdir(), "differ-links-"));
+    fs.symlinkSync(linkedRepo, path.join(links, "checkout"));
+    fs.symlinkSync(path.join(linkedRepo, "sub"), path.join(links, "sub"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(links, { recursive: true, force: true });
+    fs.rmSync(linkedRepo, { recursive: true, force: true });
+  });
+
+  it.each([
+    ["the checkout", "checkout/sub/f.txt"],
+    ["the file's own directory", "sub/f.txt"],
+  ])("reads the conflict of a file opened through a link to %s", async (_linked, linkedPath) => {
+    const sources = mergeable(await readMergeSources(path.join(links, linkedPath), ""));
+
+    expect(sources).toMatchObject({ base: "base\n", ours: "trunk\n", theirs: "feature\n", ourLabel: "trunk" });
+  });
+
+  it("does not follow a symbolic link to the conflicted file, which is not itself in conflict", async () => {
+    const alias = path.join(linkedRepo, "alias.txt");
+    fs.symlinkSync(path.join(linkedRepo, "sub", "f.txt"), alias);
+
+    expect(await readMergeSources(alias, "")).toEqual({ unmergeable: "noMergeableConflict" });
   });
 });
 

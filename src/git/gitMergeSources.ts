@@ -42,20 +42,19 @@ export interface UnmergeableConflict {
 const NO_MERGEABLE_CONFLICT: UnmergeableConflict = { unmergeable: "noMergeableConflict" };
 const BYTE_ORDER_MARK = "\uFEFF";
 
-/** Reads the three versions of a conflicted file from the git index, or why they cannot be merged. */
+/**
+ * Reads the three versions of a conflicted file from the git index, or why they cannot be merged. Git runs in the
+ * file's own directory and is given only its name: Git resolves symbolic links in the repository root, so a path
+ * relative to that root would leave the repository when the file was opened through a linked directory.
+ */
 export async function readMergeSources(filePath: string, result: string): Promise<MergeSources | UnmergeableConflict> {
-  const root = await repositoryRoot(filePath);
-  if (!root) {
-    return NO_MERGEABLE_CONFLICT;
-  }
-
-  const relativePath = toPosix(path.relative(root, filePath));
-  const entries = await conflictEntries(root, relativePath);
+  const directory = path.dirname(filePath);
+  const entries = await conflictEntries(directory, path.basename(filePath));
   if (!isMergeableConflict(entries)) {
     return NO_MERGEABLE_CONFLICT;
   }
 
-  const stages = await stagedVersions(root, entries);
+  const stages = await stagedVersions(directory, entries);
   if (stages.ours === null || stages.theirs === null) {
     return NO_MERGEABLE_CONFLICT;
   }
@@ -64,15 +63,15 @@ export async function readMergeSources(filePath: string, result: string): Promis
     return { unmergeable: nonTextReason };
   }
 
-  const isSidesSwapped = await isReplayInProgress(root);
+  const isSidesSwapped = await isReplayInProgress(directory);
 
   return {
     ours: stageText(stages.ours),
     theirs: stageText(stages.theirs),
     base: stages.base === null ? null : stageText(stages.base),
     result,
-    ourLabel: await describeHead(root),
-    theirLabel: await describeIncoming(root),
+    ourLabel: await describeHead(directory),
+    theirLabel: await describeIncoming(directory),
     isSidesSwapped,
   };
 }
@@ -83,10 +82,10 @@ interface StagedVersions {
   readonly theirs: Buffer | null;
 }
 
-/** The file's unmerged index entries; none when Git fails. */
-async function conflictEntries(root: string, relativePath: string): Promise<readonly UnmergedEntry[]> {
+/** The unmerged index entries of the file `fileName` in `directory`; none when Git fails, as outside a repository. */
+async function conflictEntries(directory: string, fileName: string): Promise<readonly UnmergedEntry[]> {
   try {
-    return await listUnmergedEntries(root, [relativePath]);
+    return await listUnmergedEntries(directory, [fileName]);
   } catch (error) {
     if (error instanceof HistoryGitError) {
       return [];
@@ -95,20 +94,20 @@ async function conflictEntries(root: string, relativePath: string): Promise<read
   }
 }
 
-async function stagedVersions(root: string, entries: readonly UnmergedEntry[]): Promise<StagedVersions> {
+async function stagedVersions(directory: string, entries: readonly UnmergedEntry[]): Promise<StagedVersions> {
   const [base, ours, theirs] = await Promise.all([
-    readStage(root, entries, STAGE_BASE),
-    readStage(root, entries, STAGE_OURS),
-    readStage(root, entries, STAGE_THEIRS),
+    readStage(directory, entries, STAGE_BASE),
+    readStage(directory, entries, STAGE_OURS),
+    readStage(directory, entries, STAGE_THEIRS),
   ]);
 
   return { base, ours, theirs };
 }
 
 /** Reads a stage by object id, so the content is the blob whose mode was checked; `null` when the stage is absent. */
-async function readStage(root: string, entries: readonly UnmergedEntry[], stage: number): Promise<Buffer | null> {
+async function readStage(directory: string, entries: readonly UnmergedEntry[], stage: number): Promise<Buffer | null> {
   const entry = entries.find((candidate) => candidate.stage === stage);
-  return entry === undefined ? null : gitOutput(root, ["cat-file", "blob", entry.oid]);
+  return entry === undefined ? null : gitOutput(directory, ["cat-file", "blob", entry.oid]);
 }
 
 /** Why some present stage is not text; null when all are. */
@@ -131,26 +130,20 @@ function stageText(blob: Buffer): string {
   return text.startsWith(BYTE_ORDER_MARK) ? text.slice(BYTE_ORDER_MARK.length) : text;
 }
 
-async function repositoryRoot(filePath: string): Promise<string | null> {
-  const directory = path.dirname(filePath);
-  const root = await git(directory, ["rev-parse", "--show-toplevel"]);
-  return root === null ? null : root.trim();
-}
-
 /** Rebase and cherry-pick replay commits, which swaps the meaning of the two sides. */
-async function isReplayInProgress(root: string): Promise<boolean> {
-  const mergeHead = await git(root, ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]);
+async function isReplayInProgress(directory: string): Promise<boolean> {
+  const mergeHead = await git(directory, ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]);
   return mergeHead === null;
 }
 
-async function describeHead(root: string): Promise<string> {
-  const branch = await git(root, ["symbolic-ref", "--short", "--quiet", "HEAD"]);
+async function describeHead(directory: string): Promise<string> {
+  const branch = await git(directory, ["symbolic-ref", "--short", "--quiet", "HEAD"]);
   return branch?.trim() || "Your branch";
 }
 
-async function describeIncoming(root: string): Promise<string> {
+async function describeIncoming(directory: string): Promise<string> {
   for (const ref of ["MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD"]) {
-    const name = await git(root, ["name-rev", "--name-only", "--exclude=tags/*", ref]);
+    const name = await git(directory, ["name-rev", "--name-only", "--exclude=tags/*", ref]);
     if (name !== null && name.trim() !== "" && !name.startsWith("undefined")) {
       return name.trim();
     }
@@ -175,8 +168,4 @@ async function gitOutput(cwd: string, args: readonly string[]): Promise<Buffer |
     }
     throw error;
   }
-}
-
-function toPosix(value: string): string {
-  return value.split(path.sep).join("/");
 }

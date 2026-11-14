@@ -134,7 +134,7 @@ own palettes.
 ### Resolving
 
 - **»** / **«** in a side's gutter applies that side's block to the result; **×** ignores it. Each side of a block is
-  decided separately: applying both sides of a conflict keeps both, left first.
+  decided separately: applying both sides of a conflict keeps both, in the order they were applied.
 - **Apply non-conflicting changes:** (toolbar) applies every pending non-conflicting change from the left, the right, or
   both.
 - **Accept Left** / **Accept Right** (footer) replaces the whole result with that side's version, discarding edits.

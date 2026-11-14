@@ -113,6 +113,14 @@ describe("merge session", () => {
     expect(isChunkResolved(both.chunks[0])).toBe(true);
   });
 
+  it("keeps a conflict's sides in the order they were applied", () => {
+    const rightFirst = applySide(startMerge(CONFLICT_BASE, CONFLICT_LEFT, CONFLICT_RIGHT), 0, "right");
+    const both = applySide(rightFirst, 0, "left");
+
+    expect(resultText(both)).toBe("a\nR\nL1\nL2\nc\nd\ne");
+    expect(both.chunks[0].result).toEqual({ start: 1, end: 4 });
+  });
+
   it("resolves a conflict by applying one side and ignoring the other", () => {
     const ignored = ignoreSide(startMerge(CONFLICT_BASE, CONFLICT_LEFT, CONFLICT_RIGHT), 0, "left");
     const state = applySide(ignored, 0, "right");

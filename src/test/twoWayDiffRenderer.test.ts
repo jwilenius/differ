@@ -9,6 +9,7 @@ const NONCE = "abcdefghijklmnop0123";
 
 const CONTEXT: TwoWayDiffRenderContext = {
   assets: { styleUri: "https://res/diff.css", scriptUri: "https://res/diff.js", cspSource: "https://res" },
+  geometryScriptUri: "https://res/diffGeometry.js",
   nonce: NONCE,
   cspSource: "https://res",
   baseLabel: "1807da6c",
@@ -68,7 +69,7 @@ describe("HtmlTwoWayDiffRenderer", () => {
       `content="default-src 'none'; style-src https://res 'nonce-${NONCE}'; script-src 'nonce-${NONCE}'"`,
     );
     expect(html).toContain(`<style nonce="${NONCE}">`);
-    expect(html).toContain(`<script nonce="${NONCE}" src="https://res/diff.js"></script>`);
+    expect(html).toContain(`<script nonce="${NONCE}" src="https://res/diffGeometry.js"></script>\n<script nonce="${NONCE}" src="https://res/diff.js"></script>`);
     expect(html).toContain(`<link href="https://res/diff.css" rel="stylesheet">`);
   });
 

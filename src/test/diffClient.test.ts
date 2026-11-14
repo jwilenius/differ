@@ -3,7 +3,10 @@ import * as path from "node:path";
 import * as vm from "node:vm";
 import { describe, expect, it } from "vitest";
 
-const CLIENT_SOURCE = fs.readFileSync(path.join(__dirname, "..", "..", "media", "diff.js"), "utf8");
+const MEDIA_ROOT = path.join(__dirname, "..", "..", "media");
+const GEOMETRY_SOURCE = fs.readFileSync(path.join(MEDIA_ROOT, "diffGeometry.js"), "utf8");
+/** The page loads the geometry first; both scripts share its global scope. */
+const CLIENT_SOURCE = `${GEOMETRY_SOURCE}\n${fs.readFileSync(path.join(MEDIA_ROOT, "diff.js"), "utf8")}`;
 
 interface Anchor {
   readonly base: number;
@@ -24,7 +27,7 @@ interface Viewport {
   readonly max: number;
 }
 
-/** The pure geometry the script defines at top level, read from a context without `acquireVsCodeApi`. */
+/** The pure geometry `diffGeometry.js` defines at top level. */
 interface DiffGeometry {
   buildAnchors(blocks: readonly ClientBlock[], baseLineCount: number, resultLineCount: number): Anchor[];
   mapLine(anchors: readonly Anchor[], line: number, from: Side, to: Side): number;
@@ -43,7 +46,7 @@ interface DiffGeometry {
 
 function loadGeometry(): DiffGeometry {
   const context: Record<string, unknown> = {};
-  vm.runInNewContext(CLIENT_SOURCE, context);
+  vm.runInNewContext(GEOMETRY_SOURCE, context);
   return context as unknown as DiffGeometry;
 }
 

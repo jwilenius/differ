@@ -237,6 +237,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
           scriptUri: this.mediaUri(webview, "diff.js"),
           cspSource: webview.cspSource,
         },
+        geometryScriptUri: this.mediaUri(webview, "diffGeometry.js"),
         nonce: randomBytes(NONCE_BYTES).toString("base64"),
         cspSource: webview.cspSource,
         baseLabel: base.label,

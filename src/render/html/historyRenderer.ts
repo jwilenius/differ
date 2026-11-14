@@ -12,8 +12,7 @@ import type {
   HistoryRefKind,
   HistoryState,
 } from "../../model/historyTypes";
-import type { WebviewAssets } from "./htmlRenderer";
-import { escapeHtml } from "./rowMarkup";
+import { escapeHtml, type WebviewAssets } from "./webviewMarkup";
 
 /** Rows rendered initially and added by each Load more. */
 export const HISTORY_PAGE_SIZE = 200;

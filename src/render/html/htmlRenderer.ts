@@ -1,13 +1,7 @@
 import type { ResolutionViewModel } from "../../model/resolutionView";
 import type { MergeRenderer, RenderContext } from "../renderer";
-import { escapeHtml, renderGrid } from "./rowMarkup";
-
-export interface WebviewAssets {
-  readonly styleUri: string;
-  readonly scriptUri: string;
-  /** Value the webview's content security policy allows local resources from. */
-  readonly cspSource: string;
-}
+import { renderGrid } from "./rowMarkup";
+import { escapeHtml, type WebviewAssets } from "./webviewMarkup";
 
 /** Renders the merge model as a self-contained webview document. */
 export class HtmlMergeRenderer implements MergeRenderer<string> {

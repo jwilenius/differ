@@ -6,6 +6,7 @@ import type {
   ResolutionViewModel,
 } from "../../model/resolutionView";
 import { highlightRows, type ChangeType, type RowHighlight } from "./changeHighlight";
+import { escapeHtml } from "./webviewMarkup";
 
 type Pane = "ours" | "result" | "theirs";
 
@@ -190,12 +191,4 @@ function renderSplitHint(conflict: ConflictSummary): string {
 
 function menuItem(conflictIndex: number, resolution: string, label: string): string {
   return `<button class="resolve" role="menuitem" data-conflict="${conflictIndex}" data-resolution="${resolution}">${label}</button>`;
-}
-
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

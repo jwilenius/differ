@@ -112,6 +112,7 @@ describe("TwoWayDiffPanels", () => {
     const nonce = /script-src 'nonce-([^']+)'/.exec(html)?.[1];
     expect(nonce).toMatch(/^[A-Za-z0-9+/=_-]{16,}$/);
     expect(html).toContain("default-src 'none'");
+    expect(html).toContain(`<script nonce="${nonce}" src="vscode-webview-resource:/extension/media/diffGeometry.js"`);
     expect(html).toContain(`<script nonce="${nonce}" src="vscode-webview-resource:/extension/media/diff.js"`);
     expect(html).toContain("vscode-webview-resource:/extension/media/diff.css");
     expect(html).toContain("1807da6c");

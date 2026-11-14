@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_UNDO_STEPS, MergeHistory } from "../model/mergeHistory";
+import { firstResultChange, MAX_UNDO_STEPS, MergeHistory } from "../model/mergeHistory";
 import { editLine, startMerge, type MergeState } from "../model/mergeSession";
 
 const START = startMerge("a\nb", "a\nB", "a\nb");
@@ -64,5 +64,27 @@ describe("MergeHistory", () => {
 
     expect(current).toBe(states[1]);
     expect(history.undo(current)).toBe(states[1]);
+  });
+});
+
+describe("firstResultChange", () => {
+  it("is where the shown line's text starts to differ", () => {
+    expect(firstResultChange(["a", "foo bar", "c"], ["a", "foo", "c"])).toEqual({ line: 1, column: 3 });
+  });
+
+  it("is where an undone split was made", () => {
+    expect(firstResultChange(["a", "b"], ["ab"])).toEqual({ line: 0, column: 1 });
+  });
+
+  it("is the start of a line put back", () => {
+    expect(firstResultChange(["a", "c"], ["a", "b", "c"])).toEqual({ line: 1, column: 0 });
+  });
+
+  it("is the end of the last line when lines after it were taken away", () => {
+    expect(firstResultChange(["a", "bc", "d"], ["a", "bc"])).toEqual({ line: 1, column: 2 });
+  });
+
+  it("is null when the result did not change", () => {
+    expect(firstResultChange(["a", "b"], ["a", "b"])).toBeNull();
   });
 });

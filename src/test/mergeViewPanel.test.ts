@@ -492,6 +492,32 @@ describe("MergeViewPanel undo and redo", () => {
     expect(await applyAndRead(webview, file)).toBe("two\n");
   });
 
+  it("tells the redrawn page where the undone or redone step changed the result, for the caret", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    post(webview, { type: "editLine", line: 0, text: "based" });
+    await postAndRedraw(webview, { type: "undo" });
+    const pageAfterUndo = webview.html;
+    await postAndRedraw(webview, { type: "redo" });
+
+    expect(pageAfterUndo).toContain('data-caret-line="0" data-caret-column="4"');
+    expect(webview.html).toContain('data-caret-line="0" data-caret-column="4"');
+  });
+
+  it("names no caret position when the step left the result as it was", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
+    await postAndRedraw(webview, { type: "undo" });
+
+    expect(webview.html).not.toContain("data-caret");
+  });
+
   it("redraws the page with nothing to undo, as it stops taking edits until it is replaced", async () => {
     divergeBranches(repo, ["f.txt"]);
     mergeFeature(repo);

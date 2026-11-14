@@ -18,7 +18,7 @@ import {
   type MergeState,
   type MergeTally,
 } from "../../model/mergeSession";
-import { MergeHistory } from "../../model/mergeHistory";
+import { firstResultChange, MergeHistory, type ResultPosition } from "../../model/mergeHistory";
 import { describeMerge } from "../../model/mergeView";
 import { rebaseStyles, type HighlightedText } from "../../model/syntaxTokens";
 import { renderTokenStyles } from "../../render/html/codeMarkup";
@@ -149,7 +149,8 @@ export class MergeViewPanel {
     await this.render();
   }
 
-  private async render(): Promise<void> {
+  /** `caret` is where the new page puts the caret, as after an undo or redo. */
+  private async render(caret: ResultPosition | null = null): Promise<void> {
     const { state, context } = this;
     if (state === null || context === null) {
       return;
@@ -166,7 +167,7 @@ export class MergeViewPanel {
     }
     // An edit typed while highlighting ran is already on the page, so the new page must show it too.
     if (this.state !== state) {
-      return this.render();
+      return this.render(caret);
     }
     const input = {
       state,
@@ -176,7 +177,7 @@ export class MergeViewPanel {
       rightHighlight,
       resultHighlight,
     };
-    this.panel.webview.html = new HtmlMergeViewRenderer().render(input, this.renderContext(context, generation));
+    this.panel.webview.html = new HtmlMergeViewRenderer().render(input, this.renderContext(context, generation, caret));
     this.shownPage = generation;
     this.shownResult = new ShownMergeResult(resultLineMarkup(input), resultHighlight.styles);
   }
@@ -229,7 +230,7 @@ export class MergeViewPanel {
     this.heldBackEditWaiters.delete(resume);
   }
 
-  private renderContext(context: MergeContext, page: number): MergeViewRenderContext {
+  private renderContext(context: MergeContext, page: number, caret: ResultPosition | null): MergeViewRenderContext {
     const { webview } = this.panel;
     return {
       nonce: randomBytes(NONCE_BYTES).toString("base64"),
@@ -242,6 +243,7 @@ export class MergeViewPanel {
       resultPath: vscode.workspace.asRelativePath(this.uri),
       isSidesSwapped: context.isSidesSwapped,
       page,
+      caret,
     };
   }
 
@@ -336,7 +338,7 @@ export class MergeViewPanel {
     if (message.type === "undo" || message.type === "redo") {
       this.state = message.type === "undo" ? this.history.undo(state) : this.history.redo(state);
       // The page stops taking edits once it asks, so it is redrawn even when there was nothing to undo.
-      return this.render();
+      return this.render(firstResultChange(state.resultLines, this.state.resultLines));
     }
     this.state = nextState(state, message);
     this.history.record(state, this.state);

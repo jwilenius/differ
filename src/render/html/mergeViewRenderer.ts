@@ -1,4 +1,5 @@
 import type { WordSpan } from "../../core/types";
+import type { ResultPosition } from "../../model/mergeHistory";
 import type { MergeSide } from "../../model/mergeChunks";
 import type { MergeState, MergeTally } from "../../model/mergeSession";
 import type { ChunkTint, ChunkView } from "../../model/mergeView";
@@ -39,6 +40,8 @@ export interface MergeViewRenderContext {
   readonly isSidesSwapped: boolean;
   /** Numbers the page; the client stamps it on every message, so the host can tell a replaced page's messages apart. */
   readonly page: number;
+  /** Where the client puts the caret once loaded: where an undo or redo changed the result; null leaves focus alone. */
+  readonly caret: ResultPosition | null;
 }
 
 /** Published as JSON in `#merge[data-merge]`; ranges are `[start, end)` line pairs. */
@@ -83,6 +86,7 @@ const LOCK_ICON = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rec
  * ignore (×) buttons in the side gutters. The result is editable.
  *
  * Client contract: `#merge[data-merge]` holds {@link MergeClientData} and `#merge[data-page]` the page number;
+ * `#merge[data-caret-line][data-caret-column]`, when present, the result position the client puts the caret at;
  * `style#result-styles` holds the result's token styles, which the client replaces with re-highlighted ones;
  * scrollers `#scroll-left`, `#scroll-result`, `#scroll-right` contain one
  * `.line` per text line; `svg#connectors-left` / `svg#connectors-right` sit in
@@ -114,7 +118,7 @@ ${styles}
 </head>
 <body>
 ${renderToolbar(input, context)}
-<main class="merge" id="merge" data-page="${context.page}" data-merge="${escapeHtml(JSON.stringify(mergeClientData(input.state, input.chunks)))}">
+<main class="merge" id="merge" data-page="${context.page}"${caretAttributes(context.caret)} data-merge="${escapeHtml(JSON.stringify(mergeClientData(input.state, input.chunks)))}">
 ${renderSideHeader("left", context.leftLabel)}
 <div class="strip-header"></div>
 <div class="pane-header pane-result"><b>Result</b><span class="path">${escapeHtml(context.resultPath)}</span></div>
@@ -150,6 +154,10 @@ export function mergeClientData(state: MergeState, chunks: readonly ChunkView[])
     rightLineCount: state.rightLines.length,
     resultLineCount: state.resultLines.length,
   };
+}
+
+function caretAttributes(caret: ResultPosition | null): string {
+  return caret === null ? "" : ` data-caret-line="${caret.line}" data-caret-column="${caret.column}"`;
 }
 
 function renderToolbar(input: MergeViewInput, context: MergeViewRenderContext): string {

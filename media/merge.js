@@ -346,6 +346,18 @@
     awaitRedraw();
   }
 
+  /** The page an undo or redo drew puts the caret where the step changed the result, so typing can go on. */
+  function placeStepCaret() {
+    const { caretLine, caretColumn } = merge.dataset;
+    const cells = resultLines.querySelectorAll(".code[data-line]");
+    if (caretLine === undefined || cells.length === 0) {
+      return;
+    }
+    const cell = cells[Math.min(Number(caretLine), cells.length - 1)];
+    placeCaret(cell, Number(caretColumn));
+    cell.scrollIntoView({ block: "nearest" });
+  }
+
   /** "undo" or "redo" for their shortcuts, else null: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y. */
   function historyStepOf(event) {
     if (!(event.ctrlKey || event.metaKey) || event.altKey) {
@@ -707,6 +719,7 @@
     goTo(0);
     syncFrom("result");
   }
+  placeStepCaret();
 
   scheduleDraw();
 })();

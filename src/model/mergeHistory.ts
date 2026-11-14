@@ -43,3 +43,37 @@ function step(from: MergeState[], to: MergeState[], current: MergeState): MergeS
   to.push(current);
   return target;
 }
+
+/** A place in the result: a line and a character offset in it. */
+export interface ResultPosition {
+  readonly line: number;
+  readonly column: number;
+}
+
+/**
+ * Where result `after` starts to differ from result `before`, as `after` shows it: the first differing line and the
+ * column its text starts to differ at, or the end of `after` when only lines after it went. Null when they are equal.
+ */
+export function firstResultChange(before: readonly string[], after: readonly string[]): ResultPosition | null {
+  const lineCount = Math.max(before.length, after.length);
+  let line = 0;
+  while (line < lineCount && before[line] === after[line]) {
+    line++;
+  }
+  if (line === lineCount) {
+    return null;
+  }
+  if (line >= after.length) {
+    const lastLine = after.length - 1;
+    return { line: lastLine, column: after[lastLine].length };
+  }
+  return { line, column: commonPrefixLength(before[line] ?? "", after[line]) };
+}
+
+function commonPrefixLength(first: string, second: string): number {
+  let length = 0;
+  while (length < first.length && length < second.length && first[length] === second[length]) {
+    length++;
+  }
+  return length;
+}

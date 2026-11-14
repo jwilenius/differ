@@ -48,6 +48,7 @@ function render(state: MergeState): string {
     resultPath: "a.ts",
     isSidesSwapped: false,
     page: 1,
+    caret: null,
   });
 }
 

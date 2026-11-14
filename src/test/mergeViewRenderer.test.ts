@@ -19,6 +19,7 @@ const CONTEXT: MergeViewRenderContext = {
   resultPath: "src/a.ts",
   isSidesSwapped: false,
   page: 1,
+  caret: null,
 };
 
 // One conflict on line 1, a left-only change on line 3, a right-only addition at the end.
@@ -167,6 +168,16 @@ describe("HtmlMergeViewRenderer", () => {
     const html = render(startMerge(BASE, LEFT, RIGHT), { page: 7 });
 
     expect(html).toContain('id="merge" data-page="7"');
+  });
+
+  it("names where the client puts the caret after an undo or redo", () => {
+    const html = render(startMerge(BASE, LEFT, RIGHT), { caret: { line: 3, column: 2 } });
+
+    expect(html).toContain('id="merge" data-page="1" data-caret-line="3" data-caret-column="2"');
+  });
+
+  it("names no caret position when the host has none", () => {
+    expect(render(startMerge(BASE, LEFT, RIGHT))).not.toContain("data-caret");
   });
 
   it("rejects a weak nonce", () => {

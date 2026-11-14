@@ -41,11 +41,16 @@ export interface UnmergeableConflict {
 
 const NO_MERGEABLE_CONFLICT: UnmergeableConflict = { unmergeable: "noMergeableConflict" };
 const BYTE_ORDER_MARK = "\uFEFF";
+/** Git's exit code for a fatal error, which is how it reports a directory outside any repository. */
+const FATAL_EXIT_CODE = 128;
+/** Git's exit code when a `--quiet` lookup finds nothing, as a missing ref or a detached HEAD. */
+const NOT_FOUND_EXIT_CODE = 1;
 
 /**
  * Reads the three versions of a conflicted file from the git index, or why they cannot be merged. Git runs in the
  * file's own directory and is given only its name: Git resolves symbolic links in the repository root, so a path
- * relative to that root would leave the repository when the file was opened through a linked directory.
+ * relative to that root would leave the repository when the file was opened through a linked directory. Throws
+ * `HistoryGitError` when Git is missing or fails other than by finding no repository.
  */
 export async function readMergeSources(filePath: string, result: string): Promise<MergeSources | UnmergeableConflict> {
   const directory = path.dirname(filePath);
@@ -82,12 +87,16 @@ interface StagedVersions {
   readonly theirs: Buffer | null;
 }
 
-/** The unmerged index entries of the file `fileName` in `directory`; none when Git fails, as outside a repository. */
+/**
+ * The unmerged index entries of the file `fileName` in `directory`; none outside a repository. Git reports that only
+ * by a fatal exit, which other fatal errors such as an unsafe repository share, so those read as no conflict too, as
+ * they read as no repository when the history finds its repository root.
+ */
 async function conflictEntries(directory: string, fileName: string): Promise<readonly UnmergedEntry[]> {
   try {
     return await listUnmergedEntries(directory, [fileName]);
   } catch (error) {
-    if (error instanceof HistoryGitError) {
+    if (error instanceof HistoryGitError && error.exitCode === FATAL_EXIT_CODE) {
       return [];
     }
     throw error;
@@ -107,7 +116,11 @@ async function stagedVersions(directory: string, entries: readonly UnmergedEntry
 /** Reads a stage by object id, so the content is the blob whose mode was checked; `null` when the stage is absent. */
 async function readStage(directory: string, entries: readonly UnmergedEntry[], stage: number): Promise<Buffer | null> {
   const entry = entries.find((candidate) => candidate.stage === stage);
-  return entry === undefined ? null : gitOutput(directory, ["cat-file", "blob", entry.oid]);
+  if (entry === undefined) {
+    return null;
+  }
+  const { stdout } = await runHistoryGit({ cwd: directory, args: ["cat-file", "blob", entry.oid] });
+  return stdout;
 }
 
 /** Why some present stage is not text; null when all are. */
@@ -151,21 +164,8 @@ async function describeIncoming(directory: string): Promise<string> {
   return "Incoming";
 }
 
-/** Runs git for text output, returning `null` for any Git failure so callers can fall back. */
+/** Runs a git lookup for text output; `null` when it finds nothing. Throws `HistoryGitError` when Git fails. */
 async function git(cwd: string, args: readonly string[]): Promise<string | null> {
-  const output = await gitOutput(cwd, args);
-  return output === null ? null : output.toString("utf8");
-}
-
-/** Runs git, returning its raw output, or `null` for any Git failure. */
-async function gitOutput(cwd: string, args: readonly string[]): Promise<Buffer | null> {
-  try {
-    const { stdout } = await runHistoryGit({ cwd, args });
-    return stdout;
-  } catch (error) {
-    if (error instanceof HistoryGitError) {
-      return null;
-    }
-    throw error;
-  }
+  const { stdout, exitCode } = await runHistoryGit({ cwd, args, allowedExitCodes: [0, NOT_FOUND_EXIT_CODE] });
+  return exitCode === NOT_FOUND_EXIT_CODE ? null : stdout.toString("utf8");
 }

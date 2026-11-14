@@ -128,6 +128,14 @@ describe("readMergeSources", () => {
     expect(await readMergeSources(orphan, "text")).toEqual({ unmergeable: "noMergeableConflict" });
     fs.rmSync(outside, { recursive: true, force: true });
   });
+
+  it("reports missing Git as an error instead of a file with no conflict", async () => {
+    vi.stubEnv("PATH", repo);
+
+    const reading = readMergeSources(file, fs.readFileSync(file, "utf8"));
+
+    await expect(reading).rejects.toMatchObject({ name: "HistoryGitError", kind: "missingGit" });
+  });
 });
 
 describe("readMergeSources with an emptied side", () => {

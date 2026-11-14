@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readMergeSources } from "../git/gitMergeSources";
+import { createConflictRepository, mergeFeature, runGit } from "./gitConflictFixture";
 
 let repo: string;
 let file: string;
@@ -99,5 +100,37 @@ describe("readMergeSources", () => {
 
     expect(await readMergeSources(orphan, "text")).toBeNull();
     fs.rmSync(outside, { recursive: true, force: true });
+  });
+});
+
+describe("readMergeSources with an emptied side", () => {
+  let emptiedRepo: string;
+
+  beforeAll(() => {
+    emptiedRepo = createConflictRepository();
+    const emptied = path.join(emptiedRepo, "f.txt");
+    fs.writeFileSync(emptied, "base\n");
+    runGit(emptiedRepo, "add", "f.txt");
+    runGit(emptiedRepo, "commit", "-qm", "base");
+    runGit(emptiedRepo, "checkout", "-q", "-b", "feature");
+    fs.writeFileSync(emptied, "");
+    runGit(emptiedRepo, "commit", "-qam", "empty");
+    runGit(emptiedRepo, "checkout", "-q", "trunk");
+    fs.writeFileSync(emptied, "trunk\n");
+    runGit(emptiedRepo, "commit", "-qam", "trunk");
+    mergeFeature(emptiedRepo);
+  });
+
+  afterAll(() => {
+    fs.rmSync(emptiedRepo, { recursive: true, force: true });
+  });
+
+  it("reads a side whose version is empty as empty text, not as missing", async () => {
+    const emptied = path.join(emptiedRepo, "f.txt");
+
+    const sources = await readMergeSources(emptied, fs.readFileSync(emptied, "utf8"));
+
+    expect(sources?.ours).toBe("trunk\n");
+    expect(sources?.theirs).toBe("");
   });
 });

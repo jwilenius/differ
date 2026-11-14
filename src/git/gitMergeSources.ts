@@ -40,7 +40,7 @@ export async function readMergeSources(filePath: string, result: string): Promis
 
   const relativePath = toPosix(path.relative(root, filePath));
   const stages = await stagedVersions(root, relativePath);
-  if (!stages.ours || !stages.theirs) {
+  if (stages.ours === null || stages.theirs === null) {
     return null;
   }
 

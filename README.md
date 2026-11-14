@@ -93,7 +93,8 @@ joined by connector ribbons.
 ### Opening it
 
 - **Differ: Resolve Conflicts** lists the conflicted (unmerged) files of every repository holding a workspace folder or
-  the active editor; pick one to open it.
+  the active editor; pick one to open it. Only text conflicts are listed: both sides present, every stage a regular
+  file. Modify/delete, symbolic-link and submodule conflicts are left to git.
 - **Differ: Open Three-Way Merge View**, or the merge button in the title bar of a file with conflict markers, opens the
   active file.
 

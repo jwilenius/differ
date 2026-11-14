@@ -34,7 +34,33 @@ describe("listConflictedFiles", () => {
 
     expect(await listConflictedFiles(repo)).toEqual([path.join(repo, "b.txt")]);
   });
+
+  it("leaves out conflicts the merge view cannot open: a deleted side or a symbolic link", async () => {
+    fs.writeFileSync(path.join(repo, "both.txt"), "base\n");
+    fs.writeFileSync(path.join(repo, "deleted.txt"), "base\n");
+    fs.symlinkSync("base-target", path.join(repo, "link"));
+    runGit(repo, "add", ".");
+    runGit(repo, "commit", "-qm", "base");
+    runGit(repo, "checkout", "-q", "-b", "feature");
+    fs.writeFileSync(path.join(repo, "both.txt"), "feature\n");
+    runGit(repo, "rm", "-q", "deleted.txt");
+    replaceLink(path.join(repo, "link"), "feature-target");
+    runGit(repo, "commit", "-qam", "feature");
+    runGit(repo, "checkout", "-q", "trunk");
+    fs.writeFileSync(path.join(repo, "both.txt"), "trunk\n");
+    fs.writeFileSync(path.join(repo, "deleted.txt"), "trunk\n");
+    replaceLink(path.join(repo, "link"), "trunk-target");
+    runGit(repo, "commit", "-qam", "trunk");
+    mergeFeature(repo);
+
+    expect(await listConflictedFiles(repo)).toEqual([path.join(repo, "both.txt")]);
+  });
 });
+
+function replaceLink(link: string, target: string): void {
+  fs.rmSync(link);
+  fs.symlinkSync(target, link);
+}
 
 describe("markResolved", () => {
   it("stages only the named file, even when its name looks like a pattern", async () => {

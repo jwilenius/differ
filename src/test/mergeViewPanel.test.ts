@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import { listUnmergedEntries } from "../git/gitConflictedFiles";
 import { unstyledText } from "../highlight/textMateHighlighter";
 import { MergeViewPanel } from "../host/vscode/mergeViewPanel";
-import { createConflictRepository, divergeBranches, mergeFeature } from "./gitConflictFixture";
+import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
 import { type FakeWebview, resetVscodeMock, vscodeMock } from "./vscodeMock";
 
 let repo: string;
@@ -72,5 +72,22 @@ describe("MergeViewPanel apply", () => {
     expect(vscodeMock.messages[0].text).toContain("symbolic link");
     expect(fs.readFileSync(target, "utf8")).toBe("precious\n");
     expect(await listUnmergedEntries(repo, ["f.txt"])).not.toEqual([]);
+  });
+});
+
+describe("MergeViewPanel for a conflict it cannot merge", () => {
+  it("says why instead of claiming no merge is in progress", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    runGit(repo, "checkout", "-q", "feature");
+    runGit(repo, "rm", "-q", "f.txt");
+    runGit(repo, "commit", "-qm", "delete");
+    runGit(repo, "checkout", "-q", "trunk");
+    mergeFeature(repo);
+
+    await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    const { html } = vscodeMock.webviewPanels[0].webview;
+    expect(html).not.toContain("No merge in progress");
+    expect(html).toContain("Differ cannot merge f.txt");
   });
 });

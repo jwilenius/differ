@@ -296,9 +296,10 @@ function normalizeEol(text: string): string {
 
 function renderUnavailable(fileName: string): string {
   return `<!DOCTYPE html><html><body style="font-family: sans-serif; padding: 2rem;">
-<h3>No merge in progress for ${escapeHtml(fileName)}</h3>
+<h3>Differ cannot merge ${escapeHtml(fileName)}</h3>
 <p>Differ reads both sides and their common ancestor from git's conflict stages.
-This file has none, so there is nothing to merge.</p>
+This file has no conflict Differ can merge: it is not conflicted, one side deleted it,
+or a side is a symbolic link or submodule. Resolve it with git instead.</p>
 </body></html>`;
 }
 

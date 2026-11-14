@@ -18,14 +18,20 @@ export interface UnmergedEntry {
   readonly path: string;
 }
 
-/** Absolute paths of the files with unmerged index entries in the repository at `root`, in Git's order. */
+/**
+ * Absolute paths of the conflicted files in the repository at `root` that the merge view can open, in Git's order.
+ * Conflicts it cannot merge, such as a deleted side or a symbolic link, are left out.
+ */
 export async function listConflictedFiles(root: string): Promise<readonly string[]> {
-  const result = await runHistoryGit({ cwd: root, args: ["diff", "--name-only", "--diff-filter=U", "-z"] });
-  return result.stdout
-    .toString("utf8")
-    .split("\0")
-    .filter((name) => name !== "")
-    .map((name) => path.join(root, name));
+  const entries = await listUnmergedEntries(root);
+  // A Map keeps paths in first-seen order, which is Git's order.
+  const entriesByPath = new Map<string, readonly UnmergedEntry[]>();
+  for (const entry of entries) {
+    entriesByPath.set(entry.path, [...(entriesByPath.get(entry.path) ?? []), entry]);
+  }
+  return [...entriesByPath]
+    .filter(([, pathEntries]) => isMergeableConflict(pathEntries))
+    .map(([name]) => path.join(root, name));
 }
 
 /**

@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import { listUnmergedEntries } from "../git/gitConflictedFiles";
 import { unstyledText } from "../highlight/textMateHighlighter";
 import { MergeViewPanel } from "../host/vscode/mergeViewPanel";
+import type { TextHighlighter } from "../host/vscode/twoWayDiffPanel";
 import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
 import { type FakeWebview, fireDidCloseTextDocument, resetVscodeMock, vscodeMock } from "./vscodeMock";
 
@@ -53,12 +54,14 @@ function failingDocument(filePath: string): vscode.TextDocument {
   });
 }
 
-function createPanel(document: vscode.TextDocument): Promise<MergeViewPanel> {
+const plainHighlighter: TextHighlighter = { highlight: async (text: string) => unstyledText(text) };
+
+function createPanel(document: vscode.TextDocument, highlighter = plainHighlighter): Promise<MergeViewPanel> {
   vscodeMock.textDocuments.push(document);
   return MergeViewPanel.create({
     document,
     mediaRoot: vscode.Uri.file(os.tmpdir()),
-    highlighter: { highlight: async (text: string) => unstyledText(text) },
+    highlighter,
     log: () => undefined,
     onDispose: () => undefined,
   });
@@ -172,6 +175,50 @@ describe("MergeViewPanel that fails to load", () => {
     await expect(createPanel(failingDocument(path.join(repo, "f.txt")))).rejects.toThrow("The document failed.");
 
     expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true);
+  });
+});
+
+describe("MergeViewPanel closed while it loads", () => {
+  it("opens without error when an unmergeable file's panel is closed while git's stages are read", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    runGit(repo, "checkout", "-q", "feature");
+    runGit(repo, "rm", "-q", "f.txt");
+    runGit(repo, "commit", "-qm", "delete");
+    runGit(repo, "checkout", "-q", "trunk");
+    mergeFeature(repo);
+
+    const opening = createPanel(fileDocument(path.join(repo, "f.txt")));
+    vscodeMock.webviewPanels[0].dispose();
+
+    await expect(opening).resolves.toBeInstanceOf(MergeViewPanel);
+    expect(vscodeMock.webviewPanels[0].webview.html).toBe("");
+  });
+
+  it("opens without error when a mergeable file's panel is closed while git's stages are read", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+
+    const opening = createPanel(fileDocument(path.join(repo, "f.txt")));
+    vscodeMock.webviewPanels[0].dispose();
+
+    await expect(opening).resolves.toBeInstanceOf(MergeViewPanel);
+    expect(vscodeMock.webviewPanels[0].webview.html).toBe("");
+  });
+
+  it("opens without error when closed while highlighting", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const closingHighlighter: TextHighlighter = {
+      highlight: async (text: string) => {
+        vscodeMock.webviewPanels[0].dispose();
+        return unstyledText(text);
+      },
+    };
+
+    const opening = createPanel(fileDocument(path.join(repo, "f.txt")), closingHighlighter);
+
+    await expect(opening).resolves.toBeInstanceOf(MergeViewPanel);
+    expect(vscodeMock.webviewPanels[0].webview.html).toBe("");
   });
 });
 

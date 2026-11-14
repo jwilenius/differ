@@ -64,6 +64,8 @@ export class MergeViewPanel {
   private sideHighlights: Promise<readonly [HighlightedText, HighlightedText]> | null = null;
   /** Counts renders so a slow one never overwrites a newer page. */
   private renderGeneration = 0;
+  /** Closing the panel while it loads or renders is not an error; its webview just takes no more content. */
+  private isDisposed = false;
 
   private constructor(private readonly options: MergeViewPanelOptions) {
     this.uri = options.document.uri;
@@ -97,6 +99,9 @@ export class MergeViewPanel {
   private async load(): Promise<void> {
     const { document } = this.options;
     const sources = await readMergeSources(document.uri.fsPath, document.getText());
+    if (this.isDisposed) {
+      return;
+    }
     if (!sources) {
       this.panel.webview.html = renderUnavailable(path.basename(document.uri.fsPath));
       return;
@@ -123,7 +128,8 @@ export class MergeViewPanel {
       this.sideHighlights,
       this.highlight(state.resultLines.join("\n"), context.languageId),
     ]);
-    if (generation !== this.renderGeneration) {
+    const isSuperseded = generation !== this.renderGeneration;
+    if (isSuperseded || this.isDisposed) {
       return;
     }
     const wordLevel = vscode.workspace.getConfiguration("differ").get<boolean>("wordLevelHighlighting", true);
@@ -260,7 +266,7 @@ export class MergeViewPanel {
   }
 
   private dispose(): void {
-    this.renderGeneration += 1;
+    this.isDisposed = true;
     this.options.onDispose();
     for (const disposable of this.disposables) {
       disposable.dispose();

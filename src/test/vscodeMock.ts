@@ -582,11 +582,24 @@ export const window = {
 
 export class FakeWebview implements vscode.Webview {
   options: vscode.WebviewOptions = {};
-  html = "";
+  /** Set when the owning panel is disposed; like VS Code's, the webview then refuses new content. */
+  isDisposed = false;
+  private content = "";
   readonly cspSource = "vscode-webview://fake";
   readonly postedMessages: unknown[] = [];
   private readonly didReceiveMessage = new EventEmitter<unknown>();
   readonly onDidReceiveMessage = this.didReceiveMessage.event;
+
+  get html(): string {
+    return this.content;
+  }
+
+  set html(value: string) {
+    if (this.isDisposed) {
+      throw new Error("Webview is disposed");
+    }
+    this.content = value;
+  }
 
   postMessage(message: unknown): Promise<boolean> {
     this.postedMessages.push(message);
@@ -660,6 +673,7 @@ export class FakeWebviewPanel {
       return;
     }
     this.isDisposed = true;
+    this.webview.isDisposed = true;
     this.didDispose.fire();
   }
 }

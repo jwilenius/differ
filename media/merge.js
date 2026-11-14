@@ -273,8 +273,8 @@
     if (!cell) {
       return;
     }
-    // VS Code's Undo and Redo menu items run the browser's own undo, which fires no `beforeinput`, and only
-    // once this page has typing of its own to undo; on any other page they do nothing. What the browser
+    // VS Code's Undo and Redo menu items run the browser's own undo, which fires no `beforeinput`, and reach
+    // the result once this page has typing of its own to undo (else the history seed takes them). What the browser
     // changed is put back: its undo knows nothing of the lines this page splits and joins, so it may take back
     // more or other than the merge's step, and the page shows what the host has until the host redraws it.
     if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
@@ -364,6 +364,38 @@
     const cell = cells[Math.min(Number(caretLine), cells.length - 1)];
     placeCaret(cell, Number(caretColumn));
     cell.scrollIntoView({ block: "nearest" });
+  }
+
+  // VS Code's Undo and Redo menu items run the browser's own undo and redo, which do nothing while the browser
+  // has no step to take back or put back, as on a freshly drawn page. A hidden editable gets one of each, which
+  // the page never sends: the browser taking either routes the step to the merge's history.
+  const historySeed = document.createElement("span");
+  let isSeeding = false;
+
+  function seedBrowserHistory() {
+    historySeed.className = "history-seed";
+    historySeed.setAttribute("contenteditable", "plaintext-only");
+    historySeed.setAttribute("aria-hidden", "true");
+    historySeed.tabIndex = -1;
+    document.body.append(historySeed);
+    historySeed.addEventListener("input", (event) => {
+      if (!isSeeding && (event.inputType === "historyUndo" || event.inputType === "historyRedo")) {
+        stepHistory(event.inputType === "historyUndo" ? "undo" : "redo");
+      }
+    });
+    const selection = window.getSelection();
+    isSeeding = true;
+    for (const step of ["a", "b"]) {
+      selection.selectAllChildren(historySeed);
+      selection.collapseToEnd();
+      document.execCommand("insertText", false, step);
+    }
+    document.execCommand("undo");
+    isSeeding = false;
+    selection.removeAllRanges();
+    if (document.activeElement === historySeed) {
+      historySeed.blur();
+    }
   }
 
   /** "undo" or "redo" for their shortcuts, else null: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y. */
@@ -739,6 +771,7 @@
     goTo(0);
     syncFrom("result");
   }
+  seedBrowserHistory();
   placeStepCaret();
 
   scheduleDraw();

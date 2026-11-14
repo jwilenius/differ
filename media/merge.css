@@ -280,3 +280,14 @@ button.button.primary {
 button.button.primary:hover {
   background: var(--vscode-button-hoverBackground, #2f68d8);
 }
+
+/* Holds the browser's own undo and redo steps (merge.js); never seen. */
+.history-seed {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: pre;
+}

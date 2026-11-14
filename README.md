@@ -154,8 +154,8 @@ own palettes.
 Undo and redo redraw the page with the caret where the step changed the result; a step that left the result as
 it was, such as undoing an ignore, leaves no caret.
 
-Undo and Redo from the Edit menu or Command Palette run the webview's own undo, so they reach the merge's history
-only after typing in the current page and do nothing on a freshly drawn one; the keys always work.
+Undo and Redo from the Edit menu or Command Palette run the webview's own undo; each drawn page gives it one hidden step
+of each, so they reach the merge's history on a freshly drawn page too.
 
 Scrolling is synchronised across the three panes, aligned on the blocks.
 

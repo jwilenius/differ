@@ -11,6 +11,8 @@ import {
 import type { HistoryRepositoryFixture } from "./gitHistoryFixture";
 
 const signal = new AbortController().signal;
+/** `FIXTURE_DEFAULT_DATE` as `%aI` prints it: git 2.56+ writes UTC as `Z`, older versions as `+00:00`. */
+const fixtureAuthoredDate = expect.stringMatching(/^2026-01-01T00:00:00(?:Z|\+00:00)$/);
 
 describe("GitHistoryRepository", () => {
   let fixture: HistoryRepositoryFixture;
@@ -93,7 +95,7 @@ describe("GitHistoryRepository", () => {
       oid: amended,
       parents: [],
       author: authorName,
-      authoredDate: "2026-01-01T00:00:00+00:00",
+      authoredDate: fixtureAuthoredDate,
       subject: "Fix ünïcode — 日本語: a b\tc",
     }]);
   });
@@ -128,7 +130,7 @@ describe("GitHistoryRepository", () => {
         oid,
         parents: [],
         author: "Test Author",
-        authoredDate: "2026-01-01T00:00:00+00:00",
+        authoredDate: fixtureAuthoredDate,
         subject: "Only",
       });
       expect(byTag.oid).toBe(oid);

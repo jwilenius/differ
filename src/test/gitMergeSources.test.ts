@@ -146,3 +146,32 @@ describe("readMergeSources with an emptied side", () => {
     expect(sources?.theirs).toBe("");
   });
 });
+
+describe("readMergeSources with a symbolic link conflict", () => {
+  let linkRepo: string;
+
+  beforeAll(() => {
+    linkRepo = createConflictRepository();
+    const link = path.join(linkRepo, "link");
+    fs.symlinkSync("base-target", link);
+    runGit(linkRepo, "add", "link");
+    runGit(linkRepo, "commit", "-qm", "base");
+    runGit(linkRepo, "checkout", "-q", "-b", "feature");
+    fs.rmSync(link);
+    fs.symlinkSync("feature-target", link);
+    runGit(linkRepo, "commit", "-qam", "feature");
+    runGit(linkRepo, "checkout", "-q", "trunk");
+    fs.rmSync(link);
+    fs.symlinkSync("trunk-target", link);
+    runGit(linkRepo, "commit", "-qam", "trunk");
+    mergeFeature(linkRepo);
+  });
+
+  afterAll(() => {
+    fs.rmSync(linkRepo, { recursive: true, force: true });
+  });
+
+  it("returns null, because saving a merge result would write through the link", async () => {
+    expect(await readMergeSources(path.join(linkRepo, "link"), "")).toBeNull();
+  });
+});

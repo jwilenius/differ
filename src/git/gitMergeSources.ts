@@ -1,10 +1,13 @@
 import * as path from "node:path";
+import {
+  isMergeableConflict,
+  listUnmergedEntries,
+  STAGE_BASE,
+  STAGE_OURS,
+  STAGE_THEIRS,
+  type UnmergedEntry,
+} from "./gitConflictedFiles";
 import { HistoryGitError, runHistoryGit } from "./historyGitCommand";
-
-/** Index stage numbers git assigns during a conflicted merge. */
-const STAGE_BASE = 1;
-const STAGE_OURS = 2;
-const STAGE_THEIRS = 3;
 
 export interface MergeSources {
   /** The branch's own version of the file — git stage 2. */
@@ -26,8 +29,8 @@ export interface MergeSources {
 
 /**
  * Reads the three versions of a conflicted file from the git index. Returns
- * `null` when the file has no conflict stages, in which case the caller should
- * fall back to parsing conflict markers out of the working copy.
+ * `null` when the file has no conflict stages, lacks a side, or has a stage
+ * that is not a regular file, such as a symbolic link or submodule.
  */
 export async function readMergeSources(filePath: string, result: string): Promise<MergeSources | null> {
   const root = await repositoryRoot(filePath);
@@ -36,7 +39,12 @@ export async function readMergeSources(filePath: string, result: string): Promis
   }
 
   const relativePath = toPosix(path.relative(root, filePath));
-  const stages = await stagedVersions(root, relativePath);
+  const entries = await conflictEntries(root, relativePath);
+  if (!isMergeableConflict(entries)) {
+    return null;
+  }
+
+  const stages = await stagedVersions(root, entries);
   if (stages.ours === null || stages.theirs === null) {
     return null;
   }
@@ -60,18 +68,32 @@ interface StagedVersions {
   readonly theirs: string | null;
 }
 
-async function stagedVersions(root: string, relativePath: string): Promise<StagedVersions> {
+/** The file's unmerged index entries; none when Git fails. */
+async function conflictEntries(root: string, relativePath: string): Promise<readonly UnmergedEntry[]> {
+  try {
+    return await listUnmergedEntries(root, [relativePath]);
+  } catch (error) {
+    if (error instanceof HistoryGitError) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function stagedVersions(root: string, entries: readonly UnmergedEntry[]): Promise<StagedVersions> {
   const [base, ours, theirs] = await Promise.all([
-    showStage(root, STAGE_BASE, relativePath),
-    showStage(root, STAGE_OURS, relativePath),
-    showStage(root, STAGE_THEIRS, relativePath),
+    readStage(root, entries, STAGE_BASE),
+    readStage(root, entries, STAGE_OURS),
+    readStage(root, entries, STAGE_THEIRS),
   ]);
 
   return { base, ours, theirs };
 }
 
-async function showStage(root: string, stage: number, relativePath: string): Promise<string | null> {
-  return git(root, ["show", `:${stage}:${relativePath}`]);
+/** Reads a stage by object id, so the content is the blob whose mode was checked; `null` when the stage is absent. */
+async function readStage(root: string, entries: readonly UnmergedEntry[], stage: number): Promise<string | null> {
+  const entry = entries.find((candidate) => candidate.stage === stage);
+  return entry === undefined ? null : git(root, ["cat-file", "blob", entry.oid]);
 }
 
 async function repositoryRoot(filePath: string): Promise<string | null> {

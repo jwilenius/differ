@@ -151,6 +151,9 @@ own palettes.
 | `Ctrl+Z` (`Cmd+Z`)                       | Undoes the last edit or resolving action          |
 | `Ctrl+Shift+Z` (`Cmd+Shift+Z`), `Ctrl+Y` | Redoes it                                         |
 
+Undo and Redo from the Edit menu or Command Palette run the webview's own undo, so they reach the merge's history
+only after typing in the current page and do nothing on a freshly drawn one; the keys always work.
+
 Scrolling is synchronised across the three panes, aligned on the blocks.
 
 ## Architecture

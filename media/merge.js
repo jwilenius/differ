@@ -261,6 +261,13 @@
     if (!cell) {
       return;
     }
+    // VS Code's Undo and Redo menu items run the browser's own undo, which fires no `beforeinput`, and only
+    // once this page has typing of its own to undo; on any other page they do nothing. The line the browser
+    // changed is left as it is: the host's undo replaces the page, and nothing sends the line meanwhile.
+    if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+      stepHistory(event.inputType === "historyUndo" ? "undo" : "redo");
+      return;
+    }
     const line = Number(cell.dataset.line);
     // One drag can change two lines; the first line's edit must not be overwritten.
     if (pendingEdit && pendingEdit.line !== line) {
@@ -306,7 +313,7 @@
   });
 
   // A line break typed any other way would put two lines into one cell. The browser's own undo knows nothing
-  // of the lines this page splits, joins and colours, so an undo from a menu goes to the host's history.
+  // of the lines this page splits, joins and colours, so an undo it is asked for goes to the host's history.
   resultLines.addEventListener("beforeinput", (event) => {
     if (event.inputType === "insertParagraph" || event.inputType === "insertLineBreak") {
       event.preventDefault();

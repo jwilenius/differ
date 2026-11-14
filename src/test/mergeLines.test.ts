@@ -105,6 +105,13 @@ describe("pastedLines", () => {
   it("keeps empty lines, including a trailing line break", () => {
     expect(loadMergeLines().pastedLines("", "x\n\ny\n", "")).toEqual(["x", "", "y", ""]);
   });
+
+  it.each([
+    ["no text", "", ["abcd"]],
+    ["text without a line break", "x", ["abxcd"]],
+  ])("joins the text around the selection when it gives way to %s", (_label, text, lines) => {
+    expect(loadMergeLines().pastedLines("ab", text, "cd")).toEqual(lines);
+  });
 });
 
 describe("editedLines", () => {

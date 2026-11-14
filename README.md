@@ -144,15 +144,18 @@ own palettes.
 
 ### Editing the result
 
-| Key                                      | Effect                                            |
-| ---------------------------------------- | ------------------------------------------------- |
-| Any text                                 | Edits that result line (debounced 400 ms)         |
-| `Enter`                                  | Splits the line                                   |
-| `Backspace` at col 0                     | Joins onto the line above                         |
-| `↑` / `↓`                                | Moves between result lines, keeping the column    |
-| `F7` / `Shift+F7`                        | Next / previous unresolved block (also ↓/↑ icons) |
-| `Ctrl+Z` (`Cmd+Z`)                       | Undoes the last edit or resolving action          |
-| `Ctrl+Shift+Z` (`Cmd+Shift+Z`), `Ctrl+Y` | Redoes it                                         |
+| Key                                                              | Effect                                            |
+| ---------------------------------------------------------------- | ------------------------------------------------- |
+| Any text                                                         | Edits that result line (debounced 400 ms)         |
+| `Enter`                                                          | Splits the line                                   |
+| `Backspace` at col 0                                             | Joins onto the line above                         |
+| `↑` / `↓`                                                        | Moves between result lines, keeping the column    |
+| `Shift+↑` / `Shift+↓`                                            | Extends the selection to the line above / below   |
+| Text, `Backspace`, `Delete`, `Enter` over a multi-line selection | Replaces it, as one undo step                     |
+| `Ctrl+X` (`Cmd+X`), `Shift+Delete` over a multi-line selection   | Cuts it, as one undo step                         |
+| `F7` / `Shift+F7`                                                | Next / previous unresolved block (also ↓/↑ icons) |
+| `Ctrl+Z` (`Cmd+Z`)                                               | Undoes the last edit or resolving action          |
+| `Ctrl+Shift+Z` (`Cmd+Shift+Z`), `Ctrl+Y`                         | Redoes it                                         |
 
 Undo and redo redraw the page with the caret where the step changed the result; a step that left the result as
 it was, such as undoing an ignore, leaves no caret.

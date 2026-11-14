@@ -3,7 +3,7 @@ import { startMerge, tallyMerge } from "../model/mergeSession";
 import { describeMerge } from "../model/mergeView";
 import type { HighlightedText } from "../model/syntaxTokens";
 import { HtmlMergeViewRenderer } from "../render/html/mergeViewRenderer";
-import { MergePage, type FakeElement, type FakeText, type PostedMessage } from "./mergeClientFixture";
+import { MergePage, type FakeElement, type FakeNode, type FakeText, type PostedMessage } from "./mergeClientFixture";
 
 const PAGE = 3;
 const EDIT_DEBOUNCE_MS = 400;
@@ -179,6 +179,15 @@ describe("a held-back result edit", () => {
       },
       [editLine(0, "a!"), { type: "replaceLines", line: 0, count: 1, lines: ["a!x", "y"], seq: 1, page: PAGE }],
     ],
+    [
+      "a removal of a selection across lines",
+      (page) => {
+        page.type(page.resultCell(0), "a!");
+        page.select(textOf(page.resultCell(0)), 1, textOf(page.resultCell(1)), 0);
+        page.key(page.resultCell(0), { key: "Delete" });
+      },
+      [editLine(0, "a!"), { type: "replaceLines", line: 0, count: 2, lines: ["ab"], seq: 1, page: PAGE }],
+    ],
   ])("is sent before %s", (_label, edit, expected) => {
     const page = openPage();
 
@@ -204,6 +213,21 @@ describe("after Apply", () => {
     expect(page.posted).toEqual([editLine(0, "a!"), { type: "apply", page: PAGE }]);
     expect(page.document.getElementById("scroll-result")!.inert).toBe(true);
     expect(page.document.querySelectorAll("button").every((button) => button.disabled)).toBe(true);
+  });
+
+  it("takes no edits over a selection across lines", () => {
+    const page = openPage();
+    page.type(page.resultCell(0), "a!");
+    page.click(page.button((button) => button.id === "apply"));
+    page.select(textOf(page.resultCell(0)), 1, textOf(page.resultCell(2)), 0);
+
+    page.key(page.document.body, { key: "Delete" });
+    page.key(page.document.body, { key: "x" });
+    const cut = page.cut(page.document.body);
+    vi.runAllTimers();
+
+    expect(cut).toBeNull();
+    expect(page.posted).toEqual([editLine(0, "a!"), { type: "apply", page: PAGE }]);
   });
 });
 
@@ -265,5 +289,138 @@ describe("copying a selection across lines", () => {
     page.select(textOf(code), 0, textOf(code), 1);
 
     expect(page.copy(page.document.body)).toBeNull();
+  });
+});
+
+describe("a selection across result lines", () => {
+  /** The result line and column of a selection end, which lies in a cell's only text node. */
+  function pointOf(node: FakeNode | null, offset: number): { line: number; column: number } {
+    return { line: Number(node!.parentElement!.closest(".code[data-line]")!.dataset.line), column: offset };
+  }
+
+  function selectionOf(page: MergePage): { anchor: { line: number; column: number }; focus: { line: number; column: number } } {
+    const { selection } = page.window;
+    return { anchor: pointOf(selection.anchorNode, selection.anchorOffset), focus: pointOf(selection.focusNode, selection.focusOffset) };
+  }
+
+  function resultTexts(page: MergePage): string[] {
+    return page.document.getElementById("scroll-result")!.querySelectorAll(".code[data-line]").map((cell) => cell.textContent);
+  }
+
+  function selectFromLine0To2(page: MergePage): void {
+    page.select(textOf(page.resultCell(0)), 1, textOf(page.resultCell(2)), 0);
+  }
+
+  function replaceLines(line: number, count: number, lines: readonly string[]): PostedMessage {
+    return { type: "replaceLines", line, count, lines, seq: 1, page: PAGE };
+  }
+
+  it.each<[string, Record<string, unknown>, string[], { line: number; column: number }]>([
+    ["Backspace", { key: "Backspace" }, ["ac"], { line: 0, column: 1 }],
+    ["Delete", { key: "Delete" }, ["ac"], { line: 0, column: 1 }],
+    ["a typed character", { key: "x", keyCode: 88 }, ["axc"], { line: 0, column: 2 }],
+    ["a character typed with AltGr", { key: "@", ctrlKey: true, altKey: true }, ["a@c"], { line: 0, column: 2 }],
+    ["Enter", { key: "Enter" }, ["a", "c"], { line: 1, column: 0 }],
+  ])("is replaced as one edit on %s", (_label, key, lines, caret) => {
+    const page = openPage();
+    selectFromLine0To2(page);
+
+    page.key(page.resultCell(0), key);
+
+    expect(page.posted).toEqual([replaceLines(0, 3, lines)]);
+    expect(resultTexts(page)).toEqual([...lines, "d"]);
+    expect(selectionOf(page).focus).toEqual(caret);
+    expect(page.window.selection.isCollapsed).toBe(true);
+  });
+
+  it("dragged from the line numbers is replaced on a key the page gets outside the result", () => {
+    const page = openPage();
+    const number = page.resultCell(1).parentElement!.querySelector(".num")!.childNodes[0]!;
+    page.select(number, 0, textOf(page.resultCell(2)), 1);
+
+    page.key(page.document.body, { key: "Delete" });
+
+    expect(page.posted).toEqual([replaceLines(1, 2, [""])]);
+    expect(resultTexts(page)).toEqual(["a", "", "d"]);
+  });
+
+  it("is replaced by text the browser inserts", () => {
+    const page = openPage();
+    selectFromLine0To2(page);
+
+    page.beforeInput(page.resultCell(0), "insertText", "xy");
+
+    expect(page.posted).toEqual([replaceLines(0, 3, ["axyc"])]);
+  });
+
+  it("is cut to the clipboard as one edit", () => {
+    const page = openPage();
+    selectFromLine0To2(page);
+
+    const cut = page.cut(page.document.body);
+
+    expect(cut).toBe("\nb\n");
+    expect(page.posted).toEqual([replaceLines(0, 3, ["ac"])]);
+    expect(resultTexts(page)).toEqual(["ac", "d"]);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ["a shortcut", { key: "a", ctrlKey: true }],
+    ["a named key", { key: "Tab" }],
+    ["a modifier", { key: "Shift", shiftKey: true }],
+    ["Shift+Delete, which the browser makes a cut", { key: "Delete", shiftKey: true }],
+    ["an IME's first key", { key: "Process", keyCode: 229 }],
+    ["a key of an IME composition", { key: "x", isComposing: true }],
+  ])("is left to the browser on %s", (_label, key) => {
+    const page = openPage();
+    selectFromLine0To2(page);
+
+    page.key(page.resultCell(0), key);
+
+    expect(page.posted).toEqual([]);
+    expect(resultTexts(page)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("grows by Shift+↓ to the line below, keeping the column", () => {
+    const page = openPage();
+    page.placeCaret(page.resultCell(0), 1);
+
+    page.key(page.resultCell(0), { key: "ArrowDown", shiftKey: true });
+    page.key(page.resultCell(0), { key: "ArrowDown", shiftKey: true });
+
+    expect(selectionOf(page)).toEqual({ anchor: { line: 0, column: 1 }, focus: { line: 2, column: 1 } });
+    expect(page.posted).toEqual([]);
+  });
+
+  it("grows by Shift+↑ to the line above, before its anchor", () => {
+    const page = openPage();
+    page.placeCaret(page.resultCell(2), 0);
+
+    page.key(page.resultCell(2), { key: "ArrowUp", shiftKey: true });
+    page.key(page.resultCell(2), { key: "ArrowUp", shiftKey: true });
+    page.key(page.resultCell(2), { key: "x" });
+
+    expect(page.posted).toEqual([replaceLines(0, 3, ["xc"])]);
+  });
+
+  it.each<[string, string, number, { line: number; column: number }]>([
+    ["Shift+↓ on the last line to its end", "ArrowDown", 3, { line: 3, column: 1 }],
+    ["Shift+↑ on the first line to its start", "ArrowUp", 0, { line: 0, column: 0 }],
+  ])("grows by %s", (_label, key, line, focus) => {
+    const page = openPage();
+    page.placeCaret(page.resultCell(line), line === 0 ? 1 : 0);
+
+    page.key(page.resultCell(line), { key, shiftKey: true });
+
+    expect(selectionOf(page).focus).toEqual(focus);
+  });
+
+  it.each(["ctrlKey", "altKey", "metaKey"])("leaves ↓ with %s to the browser", (modifier) => {
+    const page = openPage();
+    page.placeCaret(page.resultCell(0), 1);
+
+    page.key(page.resultCell(0), { key: "ArrowDown", [modifier]: true });
+
+    expect(selectionOf(page)).toEqual({ anchor: { line: 0, column: 1 }, focus: { line: 0, column: 1 } });
   });
 });

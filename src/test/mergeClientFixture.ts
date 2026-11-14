@@ -53,7 +53,7 @@ class FakeEventTarget {
   }
 }
 
-abstract class FakeNode extends FakeEventTarget {
+export abstract class FakeNode extends FakeEventTarget {
   parent: FakeElement | null = null;
 
   abstract get textContent(): string;
@@ -361,6 +361,8 @@ class FakeRange {
 
 class FakeSelection {
   private range: FakeRange | null = null;
+  /** Whether the focus comes before the anchor, as after extending a selection upwards. */
+  private isBackward = false;
 
   get rangeCount(): number {
     return this.range ? 1 : 0;
@@ -370,11 +372,44 @@ class FakeSelection {
     return !this.range || this.range.isCollapsed;
   }
 
+  get anchorNode(): FakeNode | null {
+    return (this.isBackward ? this.range?.endContainer : this.range?.startContainer) ?? null;
+  }
+
+  get anchorOffset(): number {
+    return (this.isBackward ? this.range?.endOffset : this.range?.startOffset) ?? 0;
+  }
+
+  get focusNode(): FakeNode | null {
+    return (this.isBackward ? this.range?.startContainer : this.range?.endContainer) ?? null;
+  }
+
+  get focusOffset(): number {
+    return (this.isBackward ? this.range?.startOffset : this.range?.endOffset) ?? 0;
+  }
+
   getRangeAt(): FakeRange {
     return this.range!;
   }
 
   addRange(range: FakeRange): void {
+    this.range = range;
+    this.isBackward = false;
+  }
+
+  /** Moves the focus, keeping the anchor. */
+  extend(node: FakeNode, offset: number): void {
+    const anchorNode = this.anchorNode!;
+    const anchorOffset = this.anchorOffset;
+    const range = new FakeRange();
+    this.isBackward = textOffsetOf(node, offset) < textOffsetOf(anchorNode, anchorOffset);
+    if (this.isBackward) {
+      range.setStart(node, offset);
+      range.setEnd(anchorNode, anchorOffset);
+    } else {
+      range.setStart(anchorNode, anchorOffset);
+      range.setEnd(node, offset);
+    }
     this.range = range;
   }
 
@@ -561,6 +596,13 @@ export class MergePage {
     return copied;
   }
 
+  /** Cuts the selection; the text the page put on the clipboard, or null when it left the cut to the browser. */
+  cut(target: FakeElement): string | null {
+    let cut: string | null = null;
+    this.userEvent(target, "cut", { clipboardData: { setData: (_type: string, text: string) => (cut = text) } });
+    return cut;
+  }
+
   key(target: FakeElement, init: Readonly<Record<string, unknown>>): void {
     this.userEvent(target, "keydown", init);
   }
@@ -569,8 +611,8 @@ export class MergePage {
     this.userEvent(target, "input", { inputType });
   }
 
-  beforeInput(target: FakeElement, inputType: string): void {
-    this.userEvent(target, "beforeinput", { inputType });
+  beforeInput(target: FakeElement, inputType: string, data: string | null = null): void {
+    this.userEvent(target, "beforeinput", { inputType, data });
   }
 
   paste(target: FakeElement, text: string): void {

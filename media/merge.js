@@ -301,7 +301,8 @@
     const line = Number(cell.dataset.line);
     const offset = caretOffset(cell);
 
-    if (event.key === "Enter") {
+    // Over a selection across lines, Enter is typed over it, as any text is.
+    if (event.key === "Enter" && !isSelectionAcrossLines()) {
       event.preventDefault();
       editLines({ type: "splitLine", line, offset }, () => splitCell(cell, offset), line + 1, 0);
       return;
@@ -316,15 +317,53 @@
       }
       return;
     }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      const target = neighbourEditable(cell, event.key === "ArrowUp" ? -1 : 1);
-      if (target) {
-        event.preventDefault();
-        flushPendingEdit();
-        placeCaret(target, Math.min(offset, target.textContent.length));
-      }
+    const isVerticalArrow = event.key === "ArrowUp" || event.key === "ArrowDown";
+    if (!isVerticalArrow || event.ctrlKey || event.altKey || event.metaKey) {
+      return;
+    }
+    const step = event.key === "ArrowUp" ? -1 : 1;
+    // The browser extends a selection only within the line's own editable.
+    if (event.shiftKey) {
+      event.preventDefault();
+      extendSelection(step);
+      return;
+    }
+    const target = neighbourEditable(cell, step);
+    if (target) {
+      event.preventDefault();
+      flushPendingEdit();
+      placeCaret(target, Math.min(offset, target.textContent.length));
     }
   });
+
+  // A selection across result lines spans their separate editables, which the browser edits none of: what is typed
+  // over it replaces it here, as one edit. The key reaches the document when the selection was dragged from the
+  // line numbers, which leaves no line focused.
+  document.addEventListener("keydown", (event) => {
+    const selected = event.isComposing || resultLines.inert ? null : selectedLines();
+    const text = selected && selected.first !== selected.last ? textTypedOver(event) : null;
+    if (text === null) {
+      return;
+    }
+    event.preventDefault();
+    insertLines(selected, text);
+  });
+
+  /** The text a key types over a selection: a line break, none for a removal, or its character; null for other keys. */
+  function textTypedOver(event) {
+    if (event.key === "Enter") {
+      return "\n";
+    }
+    // Shift+Delete cuts, which the browser turns into a `cut` event.
+    const isRemoval = event.key === "Backspace" || (event.key === "Delete" && !event.shiftKey);
+    if (isRemoval) {
+      return "";
+    }
+    // Ctrl+Alt is AltGr, which types characters on Windows.
+    const isShortcut = event.metaKey || (event.ctrlKey && !event.altKey);
+    const isCharacter = Array.from(event.key).length === 1;
+    return isCharacter && !isShortcut ? event.key : null;
+  }
 
   // A line break typed any other way would put two lines into one cell. The browser's own undo knows nothing
   // of the lines this page splits, joins and colours, so an undo it is asked for goes to the host's history.
@@ -334,6 +373,10 @@
     } else if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
       event.preventDefault();
       stepHistory(event.inputType === "historyUndo" ? "undo" : "redo");
+    } else if (event.inputType === "insertText" && event.data && isSelectionAcrossLines()) {
+      // Text that came without a key the page took, as from an on-screen keyboard.
+      event.preventDefault();
+      insertLines(selectedLines(), event.data);
     }
   });
 
@@ -469,6 +512,16 @@
       event.preventDefault();
       event.clipboardData.setData("text/plain", text);
     }
+  });
+
+  // The browser cuts nothing from a selection across result lines: the page copies it as above and removes it, as one edit.
+  document.addEventListener("cut", (event) => {
+    if (resultLines.inert || !isSelectionAcrossLines() || !event.clipboardData) {
+      return;
+    }
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", selectedCode());
+    insertLines(selectedLines(), "");
   });
 
   resultLines.addEventListener("compositionstart", () => {
@@ -759,6 +812,26 @@
     range.selectNodeContents(cell);
     range.setEnd(node, offset);
     return range.toString().length;
+  }
+
+  /** Whether the selection runs from one result line into another. */
+  function isSelectionAcrossLines() {
+    const selected = selectedLines();
+    return selected !== null && selected.first !== selected.last;
+  }
+
+  /** Moves the selection's end to the line above or below at its column; on the first or last line, to its start or end. */
+  function extendSelection(step) {
+    const selection = window.getSelection();
+    const focusCell = cellOfLine(selection.focusNode);
+    if (!focusCell) {
+      return;
+    }
+    const target = neighbourEditable(focusCell, step);
+    const lineEnd = step < 0 ? 0 : focusCell.textContent.length;
+    const column = target ? offsetIn(focusCell, selection.focusNode, selection.focusOffset) : lineEnd;
+    const position = textPosition(target ?? focusCell, column);
+    selection.extend(position.node, position.offset);
   }
 
   function isSelectionEmpty() {

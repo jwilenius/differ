@@ -43,7 +43,8 @@ function resultLineClasses(chunks, lineCount) {
 
 /**
  * The lines a paste of `text` leaves where it lands between `before` and
- * `after`, the text around the caret or selection; `text` holds line breaks.
+ * `after`, the text around the caret or selection; each line break in `text`
+ * starts a line, and an empty `text` leaves the two joined.
  */
 function pastedLines(before, text, after) {
   const lines = text.split(/\r\n|\r|\n/);

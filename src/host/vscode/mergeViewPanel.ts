@@ -91,6 +91,8 @@ export class MergeViewPanel {
   /** The number of the page the webview shows; messages a replaced page sent are dropped. */
   private shownPage = 0;
   private shownResult: ShownResult | null = null;
+  /** Calls off the result highlighting still running for an earlier edit. */
+  private refreshAbort: AbortController | null = null;
   /** Earlier merge states, latest last; the page's own undo knows nothing of the lines it splits, joins and colours. */
   private readonly undoStates: MergeState[] = [];
   private readonly redoStates: MergeState[] = [];
@@ -215,7 +217,13 @@ export class MergeViewPanel {
 
   /** Falls back to plain text when highlighting fails or outlasts its timeout. */
   private async highlight(text: string, languageId: string): Promise<HighlightedText> {
+    return (await this.tryHighlight(text, languageId)) ?? unstyledText(text);
+  }
+
+  /** Null when highlighting fails, outlasts its timeout or is called off through `signal`; only a failure is logged. */
+  private async tryHighlight(text: string, languageId: string, signal?: AbortSignal): Promise<HighlightedText | null> {
     const abort = new AbortController();
+    signal?.addEventListener("abort", () => abort.abort());
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -227,8 +235,10 @@ export class MergeViewPanel {
     try {
       return await Promise.race([this.options.highlighter.highlight(text, languageId, options), timeout]);
     } catch (error) {
-      this.options.log(`Syntax highlighting failed for ${this.title}; showing plain text. ${messageOf(error)}`);
-      return unstyledText(text);
+      if (!signal?.aborted) {
+        this.options.log(`Syntax highlighting failed for ${this.title}; showing plain text. ${messageOf(error)}`);
+      }
+      return null;
     } finally {
       clearTimeout(timer);
     }
@@ -342,14 +352,20 @@ export class MergeViewPanel {
     }
   }
 
-  /** Highlights the edited result and sends the page the lines whose markup changed; an edit made meanwhile supersedes the run. */
+  /**
+   * Highlights the edited result and sends the page the lines whose markup changed; an edit made meanwhile calls
+   * the run off. A failed run sends nothing, leaving the page's colours as they were rather than plain.
+   */
   private async refreshResultHighlight(page: number, state: MergeState): Promise<void> {
     const { context, shownResult } = this;
     if (context === null || shownResult === null) {
       return;
     }
-    const highlight = await this.highlight(state.resultLines.join("\n"), context.languageId);
-    if (this.state !== state || this.shownResult !== shownResult || this.isDisposed) {
+    this.refreshAbort?.abort();
+    const abort = new AbortController();
+    this.refreshAbort = abort;
+    const highlight = await this.tryHighlight(state.resultLines.join("\n"), context.languageId, abort.signal);
+    if (highlight === null || abort.signal.aborted || this.state !== state || this.shownResult !== shownResult || this.isDisposed) {
       return;
     }
     const resultHighlight = rebaseStyles(highlight, shownResult.styles);

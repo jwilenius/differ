@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { listUnmergedEntries } from "../git/gitConflictedFiles";
-import { unstyledText } from "../highlight/textMateHighlighter";
+import { type HighlightOptions, unstyledText } from "../highlight/textMateHighlighter";
 import { MergeViewPanel } from "../host/vscode/mergeViewPanel";
 import type { TextHighlighter } from "../host/vscode/twoWayDiffPanel";
 import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
@@ -565,6 +565,53 @@ describe("MergeViewPanel highlighting edited result lines", () => {
 
     await vi.waitFor(() => expect(postedOfType(webview, "highlight")).toHaveLength(1));
     expect(postedOfType(webview, "highlight")[0]).toMatchObject({ seq: 1, lines: [{ line: 0, text: "ba" }, { line: 1, text: "se" }] });
+  });
+
+  it("keeps the page's colours when highlighting the edited result fails", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    let isFailing = false;
+    const failingHighlighter: TextHighlighter = {
+      highlight: async (text, languageId, options) => {
+        if (isFailing) {
+          throw new Error("The grammar failed.");
+        }
+        return keywordHighlighter.highlight(text, languageId, options);
+      },
+    };
+    await createPanel(fileDocument(path.join(repo, "f.txt")), failingHighlighter);
+    const { webview } = vscodeMock.webviewPanels[0];
+    post(webview, { type: "editLine", line: 0, text: "kw base" });
+    await vi.waitFor(() => expect(postedOfType(webview, "highlight")).toHaveLength(1));
+    isFailing = true;
+
+    post(webview, { type: "editLine", line: 0, text: "kw based" });
+    post(webview, { type: "splitLine", line: 0, offset: 2, seq: 1 });
+
+    await vi.waitFor(() => expect(postedOfType(webview, "layout")).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(postedOfType(webview, "highlight")).toHaveLength(1);
+  });
+
+  it("stops highlighting for an edit a newer one overtook", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const signals: (AbortSignal | undefined)[] = [];
+    const recordingHighlighter: TextHighlighter = {
+      highlight: async (text: string, _languageId: string, options?: HighlightOptions) => {
+        signals.push(options?.signal);
+        return unstyledText(text);
+      },
+    };
+    await createPanel(fileDocument(path.join(repo, "f.txt")), recordingHighlighter);
+    const { webview } = vscodeMock.webviewPanels[0];
+    const loadRuns = signals.length;
+
+    post(webview, { type: "editLine", line: 0, text: "a" });
+    post(webview, { type: "editLine", line: 0, text: "ab" });
+
+    await vi.waitFor(() => expect(postedOfType(webview, "highlight")).toHaveLength(1));
+    expect(signals.slice(loadRuns).map((signal) => signal?.aborted)).toEqual([true, false]);
   });
 
   it("sends nothing for an edit a newer one overtook", async () => {

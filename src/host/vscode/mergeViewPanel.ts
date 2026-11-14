@@ -132,6 +132,10 @@ export class MergeViewPanel {
     if (isSuperseded || this.isDisposed) {
       return;
     }
+    // An edit typed while highlighting ran is already on the page, so the new page must show it too.
+    if (this.state !== state) {
+      return this.render(focus);
+    }
     const wordLevel = vscode.workspace.getConfiguration("differ").get<boolean>("wordLevelHighlighting", true);
     const input = {
       state,
@@ -224,7 +228,9 @@ export class MergeViewPanel {
       return this.cancel(state);
     }
     this.state = nextState(state, message);
-    if (this.state !== state) {
+    // A typed edit is already on the page; rebuilding it would lose keystrokes, the caret and undo.
+    const isShownByPage = message.type === "editLine";
+    if (this.state !== state && !isShownByPage) {
       await this.render("focus" in message ? message.focus : null);
     }
   }

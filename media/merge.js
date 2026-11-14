@@ -235,7 +235,11 @@
       return;
     }
     const line = Number(cell.dataset.line);
-    pendingEdit = { type: "editLine", line, text: cell.textContent, focus: { line, offset: caretOffset(cell) } };
+    // One drag can change two lines; the first line's edit must not be overwritten.
+    if (pendingEdit && pendingEdit.line !== line) {
+      flushPendingEdit();
+    }
+    pendingEdit = { type: "editLine", line, text: cell.textContent };
     window.clearTimeout(pendingTimer);
     pendingTimer = window.setTimeout(flushPendingEdit, EDIT_DEBOUNCE_MS);
   });

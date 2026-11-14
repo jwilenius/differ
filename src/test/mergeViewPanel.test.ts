@@ -242,8 +242,8 @@ describe("MergeViewPanel for a conflict it cannot merge", () => {
 
 describe("MergeViewPanel edit the page and merge no longer agree on", () => {
   it.each([
-    ["a line break the message cannot carry", { type: "editLine", line: 0, text: "a\nb", focus: { line: 0, offset: 1 } }],
-    ["a line the result does not have", { type: "editLine", line: 99, text: "x", focus: { line: 99, offset: 1 } }],
+    ["a line break the message cannot carry", { type: "editLine", line: 0, text: "a\nb" }],
+    ["a line the result does not have", { type: "editLine", line: 99, text: "x" }],
     ["a split beyond the result", { type: "splitLine", line: 99, offset: 0, focus: { line: 100, offset: 0 } }],
     ["a join onto no line", { type: "joinWithPrevious", line: 0, focus: { line: 0, offset: 0 } }],
   ])("redraws the page for %s", async (_label, message) => {
@@ -255,5 +255,48 @@ describe("MergeViewPanel edit the page and merge no longer agree on", () => {
     webview.fireDidReceiveMessage(message);
 
     await vi.waitFor(() => expect(webview.html).not.toBe(page));
+  });
+});
+
+describe("MergeViewPanel typing in the result", () => {
+  it("keeps the page while the merge takes the edit, and applies it", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+    const page = webview.html;
+    vscodeMock.warningMessageResponse = () => "Apply";
+
+    webview.fireDidReceiveMessage({ type: "editLine", line: 0, text: "typed" });
+    webview.fireDidReceiveMessage({ type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(webview.html).toBe(page);
+    expect(fs.readFileSync(file, "utf8")).toBe("typed\n");
+  });
+
+  it("shows an edit made while a resolved chunk is being drawn", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    let webview: FakeWebview | undefined;
+    let isTypingDuringRender = false;
+    const typingHighlighter: TextHighlighter = {
+      highlight: async (text: string) => {
+        if (isTypingDuringRender) {
+          isTypingDuringRender = false;
+          webview?.fireDidReceiveMessage({ type: "editLine", line: 0, text: "typed meanwhile" });
+        }
+        return unstyledText(text);
+      },
+    };
+    await createPanel(fileDocument(path.join(repo, "f.txt")), typingHighlighter);
+    webview = vscodeMock.webviewPanels[0].webview;
+    const page = webview.html;
+    isTypingDuringRender = true;
+
+    webview.fireDidReceiveMessage({ type: "ignoreSide", chunk: 0, side: "right" });
+
+    await vi.waitFor(() => expect(webview?.html).not.toBe(page));
+    await vi.waitFor(() => expect(webview?.html).toContain("typed meanwhile"));
   });
 });

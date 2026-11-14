@@ -8,7 +8,7 @@ export type MergeMessage =
   | { readonly type: "ignoreSide"; readonly chunk: number; readonly side: MergeSide }
   | { readonly type: "applyNonConflicting"; readonly scope: NonConflictingScope }
   | { readonly type: "acceptSide"; readonly side: MergeSide }
-  | { readonly type: "editLine"; readonly line: number; readonly text: string; readonly focus: FocusRequest }
+  | { readonly type: "editLine"; readonly line: number; readonly text: string }
   | { readonly type: "splitLine"; readonly line: number; readonly offset: number; readonly focus: FocusRequest }
   | { readonly type: "joinWithPrevious"; readonly line: number; readonly focus: FocusRequest }
   | { readonly type: "apply" }
@@ -36,7 +36,7 @@ const FIELDS: Readonly<Record<MergeMessage["type"], readonly string[]>> = {
   ignoreSide: ["chunk", "side"],
   applyNonConflicting: ["scope"],
   acceptSide: ["side"],
-  editLine: ["line", "text", "focus"],
+  editLine: ["line", "text"],
   splitLine: ["line", "offset", "focus"],
   joinWithPrevious: ["line", "focus"],
   apply: [],
@@ -67,9 +67,8 @@ function parseNonConflicting(fields: Fields): MergeMessage | null {
 
 function parseEditLine(fields: Fields): MergeMessage | null {
   const { line, text } = fields;
-  const focus = parseFocus(fields.focus);
   const isText = typeof text === "string" && text.length <= MAX_LINE_LENGTH && !/[\r\n]/.test(text);
-  return isIndex(line) && isText && focus ? { type: "editLine", line, text, focus } : null;
+  return isIndex(line) && isText ? { type: "editLine", line, text } : null;
 }
 
 function parseSplitLine(fields: Fields): MergeMessage | null {

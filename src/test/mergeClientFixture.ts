@@ -241,6 +241,8 @@ interface FakeMutationRecord {
 
 class FakeDocument extends FakeElement {
   activeElement: FakeElement | null = null;
+  /** Whether the webview has focus, as `hasFocus()` tells the page. */
+  isFocused = true;
   /** Changes the browser made that the page's observer has not taken yet. */
   readonly mutations: FakeMutationRecord[] = [];
 
@@ -254,6 +256,10 @@ class FakeDocument extends FakeElement {
 
   get title(): string {
     return this.querySelector("title")?.textContent ?? "";
+  }
+
+  hasFocus(): boolean {
+    return this.isFocused;
   }
 
   getElementById(id: string): FakeElement | null {

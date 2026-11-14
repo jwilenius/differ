@@ -1,4 +1,5 @@
 import type { MergeSide } from "../../model/mergeChunks";
+import type { ResultPosition } from "../../model/mergeHistory";
 import type { NonConflictingScope } from "../../model/mergeSession";
 import type { MergeClientData } from "../../render/html/mergeViewRenderer";
 
@@ -20,7 +21,7 @@ export type MergeIntent =
   | { readonly type: "redo" }
   | { readonly type: "apply" }
   | { readonly type: "cancel" }
-  | { readonly type: "redrawReady" };
+  | { readonly type: "redrawReady"; readonly caret: ResultPosition | null };
 
 /** An intent that changes result lines on the page itself. */
 export type LineEdit = Extract<MergeIntent, { type: "editLine" | "splitLine" | "joinWithPrevious" | "replaceLines" }>;
@@ -39,6 +40,7 @@ export interface MergeLayoutUpdate {
 /**
  * Posted to `media/merge.js` before the host redraws the page: it sends the edit it holds back, stops taking
  * edits, which would be lost with it, and then answers `redrawReady`, so the host draws the new page with that edit.
+ * The answer names where the caret was in the result, for the new page to put it back, or null when it was not there.
  */
 export interface MergeRedrawNotice {
   readonly type: "redrawing";
@@ -101,7 +103,7 @@ const SCHEMAS: Readonly<Record<MergeIntent["type"], (fields: Fields) => MergeInt
   redo: () => ({ type: "redo" }),
   apply: () => ({ type: "apply" }),
   cancel: () => ({ type: "cancel" }),
-  redrawReady: () => ({ type: "redrawReady" }),
+  redrawReady: parseRedrawReady,
 };
 
 const FIELDS: Readonly<Record<MergeIntent["type"], readonly string[]>> = {
@@ -117,7 +119,7 @@ const FIELDS: Readonly<Record<MergeIntent["type"], readonly string[]>> = {
   redo: [],
   apply: [],
   cancel: [],
-  redrawReady: [],
+  redrawReady: ["caret"],
 };
 
 /** Returns a freshly built message when `value` has a page number and exactly the fields of one known type with valid values, otherwise null. */
@@ -166,6 +168,18 @@ function parseReplaceLines(fields: Fields): MergeIntent | null {
   const { line, count, lines, seq } = fields;
   const isValid = isIndex(line) && isIndex(count) && count > 0 && isLineList(lines) && isIndex(seq);
   return isValid ? { type: "replaceLines", line, count, lines: [...lines], seq } : null;
+}
+
+function parseRedrawReady(fields: Fields): MergeIntent | null {
+  const { caret } = fields;
+  if (caret === null) {
+    return { type: "redrawReady", caret };
+  }
+  if (!isRecord(caret) || Object.keys(caret).length !== 2) {
+    return null;
+  }
+  const { line, column } = caret;
+  return isIndex(line) && isIndex(column) ? { type: "redrawReady", caret: { line, column } } : null;
 }
 
 /** `every` skips the holes a structured clone keeps, so the list is copied densely first. */

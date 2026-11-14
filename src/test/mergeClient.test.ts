@@ -99,7 +99,40 @@ describe("a held-back result edit", () => {
     page.receive({ type: "redrawing", page: PAGE });
     vi.runAllTimers();
 
-    expect(page.posted).toEqual([editLine(0, "a!"), { type: "redrawReady", page: PAGE }]);
+    expect(page.posted).toEqual([editLine(0, "a!"), { type: "redrawReady", caret: null, page: PAGE }]);
+  });
+
+  it("answers the host's redrawing notice with where the caret is in the result, for the new page", () => {
+    const page = openPage();
+    const cell = page.resultCell(1);
+    cell.focus();
+    page.type(cell, "b!");
+
+    page.receive({ type: "redrawing", page: PAGE });
+
+    expect(page.posted).toEqual([editLine(1, "b!"), { type: "redrawReady", caret: { line: 1, column: 2 }, page: PAGE }]);
+  });
+
+  it("names no caret in its answer while the focus is outside the result", () => {
+    const page = openPage();
+    page.type(page.resultCell(1), "b!");
+    page.button((button) => button.dataset.accept === "left").focus();
+
+    page.receive({ type: "redrawing", page: PAGE });
+
+    expect(page.posted).toEqual([editLine(1, "b!"), { type: "redrawReady", caret: null, page: PAGE }]);
+  });
+
+  it("names no caret in its answer while the page has no focus", () => {
+    const page = openPage();
+    const cell = page.resultCell(1);
+    cell.focus();
+    page.type(cell, "b!");
+    page.document.isFocused = false;
+
+    page.receive({ type: "redrawing", page: PAGE });
+
+    expect(page.posted).toEqual([editLine(1, "b!"), { type: "redrawReady", caret: null, page: PAGE }]);
   });
 
   it.each<[string, (button: FakeElement) => boolean, Record<string, unknown>]>([

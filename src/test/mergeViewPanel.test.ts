@@ -812,11 +812,24 @@ describe("MergeViewPanel redrawing the page", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     const pageWhileWaiting = shownPage(webview);
     post(webview, { type: "editLine", line: 0, text: "held back" });
-    post(webview, { type: "redrawReady" });
+    post(webview, { type: "redrawReady", caret: null });
 
     await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
     expect(pageWhileWaiting).toBe(1);
     expect(/data-line="0">(.*?)<\/div>/.exec(webview.html)?.[1]).toContain(">held back<");
+  });
+
+  it("puts the caret on the page a colour theme change draws where the page it replaces had it", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    changeColorThemeKind(ColorThemeKind.Light);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    post(webview, { type: "redrawReady", caret: { line: 0, column: 4 } });
+
+    await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
+    expect(webview.html).toContain('data-caret-line="0" data-caret-column="4"');
   });
 
   it("replaces a page that does not answer the colour theme change", async () => {
@@ -883,7 +896,7 @@ describe("MergeViewPanel colour theme change while applying", () => {
     post(webview, { type: "apply" });
     const answerConfirmation = await confirmation;
 
-    post(webview, { type: "redrawReady" });
+    post(webview, { type: "redrawReady", caret: null });
     await pastHeldBackEditTimeout();
 
     expect(shownPage(webview)).toBe(1);
@@ -930,7 +943,7 @@ describe("MergeViewPanel waiting for the page to answer a colour theme change", 
     await vi.waitFor(() => expect(shownPage(webview)).toBe(2), { timeout: 2_000 });
     const waitsAfterTimeout = pendingWaits(panel);
     changeColorThemeKind(ColorThemeKind.Dark);
-    post(webview, { type: "redrawReady" });
+    post(webview, { type: "redrawReady", caret: null });
     await vi.waitFor(() => expect(shownPage(webview)).toBe(3));
 
     expect(waitsAfterTimeout).toBe(0);
@@ -945,7 +958,7 @@ describe("MergeViewPanel waiting for the page to answer a colour theme change", 
 
     post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
     await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
-    webview.fireDidReceiveMessage({ type: "redrawReady", page: 1 });
+    webview.fireDidReceiveMessage({ type: "redrawReady", caret: null, page: 1 });
     await pastHeldBackEditTimeout();
 
     expect(shownPage(webview)).toBe(2);
@@ -959,11 +972,11 @@ describe("MergeViewPanel waiting for the page to answer a colour theme change", 
     post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
     changeColorThemeKind(ColorThemeKind.Light);
     await vi.waitFor(() => expect(shownPage(webview)).toBe(2));
-    webview.fireDidReceiveMessage({ type: "redrawReady", page: 1 });
+    webview.fireDidReceiveMessage({ type: "redrawReady", caret: null, page: 1 });
 
     await vi.waitFor(() => expect(postedOfType(webview, "redrawing")).toEqual([{ type: "redrawing", page: 1 }, { type: "redrawing", page: 2 }]));
     expect(shownPage(webview)).toBe(2);
-    post(webview, { type: "redrawReady" });
+    post(webview, { type: "redrawReady", caret: null });
     await vi.waitFor(() => expect(shownPage(webview)).toBe(3));
     expect(webview.html).toContain(".tk-left-0{color:#111111}");
   });
@@ -976,11 +989,11 @@ describe("MergeViewPanel waiting for the page to answer a colour theme change", 
     await vi.waitFor(() => expect(shownPage(webview)).toBe(2), { timeout: 2_000 });
 
     changeColorThemeKind(ColorThemeKind.Dark);
-    webview.fireDidReceiveMessage({ type: "redrawReady", page: 1 });
+    webview.fireDidReceiveMessage({ type: "redrawReady", caret: null, page: 1 });
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(shownPage(webview)).toBe(2);
-    post(webview, { type: "redrawReady" });
+    post(webview, { type: "redrawReady", caret: null });
     await vi.waitFor(() => expect(shownPage(webview)).toBe(3));
   });
 });

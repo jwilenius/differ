@@ -354,7 +354,10 @@
     awaitRedraw();
   }
 
-  /** The page an undo or redo drew puts the caret where the step changed the result, so typing can go on. */
+  /**
+   * The page an undo or redo drew puts the caret where the step changed the result, and one a colour theme change
+   * drew puts it where the page it replaced had it, so typing can go on.
+   */
   function placeStepCaret() {
     const { caretLine, caretColumn } = merge.dataset;
     const cells = resultLines.querySelectorAll(".code[data-line]");
@@ -650,9 +653,11 @@
       return;
     }
     if (update.type === "redrawing") {
-      // Sent after the held-back edit, so the host draws the new page with it.
+      // Sent after the held-back edit, so the host draws the new page with it; the caret is taken before
+      // the result turns inert and loses it.
+      const caret = resultCaret();
       awaitRedraw();
-      send({ type: "redrawReady" });
+      send({ type: "redrawReady", caret });
     } else if (update.type === "layout" && update.seq === layoutSeq) {
       applyLayout(update.data);
     } else if (update.type === "highlight") {
@@ -663,6 +668,15 @@
   function neighbourEditable(cell, step) {
     const cells = Array.from(resultLines.querySelectorAll(".code[data-line]"));
     return cells[cells.indexOf(cell) + step] ?? null;
+  }
+
+  /** Where the caret is in the result while the page has focus, for the page that replaces this one to put back; else null. */
+  function resultCaret() {
+    const cell = editableOf(document.activeElement);
+    if (!document.hasFocus() || !cell || !resultLines.contains(cell)) {
+      return null;
+    }
+    return { line: Number(cell.dataset.line), column: caretOffset(cell) };
   }
 
   function caretOffset(cell) {

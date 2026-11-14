@@ -85,11 +85,11 @@ export class MergeViewPanel {
   private shownPage = NO_PAGE;
   private shownResult: ShownMergeResult | null = null;
   /**
-   * Called once the shown page answers `redrawReady`, having sent the edit it held back; each wait removes its own
-   * when it ends. Any answer resumes every wait: it comes from the shown page, as answers from replaced pages are
-   * dropped, and that page answers only once it took no more edits.
+   * Called once the shown page answers `redrawReady`, having sent the edit it held back, with where its caret was;
+   * each wait removes its own when it ends. Any answer resumes every wait: it comes from the shown page, as answers
+   * from replaced pages are dropped, and that page answers only once it took no more edits.
    */
-  private readonly heldBackEditWaiters = new Set<() => void>();
+  private readonly heldBackEditWaiters = new Set<(caret: ResultPosition | null) => void>();
   /** Calls off the result highlighting still running for an earlier edit. */
   private refreshAbort: AbortController | null = null;
   private readonly history = new MergeHistory();
@@ -149,7 +149,7 @@ export class MergeViewPanel {
     await this.render();
   }
 
-  /** `caret` is where the new page puts the caret, as after an undo or redo. */
+  /** `caret` is where the new page puts the caret, as after an undo or redo or where the page it replaces had it. */
   private async render(caret: ResultPosition | null = null): Promise<void> {
     const { state, context } = this;
     if (state === null || context === null) {
@@ -200,34 +200,36 @@ export class MergeViewPanel {
         return;
       }
       const toldPage = this.shownPage;
-      await this.takeHeldBackEdit();
+      const caret = await this.takeHeldBackEdit();
       // Apply may have begun while the page was told: it drops the answer and closes or redraws the page itself.
       if (this.isApplying || this.shownPage > lastOutdatedRender) {
         return;
       }
       if (this.shownPage === toldPage) {
-        return this.render();
+        return this.render(caret);
       }
     }
   }
 
   /**
    * Tells the shown page it is being replaced: it sends the edit it holds back, takes no more and answers
-   * `redrawReady`. A page that does not answer in time, as one still loading cannot, is replaced anyway.
+   * `redrawReady` with where its caret was, which the new page takes. A page that does not answer in time, as one
+   * still loading cannot, is replaced anyway, with no caret.
    */
-  private async takeHeldBackEdit(): Promise<void> {
+  private async takeHeldBackEdit(): Promise<ResultPosition | null> {
     if (this.shownPage === NO_PAGE) {
-      return;
+      return null;
     }
-    let resume = (): void => undefined;
-    const answered = new Promise<void>((resolve) => (resume = resolve));
+    let resume = (_caret: ResultPosition | null): void => undefined;
+    const answered = new Promise<ResultPosition | null>((resolve) => (resume = resolve));
     this.heldBackEditWaiters.add(resume);
-    const timer = setTimeout(resume, HELD_BACK_EDIT_TIMEOUT_MS);
+    const timer = setTimeout(() => resume(null), HELD_BACK_EDIT_TIMEOUT_MS);
     const notice: MergeRedrawNotice = { type: "redrawing", page: this.shownPage };
     void this.panel.webview.postMessage(notice);
-    await answered;
+    const caret = await answered;
     clearTimeout(timer);
     this.heldBackEditWaiters.delete(resume);
+    return caret;
   }
 
   private renderContext(context: MergeContext, page: number, caret: ResultPosition | null): MergeViewRenderContext {
@@ -326,7 +328,7 @@ export class MergeViewPanel {
   private async dispatch(message: MergeMessage, state: MergeState): Promise<void> {
     if (message.type === "redrawReady") {
       // The page sent the edit it held back before answering, so the merge holds that edit by now.
-      this.heldBackEditWaiters.forEach((resume) => resume());
+      this.heldBackEditWaiters.forEach((resume) => resume(message.caret));
       return;
     }
     if (message.type === "apply") {

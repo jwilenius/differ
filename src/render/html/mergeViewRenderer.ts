@@ -40,7 +40,10 @@ export interface MergeViewRenderContext {
   readonly isSidesSwapped: boolean;
   /** Numbers the page; the client stamps it on every message, so the host can tell a replaced page's messages apart. */
   readonly page: number;
-  /** Where the client puts the caret once loaded: where an undo or redo changed the result; null leaves focus alone. */
+  /**
+   * Where the client puts the caret once loaded: where an undo or redo changed the result, or where the page it
+   * replaces had it; null leaves focus alone.
+   */
   readonly caret: ResultPosition | null;
 }
 

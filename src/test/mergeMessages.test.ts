@@ -16,7 +16,8 @@ describe("parseMergeMessage", () => {
     { type: "cancel", page: 1 },
     { type: "undo", page: 1 },
     { type: "redo", page: 1 },
-    { type: "redrawReady", page: 1 },
+    { type: "redrawReady", page: 1, caret: null },
+    { type: "redrawReady", page: 1, caret: { line: 3, column: 0 } },
   ])("accepts $type", (message) => {
     const parsed = parseMergeMessage(message);
 
@@ -47,6 +48,10 @@ describe("parseMergeMessage", () => {
     ["a replacement line that is not text", { type: "replaceLines", page: 1, line: 0, count: 1, lines: ["a", 1], seq: 1 }],
     ["a replacement line with a line break", { type: "replaceLines", page: 1, line: 0, count: 1, lines: ["a", "b\rc"], seq: 1 }],
     ["an overlong replacement line", { type: "replaceLines", page: 1, line: 0, count: 1, lines: ["x".repeat(MAX_LINE_LENGTH + 1)], seq: 1 }],
+    ["a redraw answer without a caret", { type: "redrawReady", page: 1 }],
+    ["a caret that is not a position", { type: "redrawReady", page: 1, caret: 3 }],
+    ["a caret at a negative column", { type: "redrawReady", page: 1, caret: { line: 0, column: -1 } }],
+    ["a caret with an extra field", { type: "redrawReady", page: 1, caret: { line: 0, column: 0, side: "left" } }],
     ["too many replacement lines", { type: "replaceLines", page: 1, line: 0, count: 1, lines: Array<string>(MAX_REPLACED_LINES + 1).fill(""), seq: 1 }],
   ])("rejects %s", (_label, message) => {
     expect(parseMergeMessage(message)).toBeNull();

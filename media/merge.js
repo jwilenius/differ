@@ -261,6 +261,12 @@
   // --- editing the result ---
 
   const resultLines = scrollers.result;
+  /**
+   * Holds what changed the result since the page last ran a callback: inside the `input` of a browser undo, which
+   * VS Code's menu runs from script, that is the undo itself. Records are otherwise dropped as they arrive.
+   */
+  const nativeChanges = new MutationObserver(() => undefined);
+  nativeChanges.observe(resultLines, { subtree: true, childList: true, characterData: true, characterDataOldValue: true });
 
   resultLines.addEventListener("input", (event) => {
     const cell = editableOf(event.target);
@@ -268,9 +274,11 @@
       return;
     }
     // VS Code's Undo and Redo menu items run the browser's own undo, which fires no `beforeinput`, and only
-    // once this page has typing of its own to undo; on any other page they do nothing. The line the browser
-    // changed is left as it is: the host's undo replaces the page, and nothing sends the line meanwhile.
+    // once this page has typing of its own to undo; on any other page they do nothing. What the browser
+    // changed is put back: its undo knows nothing of the lines this page splits and joins, so it may take back
+    // more or other than the merge's step, and the page shows what the host has until the host redraws it.
     if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+      revertChanges(nativeChanges.takeRecords());
       stepHistory(event.inputType === "historyUndo" ? "undo" : "redo");
       return;
     }
@@ -428,6 +436,18 @@
 
   // Losing focus must not lose the keystrokes still sitting in the debounce.
   resultLines.addEventListener("focusout", flushPendingEdit, true);
+
+  /** Takes back DOM changes, latest first. */
+  function revertChanges(records) {
+    for (const record of records.reverse()) {
+      if (record.type === "characterData") {
+        record.target.data = record.oldValue;
+        continue;
+      }
+      record.addedNodes.forEach((node) => node.remove());
+      record.removedNodes.forEach((node) => record.target.insertBefore(node, record.nextSibling));
+    }
+  }
 
   function editableOf(target) {
     return target instanceof Element ? target.closest(".code[data-line]") : null;

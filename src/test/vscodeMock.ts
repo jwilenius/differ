@@ -167,6 +167,11 @@ export interface ShownMessage {
   readonly text: string;
 }
 
+export interface QuickPickRequest {
+  readonly items: readonly vscode.QuickPickItem[];
+  readonly options: vscode.QuickPickOptions;
+}
+
 export interface FakeStatusBarItem {
   readonly alignment: StatusBarAlignment;
   readonly priority: number | undefined;
@@ -202,6 +207,10 @@ export interface VscodeMockState {
   readonly outputChannels: FakeOutputChannel[];
   readonly messages: ShownMessage[];
   readonly openDialogRequests: vscode.OpenDialogOptions[];
+  /** Items and options of each `window.showQuickPick` call. */
+  readonly quickPickRequests: QuickPickRequest[];
+  /** Index of the item `showQuickPick` returns; undefined cancels the pick. */
+  quickPickChoice: number | undefined;
   workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined;
   activeTextEditor: vscode.TextEditor | undefined;
   openDialogResponse: Uri[] | undefined;
@@ -226,6 +235,8 @@ export const vscodeMock: VscodeMockState = {
   outputChannels: [],
   messages: [],
   openDialogRequests: [],
+  quickPickRequests: [],
+  quickPickChoice: undefined,
   workspaceFolders: undefined,
   activeTextEditor: undefined,
   openDialogResponse: undefined,
@@ -254,6 +265,8 @@ export function resetVscodeMock(): void {
   vscodeMock.outputChannels.length = 0;
   vscodeMock.messages.length = 0;
   vscodeMock.openDialogRequests.length = 0;
+  vscodeMock.quickPickRequests.length = 0;
+  vscodeMock.quickPickChoice = undefined;
   vscodeMock.workspaceFolders = undefined;
   vscodeMock.activeTextEditor = undefined;
   vscodeMock.openDialogResponse = undefined;
@@ -348,6 +361,12 @@ export const workspace = {
     disposables?: DisposableLike[],
   ): Disposable {
     return didChangeConfiguration.event(listener, thisArgs, disposables);
+  },
+
+  /** The path relative to the first workspace folder containing it, else unchanged. */
+  asRelativePath(filePath: string): string {
+    const folder = vscodeMock.workspaceFolders?.find((candidate) => filePath.startsWith(`${candidate.uri.fsPath}${path.sep}`));
+    return folder ? path.relative(folder.uri.fsPath, filePath) : filePath;
   },
 
   get textDocuments(): readonly vscode.TextDocument[] {
@@ -474,6 +493,11 @@ export const window = {
   showOpenDialog(options?: vscode.OpenDialogOptions): Promise<Uri[] | undefined> {
     vscodeMock.openDialogRequests.push(options ?? {});
     return Promise.resolve(vscodeMock.openDialogResponse);
+  },
+
+  async showQuickPick<T extends vscode.QuickPickItem>(items: readonly T[], options: vscode.QuickPickOptions = {}): Promise<T | undefined> {
+    vscodeMock.quickPickRequests.push({ items, options });
+    return vscodeMock.quickPickChoice === undefined ? undefined : items[vscodeMock.quickPickChoice];
   },
 
   showErrorMessage: (text: string) => showMessage("error", text),

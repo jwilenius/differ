@@ -30,6 +30,12 @@
         "icon": "$(git-merge)"
       },
       {
+        "command": "differ.resolveConflicts",
+        "title": "Resolve Conflicts",
+        "category": "Differ",
+        "icon": "$(git-merge)"
+      },
+      {
         "command": "differ.openHistory",
         "title": "Open Git History",
         "category": "Differ",
@@ -79,6 +85,9 @@
         {
           "command": "differ.openMergeView",
           "when": "editorIsOpen"
+        },
+        {
+          "command": "differ.resolveConflicts"
         },
         {
           "command": "differ.openHistory"

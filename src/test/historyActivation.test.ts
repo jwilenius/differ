@@ -51,6 +51,7 @@ describe("extension activation", () => {
       "differ.openHistory",
       "differ.openMergeView",
       "differ.refreshHistory",
+      "differ.resolveConflicts",
     ]);
     expect(vscodeMock.outputChannels.map((channel) => channel.name)).toEqual(["Differ History"]);
   });

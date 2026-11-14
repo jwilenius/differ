@@ -1,7 +1,9 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { hasConflictMarkers } from "../../core/conflictParser";
+import { listConflictedFiles } from "../../git/gitConflictedFiles";
 import { HISTORY_DOCUMENT_SCHEME, HistoryDiffProvider } from "./historyDiffProvider";
+import { candidateDirectories, discoverRepositoryRoots, findGitRepositoryRoot } from "./historyRepositoryDiscovery";
 import { HISTORY_VIEW_ID, HistoryViewProvider, OPEN_HISTORY_COMMAND } from "./historyViewProvider";
 import { MergeViewPanel } from "./mergeViewPanel";
 import { SyntaxHighlighting } from "./syntaxHighlighting";
@@ -9,6 +11,7 @@ import { TwoWayDiffPanels } from "./twoWayDiffPanel";
 
 const CONTEXT_HAS_CONFLICTS = "differ.hasConflicts";
 const REFRESH_HISTORY_COMMAND = "differ.refreshHistory";
+const RESOLVE_CONFLICTS_COMMAND = "differ.resolveConflicts";
 const HISTORY_OUTPUT_CHANNEL = "Differ History";
 
 /** Open merge views by document URI, settled or still loading. */
@@ -33,6 +36,7 @@ export function activate(context: vscode.ExtensionContext): void {
     highlighter,
     log,
     vscode.commands.registerCommand("differ.openMergeView", () => openActiveMergeView(services)),
+    vscode.commands.registerCommand(RESOLVE_CONFLICTS_COMMAND, () => resolveConflicts(services)),
     vscode.window.onDidChangeActiveTextEditor(updateConflictContext),
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document === vscode.window.activeTextEditor?.document) {
@@ -62,6 +66,52 @@ function openActiveMergeView(services: Services): void {
     return;
   }
   void openMergeView(editor.document, services);
+}
+
+/** A conflicted file offered by the Resolve Conflicts picker. */
+interface ConflictItem extends vscode.QuickPickItem {
+  readonly filePath: string;
+}
+
+/** Lists the conflicted files of the open repositories and opens the chosen one in the merge view. */
+async function resolveConflicts(services: Services): Promise<void> {
+  const files = await findConflictedFiles(services.log);
+  if (files.length === 0) {
+    void vscode.window.showInformationMessage("Differ found no conflicted files.");
+    return;
+  }
+  const picked = await vscode.window.showQuickPick(files.map(conflictItem), {
+    title: "Resolve Conflicts",
+    placeHolder: "Select a conflicted file to merge",
+    matchOnDescription: true,
+  });
+  if (!picked) {
+    return;
+  }
+  const document = await vscode.workspace.openTextDocument(vscode.Uri.file(picked.filePath));
+  await openMergeView(document, services);
+}
+
+/** Conflicted files of every repository holding the workspace folders or the active editor; failures are logged. */
+async function findConflictedFiles(log: vscode.OutputChannel): Promise<readonly string[]> {
+  const logFailure = (directory: string, error: unknown): void => {
+    log.appendLine(`Listing conflicts in ${directory} failed. ${error instanceof Error ? error.message : String(error)}`);
+  };
+  const { roots } = await discoverRepositoryRoots(candidateDirectories(), findGitRepositoryRoot, logFailure);
+  const files: string[] = [];
+  for (const root of roots) {
+    try {
+      files.push(...(await listConflictedFiles(root)));
+    } catch (error) {
+      logFailure(root, error);
+    }
+  }
+  return files;
+}
+
+function conflictItem(filePath: string): ConflictItem {
+  const directory = path.dirname(vscode.workspace.asRelativePath(filePath));
+  return { label: path.basename(filePath), description: directory === "." ? "" : directory, filePath };
 }
 
 /** Shows the merge view of `document`, reusing an open one. */

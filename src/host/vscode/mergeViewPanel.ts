@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { markResolved } from "../../git/gitConflictedFiles";
@@ -206,6 +207,13 @@ export class MergeViewPanel {
 
   /** Writes the result to the file and saves it; stages it only when nothing is left unresolved. */
   private async applyResult(state: MergeState): Promise<void> {
+    const filePath = this.options.document.uri.fsPath;
+    const isSymbolicLink = (await fs.promises.lstat(filePath)).isSymbolicLink();
+    if (isSymbolicLink) {
+      const reason = "it is a symbolic link, and saving would change the file it points to";
+      void vscode.window.showErrorMessage(`Differ will not write ${path.basename(filePath)}: ${reason}.`);
+      return;
+    }
     const tally = tallyMerge(state);
     const isComplete = tally.changes === 0 && tally.conflicts === 0;
     if (!isComplete && !(await confirm(`${describeTally(tally)} Apply the result anyway? The file will not be staged.`, "Apply"))) {

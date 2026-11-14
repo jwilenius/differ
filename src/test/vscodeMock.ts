@@ -143,6 +143,40 @@ export enum ViewColumn {
   Three = 3,
 }
 
+export enum EndOfLine {
+  LF = 1,
+  CRLF = 2,
+}
+
+export class Position {
+  constructor(
+    readonly line: number,
+    readonly character: number,
+  ) {}
+}
+
+export class Range {
+  constructor(
+    readonly start: Position,
+    readonly end: Position,
+  ) {}
+}
+
+export interface FakeReplacement {
+  readonly uri: Uri;
+  readonly range: Range;
+  readonly text: string;
+}
+
+/** Records replacements; `workspace.applyEdit` appends them to `vscodeMock.appliedEdits`. */
+export class WorkspaceEdit {
+  readonly replacements: FakeReplacement[] = [];
+
+  replace(uri: Uri, range: Range, text: string): void {
+    this.replacements.push({ uri, range, text });
+  }
+}
+
 export enum ColorThemeKind {
   Light = 1,
   Dark = 2,
@@ -224,6 +258,8 @@ export interface VscodeMockState {
   /** Language ids `openTextDocument` assigns by file extension, such as `.ts` → `typescript`; else `plaintext`. */
   readonly languageIds: Map<string, string>;
   readonly webviewPanels: FakeWebviewPanel[];
+  /** Replacements of every `workspace.applyEdit` call, in order. */
+  readonly appliedEdits: FakeReplacement[];
 }
 
 export const vscodeMock: VscodeMockState = {
@@ -246,6 +282,7 @@ export const vscodeMock: VscodeMockState = {
   textDocuments: [],
   languageIds: new Map(),
   webviewPanels: [],
+  appliedEdits: [],
 };
 
 let didCloseTextDocument = new EventEmitter<vscode.TextDocument>();
@@ -276,6 +313,7 @@ export function resetVscodeMock(): void {
   vscodeMock.textDocuments.length = 0;
   vscodeMock.languageIds.clear();
   vscodeMock.webviewPanels.length = 0;
+  vscodeMock.appliedEdits.length = 0;
   didCloseTextDocument = new EventEmitter();
   didChangeTextDocument = new EventEmitter();
   didChangeActiveTextEditor = new EventEmitter();
@@ -364,7 +402,8 @@ export const workspace = {
   },
 
   /** The path relative to the first workspace folder containing it, else unchanged. */
-  asRelativePath(filePath: string): string {
+  asRelativePath(pathOrUri: string | Uri): string {
+    const filePath = typeof pathOrUri === "string" ? pathOrUri : pathOrUri.fsPath;
     const folder = vscodeMock.workspaceFolders?.find((candidate) => filePath.startsWith(`${candidate.uri.fsPath}${path.sep}`));
     return folder ? path.relative(folder.uri.fsPath, filePath) : filePath;
   },
@@ -380,6 +419,11 @@ export const workspace = {
     const document = { uri, languageId, getText: () => text ?? "" } as unknown as vscode.TextDocument;
     vscodeMock.textDocuments.push(document);
     return document;
+  },
+
+  applyEdit(edit: WorkspaceEdit): Promise<boolean> {
+    vscodeMock.appliedEdits.push(...edit.replacements);
+    return Promise.resolve(true);
   },
 
   registerTextDocumentContentProvider(scheme: string, provider: vscode.TextDocumentContentProvider): Disposable {

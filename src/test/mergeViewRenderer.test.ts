@@ -18,6 +18,7 @@ const CONTEXT: MergeViewRenderContext = {
   rightLabel: "feature/<sku>",
   resultPath: "src/a.ts",
   isSidesSwapped: false,
+  page: 1,
 };
 
 // One conflict on line 1, a left-only change on line 3, a right-only addition at the end.
@@ -128,6 +129,12 @@ describe("HtmlMergeViewRenderer", () => {
     const html = render(startMerge(BASE, LEFT, RIGHT), { isSidesSwapped: true });
 
     expect(html).toContain("Sides are reversed");
+  });
+
+  it("numbers the page for the client's messages", () => {
+    const html = render(startMerge(BASE, LEFT, RIGHT), { page: 7 });
+
+    expect(html).toContain('id="merge" data-page="7"');
   });
 
   it("rejects a weak nonce", () => {

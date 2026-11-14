@@ -65,8 +65,10 @@ export class MergeViewPanel {
   private state: MergeState | null = null;
   /** Side highlighting never changes until the colour theme does. */
   private sideHighlights: Promise<readonly [HighlightedText, HighlightedText]> | null = null;
-  /** Counts renders so a slow one never overwrites a newer page. */
+  /** Counts renders so a slow one never overwrites a newer page; each page carries its render's number. */
   private renderGeneration = 0;
+  /** The number of the page the webview shows; messages a replaced page sent are dropped. */
+  private shownPage = 0;
   /** Closing the panel while it loads or renders is not an error; its webview just takes no more content. */
   private isDisposed = false;
 
@@ -149,10 +151,11 @@ export class MergeViewPanel {
       rightHighlight,
       resultHighlight,
     };
-    this.panel.webview.html = new HtmlMergeViewRenderer().render(input, this.renderContext(context));
+    this.panel.webview.html = new HtmlMergeViewRenderer().render(input, this.renderContext(context, generation));
+    this.shownPage = generation;
   }
 
-  private renderContext(context: MergeContext): MergeViewRenderContext {
+  private renderContext(context: MergeContext, page: number): MergeViewRenderContext {
     const { webview } = this.panel;
     return {
       nonce: randomBytes(NONCE_BYTES).toString("base64"),
@@ -164,6 +167,7 @@ export class MergeViewPanel {
       rightLabel: context.rightLabel,
       resultPath: vscode.workspace.asRelativePath(this.uri),
       isSidesSwapped: context.isSidesSwapped,
+      page,
     };
   }
 
@@ -204,13 +208,18 @@ export class MergeViewPanel {
   /**
    * The webview is untrusted input: anything but a well-formed message is dropped. The page then
    * gets redrawn, since a dropped edit, or one naming lines the result lacks, means the page shows
-   * a result the merge does not hold.
+   * a result the merge does not hold. A message from a replaced page is dropped without a redraw:
+   * it arrives after the page now shown was drawn without it, so dropping it keeps the two agreeing.
    */
   private async handleMessage(value: unknown): Promise<void> {
     if (this.state === null) {
       return;
     }
     const message = parseMergeMessage(value);
+    if (message !== null && message.page !== this.shownPage) {
+      this.options.log(`Dropped a ${message.type} message from a replaced merge page for ${this.title}.`);
+      return;
+    }
     if (message === null || !fitsResult(this.state, message)) {
       this.options.log(`Dropped a merge message the result cannot take for ${this.title}; redrawing the page.`);
       return this.render();
@@ -236,7 +245,7 @@ export class MergeViewPanel {
       return;
     }
     if (message.type === "splitLine" || message.type === "joinWithPrevious" || message.type === "replaceLine") {
-      return this.postLayout(message.seq, this.state);
+      return this.postLayout(message.page, message.seq, this.state);
     }
     if (this.state !== state) {
       await this.render();
@@ -244,9 +253,9 @@ export class MergeViewPanel {
   }
 
   /** Tells the page where the chunks moved, so it can redraw tints and ribbons around the lines it added or removed itself. */
-  private async postLayout(seq: number, state: MergeState): Promise<void> {
+  private async postLayout(page: number, seq: number, state: MergeState): Promise<void> {
     const data = mergeClientData(state, describeMerge(state, { wordLevel: false }));
-    const update: MergeLayoutUpdate = { type: "layout", seq, data };
+    const update: MergeLayoutUpdate = { type: "layout", page, seq, data };
     await this.panel.webview.postMessage(update);
   }
 

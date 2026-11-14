@@ -44,6 +44,7 @@ function render(state: MergeState): string {
     rightLabel: "feature",
     resultPath: "a.ts",
     isSidesSwapped: false,
+    page: 1,
   });
 }
 

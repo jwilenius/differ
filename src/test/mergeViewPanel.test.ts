@@ -67,6 +67,16 @@ function createPanel(document: vscode.TextDocument, highlighter = plainHighlight
   });
 }
 
+/** The number of the page the webview shows. */
+function shownPage(webview: FakeWebview): number {
+  return Number(/id="merge" data-page="(\d+)"/.exec(webview.html)?.[1]);
+}
+
+/** Delivers a message as the page the webview shows posts it, stamped with its number. */
+function post(webview: FakeWebview, message: Readonly<Record<string, unknown>>): void {
+  webview.fireDidReceiveMessage({ ...message, page: shownPage(webview) });
+}
+
 async function openPanel(document: vscode.TextDocument): Promise<FakeWebview> {
   await createPanel(document);
   return vscodeMock.webviewPanels[0].webview;
@@ -95,8 +105,8 @@ describe("MergeViewPanel apply", () => {
     fs.rmSync(file);
     fs.symlinkSync(target, file);
 
-    webview.fireDidReceiveMessage({ type: "acceptSide", side: "left" });
-    webview.fireDidReceiveMessage({ type: "apply" });
+    post(webview, { type: "acceptSide", side: "left" });
+    post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.messages).toHaveLength(1));
     expect(vscodeMock.messages[0].level).toBe("error");
@@ -117,8 +127,8 @@ describe("MergeViewPanel apply after VS Code closed the document", () => {
     fs.appendFileSync(file, "changed while closed\n");
     const lastLine = fs.readFileSync(file, "utf8").split("\n").length - 1;
 
-    webview.fireDidReceiveMessage({ type: "acceptSide", side: "left" });
-    webview.fireDidReceiveMessage({ type: "apply" });
+    post(webview, { type: "acceptSide", side: "left" });
+    post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
     expect(vscodeMock.messages).toEqual([]);
@@ -142,7 +152,7 @@ describe("MergeViewPanel apply after confirming an unresolved result", () => {
       return "Apply";
     };
 
-    webview.fireDidReceiveMessage({ type: "apply" });
+    post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning", "error"]));
     expect(vscodeMock.messages[1].text).toContain("symbolic link");
@@ -159,7 +169,7 @@ describe("MergeViewPanel apply after confirming an unresolved result", () => {
       return "Apply";
     };
 
-    webview.fireDidReceiveMessage({ type: "apply" });
+    post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
     expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning"]);
@@ -180,7 +190,7 @@ describe("MergeViewPanel apply after confirming an unresolved result", () => {
       return "Apply";
     };
 
-    webview.fireDidReceiveMessage({ type: "apply" });
+    post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning", "error"]));
     expect(vscodeMock.messages[1].text).toBe("Differ could not complete the merge action. The file cannot be opened.");
@@ -289,7 +299,7 @@ describe("MergeViewPanel edit the page and merge no longer agree on", () => {
     const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
     const page = webview.html;
 
-    webview.fireDidReceiveMessage(message);
+    post(webview, message);
 
     await vi.waitFor(() => expect(webview.html).not.toBe(page));
   });
@@ -304,8 +314,8 @@ describe("MergeViewPanel typing in the result", () => {
     const page = webview.html;
     vscodeMock.warningMessageResponse = () => "Apply";
 
-    webview.fireDidReceiveMessage({ type: "editLine", line: 0, text: "typed" });
-    webview.fireDidReceiveMessage({ type: "apply" });
+    post(webview, { type: "editLine", line: 0, text: "typed" });
+    post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
     expect(webview.html).toBe(page);
@@ -315,26 +325,25 @@ describe("MergeViewPanel typing in the result", () => {
   it("shows an edit made while a resolved chunk is being drawn", async () => {
     divergeBranches(repo, ["f.txt"]);
     mergeFeature(repo);
-    let webview: FakeWebview | undefined;
     let isTypingDuringRender = false;
     const typingHighlighter: TextHighlighter = {
       highlight: async (text: string) => {
         if (isTypingDuringRender) {
           isTypingDuringRender = false;
-          webview?.fireDidReceiveMessage({ type: "editLine", line: 0, text: "typed meanwhile" });
+          post(vscodeMock.webviewPanels[0].webview, { type: "editLine", line: 0, text: "typed meanwhile" });
         }
         return unstyledText(text);
       },
     };
     await createPanel(fileDocument(path.join(repo, "f.txt")), typingHighlighter);
-    webview = vscodeMock.webviewPanels[0].webview;
+    const { webview } = vscodeMock.webviewPanels[0];
     const page = webview.html;
     isTypingDuringRender = true;
 
-    webview.fireDidReceiveMessage({ type: "ignoreSide", chunk: 0, side: "right" });
+    post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
 
-    await vi.waitFor(() => expect(webview?.html).not.toBe(page));
-    await vi.waitFor(() => expect(webview?.html).toContain("typed meanwhile"));
+    await vi.waitFor(() => expect(webview.html).not.toBe(page));
+    await vi.waitFor(() => expect(webview.html).toContain("typed meanwhile"));
   });
 });
 
@@ -346,13 +355,13 @@ describe("MergeViewPanel splitting and joining result lines", () => {
     const webview = await openPanel(fileDocument(file));
     const page = webview.html;
 
-    webview.fireDidReceiveMessage({ type: "splitLine", line: 0, offset: 2, seq: 1 });
-    webview.fireDidReceiveMessage({ type: "splitLine", line: 1, offset: 1, seq: 2 });
-    webview.fireDidReceiveMessage({ type: "joinWithPrevious", line: 2, seq: 3 });
+    post(webview, { type: "splitLine", line: 0, offset: 2, seq: 1 });
+    post(webview, { type: "splitLine", line: 1, offset: 1, seq: 2 });
+    post(webview, { type: "joinWithPrevious", line: 2, seq: 3 });
 
     await vi.waitFor(() => expect(webview.postedMessages).toHaveLength(3));
     expect(webview.html).toBe(page);
-    expect(webview.postedMessages[0]).toMatchObject({ type: "layout", seq: 1, data: { resultLineCount: 3, chunks: [{ result: [0, 2] }] } });
+    expect(webview.postedMessages[0]).toMatchObject({ type: "layout", page: shownPage(webview), seq: 1, data: { resultLineCount: 3, chunks: [{ result: [0, 2] }] } });
     expect(webview.postedMessages[2]).toMatchObject({ type: "layout", seq: 3, data: { resultLineCount: 3, chunks: [{ result: [0, 2] }] } });
   });
 
@@ -363,10 +372,10 @@ describe("MergeViewPanel splitting and joining result lines", () => {
     const webview = await openPanel(fileDocument(file));
     vscodeMock.warningMessageResponse = () => "Apply";
 
-    webview.fireDidReceiveMessage({ type: "splitLine", line: 0, offset: 2, seq: 1 });
-    webview.fireDidReceiveMessage({ type: "splitLine", line: 1, offset: 1, seq: 2 });
-    webview.fireDidReceiveMessage({ type: "joinWithPrevious", line: 1, seq: 3 });
-    webview.fireDidReceiveMessage({ type: "apply" });
+    post(webview, { type: "splitLine", line: 0, offset: 2, seq: 1 });
+    post(webview, { type: "splitLine", line: 1, offset: 1, seq: 2 });
+    post(webview, { type: "joinWithPrevious", line: 1, seq: 3 });
+    post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
     expect(fs.readFileSync(file, "utf8")).toBe("bas\ne\n");
@@ -382,15 +391,51 @@ describe("MergeViewPanel pasting lines into the result", () => {
     const page = webview.html;
     vscodeMock.warningMessageResponse = () => "Apply";
 
-    webview.fireDidReceiveMessage({ type: "replaceLine", line: 0, lines: ["one", "two", "base"], seq: 1 });
+    post(webview, { type: "replaceLine", line: 0, lines: ["one", "two", "base"], seq: 1 });
 
     await vi.waitFor(() => expect(webview.postedMessages).toHaveLength(1));
     expect(webview.html).toBe(page);
     expect(webview.postedMessages[0]).toMatchObject({ type: "layout", seq: 1, data: { resultLineCount: 4, chunks: [{ result: [0, 3] }] } });
 
-    webview.fireDidReceiveMessage({ type: "apply" });
+    post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
     expect(fs.readFileSync(file, "utf8")).toBe("one\ntwo\nbase\n");
+  });
+});
+
+describe("MergeViewPanel messages from a replaced page", () => {
+  it("drops an edit the replaced page sent, which the page now shown lacks", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+    const firstPage = shownPage(webview);
+    vscodeMock.warningMessageResponse = () => "Apply";
+
+    post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
+    await vi.waitFor(() => expect(shownPage(webview)).not.toBe(firstPage));
+    webview.fireDidReceiveMessage({ type: "editLine", line: 0, text: "typed on the replaced page", page: firstPage });
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(fs.readFileSync(file, "utf8")).toBe("base\n");
+  });
+
+  it("does not answer a split the replaced page sent", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+    const firstPage = shownPage(webview);
+
+    post(webview, { type: "ignoreSide", chunk: 0, side: "right" });
+    await vi.waitFor(() => expect(shownPage(webview)).not.toBe(firstPage));
+    const redrawn = webview.html;
+    webview.fireDidReceiveMessage({ type: "splitLine", line: 0, offset: 1, seq: 1, page: firstPage });
+    post(webview, { type: "splitLine", line: 0, offset: 2, seq: 1 });
+
+    await vi.waitFor(() => expect(webview.postedMessages).toHaveLength(1));
+    expect(webview.html).toBe(redrawn);
+    expect(webview.postedMessages[0]).toMatchObject({ page: shownPage(webview), data: { resultLineCount: 3 } });
   });
 });

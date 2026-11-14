@@ -3,11 +3,11 @@ import type { NonConflictingScope } from "../../model/mergeSession";
 import type { MergeClientData } from "../../render/html/mergeViewRenderer";
 
 /**
- * Intents posted by `media/merge.js`. Indexes are checked against the merge state by the session itself.
+ * What `media/merge.js` asks for. Indexes are checked against the merge state by the session itself.
  * Line edits are already on the page; an edit that adds or removes lines carries `seq` for the
  * {@link MergeLayoutUpdate} answering it.
  */
-export type MergeMessage =
+export type MergeIntent =
   | { readonly type: "applySide"; readonly chunk: number; readonly side: MergeSide }
   | { readonly type: "ignoreSide"; readonly chunk: number; readonly side: MergeSide }
   | { readonly type: "applyNonConflicting"; readonly scope: NonConflictingScope }
@@ -19,9 +19,13 @@ export type MergeMessage =
   | { readonly type: "apply" }
   | { readonly type: "cancel" };
 
+/** An intent stamped with the number of the page that posted it; a replaced page's messages arrive late, about lines it no longer shows. */
+export type MergeMessage = MergeIntent & { readonly page: number };
+
 /** Posted to `media/merge.js` after an edit that adds or removes lines: the chunk layout the edit left, to redraw tints and ribbons. */
 export interface MergeLayoutUpdate {
   readonly type: "layout";
+  readonly page: number;
   readonly seq: number;
   readonly data: MergeClientData;
 }
@@ -34,7 +38,7 @@ export const MAX_REPLACED_LINES = 100_000;
 
 type Fields = Readonly<Record<string, unknown>>;
 
-const SCHEMAS: Readonly<Record<MergeMessage["type"], (fields: Fields) => MergeMessage | null>> = {
+const SCHEMAS: Readonly<Record<MergeIntent["type"], (fields: Fields) => MergeIntent | null>> = {
   applySide: (fields) => parseChunkSide("applySide", fields),
   ignoreSide: (fields) => parseChunkSide("ignoreSide", fields),
   applyNonConflicting: parseNonConflicting,
@@ -47,7 +51,7 @@ const SCHEMAS: Readonly<Record<MergeMessage["type"], (fields: Fields) => MergeMe
   cancel: () => ({ type: "cancel" }),
 };
 
-const FIELDS: Readonly<Record<MergeMessage["type"], readonly string[]>> = {
+const FIELDS: Readonly<Record<MergeIntent["type"], readonly string[]>> = {
   applySide: ["chunk", "side"],
   ignoreSide: ["chunk", "side"],
   applyNonConflicting: ["scope"],
@@ -60,44 +64,49 @@ const FIELDS: Readonly<Record<MergeMessage["type"], readonly string[]>> = {
   cancel: [],
 };
 
-/** Returns a freshly built message when `value` has exactly the fields of one known type with valid values, otherwise null. */
+/** Returns a freshly built message when `value` has a page number and exactly the fields of one known type with valid values, otherwise null. */
 export function parseMergeMessage(value: unknown): MergeMessage | null {
   if (!isRecord(value) || typeof value.type !== "string" || !Object.hasOwn(SCHEMAS, value.type)) {
     return null;
   }
-  const type = value.type as MergeMessage["type"];
-  const expected = ["type", ...FIELDS[type]];
+  const type = value.type as MergeIntent["type"];
+  const { page } = value;
+  const expected = ["type", "page", ...FIELDS[type]];
   const hasExactFields = Object.keys(value).length === expected.length && expected.every((key) => Object.hasOwn(value, key));
-  return hasExactFields ? SCHEMAS[type](value) : null;
+  if (!hasExactFields || !isIndex(page)) {
+    return null;
+  }
+  const intent = SCHEMAS[type](value);
+  return intent === null ? null : { ...intent, page };
 }
 
-function parseChunkSide(type: "applySide" | "ignoreSide", fields: Fields): MergeMessage | null {
+function parseChunkSide(type: "applySide" | "ignoreSide", fields: Fields): MergeIntent | null {
   const { chunk, side } = fields;
   return isIndex(chunk) && isSide(side) ? { type, chunk, side } : null;
 }
 
-function parseNonConflicting(fields: Fields): MergeMessage | null {
+function parseNonConflicting(fields: Fields): MergeIntent | null {
   const { scope } = fields;
   const isScope = scope === "all" || isSide(scope);
   return isScope ? { type: "applyNonConflicting", scope } : null;
 }
 
-function parseEditLine(fields: Fields): MergeMessage | null {
+function parseEditLine(fields: Fields): MergeIntent | null {
   const { line, text } = fields;
   return isIndex(line) && isLineText(text) ? { type: "editLine", line, text } : null;
 }
 
-function parseSplitLine(fields: Fields): MergeMessage | null {
+function parseSplitLine(fields: Fields): MergeIntent | null {
   const { line, offset, seq } = fields;
   return isIndex(line) && isIndex(offset) && isIndex(seq) ? { type: "splitLine", line, offset, seq } : null;
 }
 
-function parseJoin(fields: Fields): MergeMessage | null {
+function parseJoin(fields: Fields): MergeIntent | null {
   const { line, seq } = fields;
   return isIndex(line) && isIndex(seq) ? { type: "joinWithPrevious", line, seq } : null;
 }
 
-function parseReplaceLine(fields: Fields): MergeMessage | null {
+function parseReplaceLine(fields: Fields): MergeIntent | null {
   const { line, lines, seq } = fields;
   return isIndex(line) && isLineList(lines) && isIndex(seq) ? { type: "replaceLine", line, lines: [...lines], seq } : null;
 }

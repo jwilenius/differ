@@ -19,8 +19,11 @@
   const SIDES = ["left", "right"];
 
   const vscode = acquireVsCodeApi();
+  const merge = document.getElementById("merge");
+  /** Stamped on every message, so the host can drop those this page sends after it was replaced. */
+  const page = Number(merge.dataset.page);
   /** Replaced by the host's layout after the client splits or joins result lines. */
-  let data = JSON.parse(document.getElementById("merge").dataset.merge);
+  let data = JSON.parse(merge.dataset.merge);
   const lineCounts = { left: data.leftLineCount, result: data.resultLineCount, right: data.rightLineCount };
   const anchors = {
     left: buildAnchors(blocksOf("left"), lineCounts.left, lineCounts.result),
@@ -196,7 +199,11 @@
 
   function post(message) {
     flushPendingEdit();
-    vscode.postMessage(message);
+    send(message);
+  }
+
+  function send(message) {
+    vscode.postMessage({ ...message, page });
   }
 
   document.addEventListener("click", (event) => {
@@ -331,7 +338,7 @@
     }
     const message = pendingEdit;
     pendingEdit = null;
-    vscode.postMessage(message);
+    send(message);
   }
 
   /**
@@ -344,7 +351,7 @@
     renumberResultLines(message.line);
     placeCaret(resultLineElements()[caretLine].querySelector(".code"), caretColumn);
     layoutSeq += 1;
-    vscode.postMessage({ ...message, seq: layoutSeq });
+    send({ ...message, seq: layoutSeq });
   }
 
   /** Moves the text after `offset` onto a new line below, keeping its highlighting. */
@@ -433,7 +440,8 @@
 
   window.addEventListener("message", (event) => {
     const update = event.data;
-    const isLatestLayout = update && update.type === "layout" && update.seq === layoutSeq;
+    // An answer to the page this one replaced can arrive after it loads.
+    const isLatestLayout = update && update.type === "layout" && update.page === page && update.seq === layoutSeq;
     if (isLatestLayout) {
       applyLayout(update.data);
     }

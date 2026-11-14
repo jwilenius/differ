@@ -28,6 +28,8 @@ export interface MergeViewRenderContext {
   readonly resultPath: string;
   /** During a rebase or cherry-pick git's sides are reversed, which the toolbar warns about. */
   readonly isSidesSwapped: boolean;
+  /** Numbers the page; the client stamps it on every message, so the host can tell a replaced page's messages apart. */
+  readonly page: number;
 }
 
 /** Published as JSON in `#merge[data-merge]`; ranges are `[start, end)` line pairs. */
@@ -70,7 +72,7 @@ const LOCK_ICON = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rec
  * version side by side, joined by connector strips, with apply (» «) and
  * ignore (×) buttons in the side gutters. The result is editable.
  *
- * Client contract: `#merge[data-merge]` holds {@link MergeClientData};
+ * Client contract: `#merge[data-merge]` holds {@link MergeClientData} and `#merge[data-page]` the page number;
  * scrollers `#scroll-left`, `#scroll-result`, `#scroll-right` contain one
  * `.line` per text line; `svg#connectors-left` / `svg#connectors-right` sit in
  * the strips; a result `.line` holds `.num` and `.code[data-line]`, which the
@@ -104,7 +106,7 @@ ${styles}
 </head>
 <body>
 ${renderToolbar(input, context)}
-<main class="merge" id="merge" data-merge="${escapeHtml(JSON.stringify(mergeClientData(input.state, input.chunks)))}">
+<main class="merge" id="merge" data-page="${context.page}" data-merge="${escapeHtml(JSON.stringify(mergeClientData(input.state, input.chunks)))}">
 ${renderSideHeader("left", context.leftLabel)}
 <div class="strip-header"></div>
 <div class="pane-header pane-result"><b>Result</b><span class="path">${escapeHtml(context.resultPath)}</span></div>

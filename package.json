@@ -169,7 +169,117 @@
           "description": "Which diff viewer opens text files from the Git History panel."
         }
       }
-    }
+    },
+    "colors": [
+      {
+        "id": "differ.diffAddedBackground",
+        "description": "Two-way diff: added lines, their line numbers and ribbons.",
+        "defaults": {
+          "dark": "#2f4337",
+          "light": "#e3f3e6",
+          "highContrast": "#1b3323"
+        }
+      },
+      {
+        "id": "differ.diffDeletedBackground",
+        "description": "Two-way diff: deleted lines, their line numbers and ribbons.",
+        "defaults": {
+          "dark": "#484a4a",
+          "light": "#ebebeb",
+          "highContrast": "#3a3a3a"
+        }
+      },
+      {
+        "id": "differ.diffModifiedBackground",
+        "description": "Two-way diff: modified lines, their line numbers and ribbons.",
+        "defaults": {
+          "dark": "#28323d",
+          "light": "#e6eefb",
+          "highContrast": "#1b2a3d"
+        }
+      },
+      {
+        "id": "differ.diffModifiedWordBackground",
+        "description": "Two-way diff: changed words inside modified lines.",
+        "defaults": {
+          "dark": "#3e546e",
+          "light": "#c5d7f5",
+          "highContrast": "#2e5788"
+        }
+      },
+      {
+        "id": "differ.mergeConflictBackground",
+        "description": "Merge view: lines of a conflict (both sides changed the block).",
+        "defaults": {
+          "dark": "#241f1f",
+          "light": "#fff0ec",
+          "highContrast": "#3d2421"
+        }
+      },
+      {
+        "id": "differ.mergeConflictStrongBackground",
+        "description": "Merge view: a conflict's gutters, result line numbers, ribbons and changed words.",
+        "defaults": {
+          "dark": "#312623",
+          "light": "#fbd4ca",
+          "highContrast": "#6b3a33"
+        }
+      },
+      {
+        "id": "differ.mergeAddedBackground",
+        "description": "Merge view: lines a side added.",
+        "defaults": {
+          "dark": "#25322a",
+          "light": "#e3f3e6",
+          "highContrast": "#1b3323"
+        }
+      },
+      {
+        "id": "differ.mergeAddedStrongBackground",
+        "description": "Merge view: an added block's gutters, result line numbers and ribbons.",
+        "defaults": {
+          "dark": "#25322a",
+          "light": "#c9e8cf",
+          "highContrast": "#2b5537"
+        }
+      },
+      {
+        "id": "differ.mergeDeletedBackground",
+        "description": "Merge view: lines a side deleted.",
+        "defaults": {
+          "dark": "#363737",
+          "light": "#ebebeb",
+          "highContrast": "#3a3a3a"
+        }
+      },
+      {
+        "id": "differ.mergeDeletedStrongBackground",
+        "description": "Merge view: a deleted block's gutters, result line numbers and ribbons.",
+        "defaults": {
+          "dark": "#363737",
+          "light": "#d6d6d6",
+          "highContrast": "#555555"
+        }
+      },
+      {
+        "id": "differ.mergeModifiedBackground",
+        "description": "Merge view: lines a side modified.",
+        "defaults": {
+          "dark": "#222930",
+          "light": "#edf3fd",
+          "highContrast": "#1b2a3d"
+        }
+      },
+      {
+        "id": "differ.mergeModifiedStrongBackground",
+        "description": "Merge view: a modified block's gutters, result line numbers, ribbons and changed words.",
+        "defaults": {
+          "dark": "#2f3d50",
+          "light": "#c5d7f5",
+          "highContrast": "#2e5788"
+        }
+      }
+    ]
   },
   "scripts": {
     "release": "bash scripts/release.sh",

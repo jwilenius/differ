@@ -1,11 +1,14 @@
 /* IntelliJ's side-by-side diff: base text | gutter | connector strip | gutter |
    result text. No filler rows: each pane flows its own lines, an empty range
    is a 1px line, and ribbons in the strip join corresponding blocks. */
+/* Change colours are the extension's themable colours (package.json
+   contributes.colors), which VS Code sets per theme kind and users override with
+   workbench.colorCustomizations; the fallbacks are their dark defaults. */
 :root {
-  --chg-modified: #28323d;
-  --chg-modified-word: #3e546e;
-  --chg-added: #2f4337;
-  --chg-deleted: #484a4a;
+  --chg-modified: var(--vscode-differ-diffModifiedBackground, #28323d);
+  --chg-modified-word: var(--vscode-differ-diffModifiedWordBackground, #3e546e);
+  --chg-added: var(--vscode-differ-diffAddedBackground, #2f4337);
+  --chg-deleted: var(--vscode-differ-diffDeletedBackground, #484a4a);
   --divider: #323438;
   --gutter-text: #6f737a;
   --toolbar-height: 32px;
@@ -15,20 +18,11 @@
 }
 
 body.vscode-light {
-  --chg-modified: #e6eefb;
-  --chg-modified-word: #c5d7f5;
-  --chg-added: #e3f3e6;
-  --chg-deleted: #ebebeb;
   --divider: #ebecf0;
   --gutter-text: #a8adbd;
 }
 
-/* High contrast keeps the tints faint and relies on the borders and ribbons' outlines. */
 body.vscode-high-contrast {
-  --chg-modified: #1b2a3d;
-  --chg-modified-word: #2e5788;
-  --chg-added: #1b3323;
-  --chg-deleted: #3a3a3a;
   --divider: var(--vscode-contrastBorder, #6fc3df);
   --gutter-text: var(--vscode-editorLineNumber-foreground, #ffffff);
 }

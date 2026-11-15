@@ -159,7 +159,7 @@ sides touched differently. The toolbar reports `N changes. M conflicts.`, then `
 | None   | Unchanged, or that side is already processed |
 
 Lines get a soft tint; gutters, ribbons and changed words a stronger shade. Light and high-contrast themes have their
-own palettes.
+own palettes; all of them can be changed (see [Customizing colours](#customizing-colours)).
 
 ![The same merge view in the Default Light Modern theme](docs/images/merge-view-light.png)
 
@@ -204,6 +204,47 @@ Undo and Redo from the Edit menu or Command Palette run the webview's own undo; 
 of each, so they reach the merge's history on a freshly drawn page too.
 
 Scrolling is synchronised across the three panes, aligned on the blocks.
+
+## Customizing colours
+
+The change colours of the two-way diff and the merge view are theme colours: each has a default per theme kind, and
+`workbench.colorCustomizations` in `settings.json` overrides them for every theme or, under `"[Theme Name]"`, for one
+theme. Open views repaint when the setting changes. Colour themes can set the same ids in their `colors`.
+
+| Id                                     | Paints                                                                    | Dark      | Light     | High contrast |
+| -------------------------------------- | ------------------------------------------------------------------------- | --------- | --------- | ------------- |
+| `differ.diffAddedBackground`           | Two-way diff: added lines (green), their line numbers and ribbons         | `#2f4337` | `#e3f3e6` | `#1b3323`     |
+| `differ.diffDeletedBackground`         | Two-way diff: deleted lines (grey), their line numbers and ribbons        | `#484a4a` | `#ebebeb` | `#3a3a3a`     |
+| `differ.diffModifiedBackground`        | Two-way diff: modified lines (blue), their line numbers and ribbons       | `#28323d` | `#e6eefb` | `#1b2a3d`     |
+| `differ.diffModifiedWordBackground`    | Two-way diff: changed words inside modified lines                         | `#3e546e` | `#c5d7f5` | `#2e5788`     |
+| `differ.mergeConflictBackground`       | Merge: conflict lines (red)                                               | `#241f1f` | `#fff0ec` | `#3d2421`     |
+| `differ.mergeConflictStrongBackground` | Merge: a conflict's gutters, result line numbers, ribbons and words       | `#312623` | `#fbd4ca` | `#6b3a33`     |
+| `differ.mergeAddedBackground`          | Merge: added lines (green)                                                | `#25322a` | `#e3f3e6` | `#1b3323`     |
+| `differ.mergeAddedStrongBackground`    | Merge: an added block's gutters, result line numbers and ribbons          | `#25322a` | `#c9e8cf` | `#2b5537`     |
+| `differ.mergeDeletedBackground`        | Merge: deleted lines (grey)                                               | `#363737` | `#ebebeb` | `#3a3a3a`     |
+| `differ.mergeDeletedStrongBackground`  | Merge: a deleted block's gutters, result line numbers and ribbons         | `#363737` | `#d6d6d6` | `#555555`     |
+| `differ.mergeModifiedBackground`       | Merge: modified lines (blue)                                              | `#222930` | `#edf3fd` | `#1b2a3d`     |
+| `differ.mergeModifiedStrongBackground` | Merge: a modified block's gutters, result line numbers, ribbons and words | `#2f3d50` | `#c5d7f5` | `#2e5788`     |
+
+High contrast light themes use the light defaults. Values are hex colours (`#RRGGBB`). Use opaque colours: the gutters
+and line numbers stay in place while the code scrolls sideways beneath them, so a translucent value (`#RRGGBBAA`) lets
+that code show through and tints the line numbers twice.
+
+```jsonc
+// settings.json
+"workbench.colorCustomizations": {
+  // Every theme: added lines in the two-way diff.
+  "differ.diffAddedBackground": "#2e5a3a",
+  // Default Light Modern only, winning over the entry above: a light green, stronger merge-conflict reds.
+  "[Default Light Modern]": {
+    "differ.diffAddedBackground": "#c9f0d2",
+    "differ.mergeConflictBackground": "#ffd9d0",
+    "differ.mergeConflictStrongBackground": "#f5a898"
+  }
+}
+```
+
+Typing `differ.` inside `workbench.colorCustomizations` lists the ids with their descriptions.
 
 ## Architecture
 

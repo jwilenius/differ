@@ -1,40 +1,27 @@
 /* IntelliJ's merge dialog, layered on diff.css: left | strip | result | strip |
    right, apply/ignore buttons in the side gutters, and a footer of decisions. */
 /* Sampled from IntelliJ's merge dialog: a soft tint on the lines, a stronger one
-   on the gutters, ribbons and changed words. */
+   on the gutters, ribbons and changed words. As in diff.css, they are themable
+   colours with their dark defaults as fallbacks. */
 :root {
-  --chg-conflict: #241f1f;
-  --chg-conflict-strong: #312623;
-  --chg-modified: #222930;
-  --chg-modified-strong: #2f3d50;
-  --chg-modified-word: #2f3d50;
-  --chg-added: #25322a;
-  --chg-added-strong: #25322a;
-  --chg-deleted: #363737;
-  --chg-deleted-strong: #363737;
+  --chg-conflict: var(--vscode-differ-mergeConflictBackground, #241f1f);
+  --chg-conflict-strong: var(--vscode-differ-mergeConflictStrongBackground, #312623);
+  --chg-modified: var(--vscode-differ-mergeModifiedBackground, #222930);
+  --chg-modified-strong: var(--vscode-differ-mergeModifiedStrongBackground, #2f3d50);
+  --chg-modified-word: var(--chg-modified-strong);
+  --chg-added: var(--vscode-differ-mergeAddedBackground, #25322a);
+  --chg-added-strong: var(--vscode-differ-mergeAddedStrongBackground, #25322a);
+  --chg-deleted: var(--vscode-differ-mergeDeletedBackground, #363737);
+  --chg-deleted-strong: var(--vscode-differ-mergeDeletedStrongBackground, #363737);
   --act-color: #9da0a8;
   --footer-height: 44px;
 }
 
 body.vscode-light {
-  --chg-conflict: #fff0ec;
-  --chg-conflict-strong: #fbd4ca;
-  --chg-modified: #edf3fd;
-  --chg-modified-strong: #c5d7f5;
-  --chg-modified-word: #c5d7f5;
-  --chg-added: #e3f3e6;
-  --chg-added-strong: #c9e8cf;
-  --chg-deleted: #ebebeb;
-  --chg-deleted-strong: #d6d6d6;
   --act-color: #6c707e;
 }
 
 body.vscode-high-contrast {
-  --chg-conflict: #3d2421;
-  --chg-conflict-strong: #6b3a33;
-  --chg-modified-strong: #2e5788;
-  --chg-added-strong: #2b5537;
-  --chg-deleted-strong: #555555;
   --act-color: var(--vscode-editor-foreground);
 }
 

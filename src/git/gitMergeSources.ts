@@ -9,7 +9,8 @@ import {
   STAGE_THEIRS,
   type UnmergedEntry,
 } from "./gitConflictedFiles";
-import { HistoryGitError, runHistoryGit } from "./historyGitCommand";
+import { readInWorkTree } from "./gitWorkTree";
+import { runHistoryGit } from "./historyGitCommand";
 
 export interface MergeSources {
   /** The branch's own version of the file — git stage 2. */
@@ -44,8 +45,6 @@ const NO_MERGEABLE_CONFLICT: UnmergeableConflict = { unmergeable: "noMergeableCo
 const BYTE_ORDER_MARK = "\uFEFF";
 /** The length of the byte order mark in UTF-8. */
 const BYTE_ORDER_MARK_BYTES = 3;
-/** Git's exit code for a fatal error, which is how it reports a directory outside any repository. */
-const FATAL_EXIT_CODE = 128;
 /** Git's exit code when a `--quiet` lookup finds nothing, as a missing ref or a detached HEAD. */
 const NOT_FOUND_EXIT_CODE = 1;
 /**
@@ -58,7 +57,7 @@ const REBASE_STATE_PATHS: readonly string[] = ["rebase-merge", "rebase-apply/reb
  * Reads the three versions of a conflicted file from the git index, or why they cannot be merged. Git runs in the
  * file's own directory and is given only its name: Git resolves symbolic links in the repository root, so a path
  * relative to that root would leave the repository when the file was opened through a linked directory. Throws
- * `HistoryGitError` when Git is missing or fails other than by finding no repository.
+ * `HistoryGitError` when Git is missing or fails other than by finding no work tree.
  */
 export async function readMergeSources(filePath: string): Promise<MergeSources | UnmergeableConflict> {
   const directory = path.dirname(filePath);
@@ -95,20 +94,9 @@ interface StagedVersions {
   readonly theirs: Buffer | null;
 }
 
-/**
- * The unmerged index entries of the file `fileName` in `directory`; none outside a repository. Git reports that only
- * by a fatal exit, which other fatal errors such as an unsafe repository share, so those read as no conflict too, as
- * they read as no repository when the history finds its repository root.
- */
+/** The unmerged index entries of the file `fileName` in `directory`; none outside any work tree. */
 async function conflictEntries(directory: string, fileName: string): Promise<readonly UnmergedEntry[]> {
-  try {
-    return await listUnmergedEntries(directory, [fileName]);
-  } catch (error) {
-    if (error instanceof HistoryGitError && error.exitCode === FATAL_EXIT_CODE) {
-      return [];
-    }
-    throw error;
-  }
+  return readInWorkTree(directory, () => listUnmergedEntries(directory, [fileName]), []);
 }
 
 async function stagedVersions(directory: string, entries: readonly UnmergedEntry[]): Promise<StagedVersions> {

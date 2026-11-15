@@ -128,6 +128,41 @@ describe("readMergeSources", () => {
 
     await expect(reading).rejects.toMatchObject({ name: "HistoryGitError", kind: "missingGit" });
   });
+
+  it("reports a repository Git refuses as unsafe as an error instead of a file with no conflict", async () => {
+    vi.stubEnv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
+
+    const reading = readMergeSources(file);
+
+    await expect(reading).rejects.toMatchObject({ name: "HistoryGitError", exitCode: 128, message: /dubious ownership/ });
+  });
+
+  it("reports no mergeable conflict in the git directory, which has no work tree", async () => {
+    const gitFile = path.join(repo, ".git", "HEAD");
+
+    expect(await readMergeSources(gitFile)).toEqual({ unmergeable: "noMergeableConflict" });
+  });
+});
+
+describe("readMergeSources with a corrupt index", () => {
+  let corruptRepo: string;
+
+  beforeAll(() => {
+    corruptRepo = createConflictRepository();
+    divergeBranches(corruptRepo, ["f.txt"]);
+    mergeFeature(corruptRepo);
+    fs.writeFileSync(path.join(corruptRepo, ".git", "index"), "not an index");
+  });
+
+  afterAll(() => {
+    fs.rmSync(corruptRepo, { recursive: true, force: true });
+  });
+
+  it("reports the unreadable index as an error instead of a file with no conflict", async () => {
+    const reading = readMergeSources(path.join(corruptRepo, "f.txt"));
+
+    await expect(reading).rejects.toMatchObject({ name: "HistoryGitError", kind: "failed", exitCode: 128 });
+  });
 });
 
 describe("readMergeSources with an emptied side", () => {

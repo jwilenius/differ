@@ -136,8 +136,9 @@ async function openMergeView(document: vscode.TextDocument, services: Services):
     await opening;
   } catch (error) {
     forgetMergeView(key, opening);
-    services.log.appendLine(`Opening the merge view of ${document.uri.fsPath} failed. ${error instanceof Error ? error.message : String(error)}`);
-    void vscode.window.showErrorMessage("Differ could not open the merge view.");
+    const message = error instanceof Error ? error.message : String(error);
+    services.log.appendLine(`Opening the merge view of ${document.uri.fsPath} failed. ${message}`);
+    void vscode.window.showErrorMessage(`Differ could not open the merge view. ${message}`);
   }
 }
 

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { candidateDirectories, discoverRepositoryRoots, findGitRepositoryRoot } from "../host/vscode/historyRepositoryDiscovery";
 import { createHistoryRepository, disposeHistoryRepository } from "./gitHistoryFixture";
@@ -48,6 +48,28 @@ describe("findGitRepositoryRoot", () => {
       expect(await findGitRepositoryRoot(outside)).toBeNull();
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
+      disposeHistoryRepository(fixture);
+    }
+  });
+
+  it("returns null in the git directory, which has no work tree", async () => {
+    const fixture = createHistoryRepository();
+    try {
+      expect(await findGitRepositoryRoot(path.join(fixture.root, ".git"))).toBeNull();
+    } finally {
+      disposeHistoryRepository(fixture);
+    }
+  });
+
+  it("reports a repository Git refuses as unsafe as an error instead of no repository", async () => {
+    const fixture = createHistoryRepository();
+    vi.stubEnv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
+    try {
+      const finding = findGitRepositoryRoot(fixture.root);
+
+      await expect(finding).rejects.toMatchObject({ name: "HistoryGitError", exitCode: 128, message: /dubious ownership/ });
+    } finally {
+      vi.unstubAllEnvs();
       disposeHistoryRepository(fixture);
     }
   });

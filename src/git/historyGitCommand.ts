@@ -147,8 +147,11 @@ function spawnGit(args: readonly string[], options: HistoryGitSpawnOptions): Chi
   return spawn("git", [...args], { cwd, env, shell: false, stdio: "pipe", windowsHide: true });
 }
 
-/** The inherited environment for reading a user's repository. Matching is case-insensitive as on Windows. */
-function sourceRepositoryEnvironment(inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+/**
+ * The inherited environment for reading a user's repository, which runs use when given no `env`. Matching is
+ * case-insensitive as on Windows.
+ */
+export function sourceRepositoryEnvironment(inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const kept = Object.entries(inherited).filter(([name]) => {
     const upperName = name.toUpperCase();
     return !LOCATION_AND_CONFIG_VARIABLES.has(upperName) && !CONFIG_ENTRY_VARIABLE_PATTERN.test(upperName);

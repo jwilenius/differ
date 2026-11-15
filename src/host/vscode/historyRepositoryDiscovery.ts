@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { readInWorkTree } from "../../git/gitWorkTree";
 import { runHistoryGit } from "../../git/historyGitCommand";
 
 /** Canonical repository root containing a directory, or null when it is not in a repository. */
@@ -45,12 +46,19 @@ export async function discoverRepositoryRoots(
   return { roots, problem };
 }
 
-/** `rev-parse --show-toplevel`, canonicalised; null when `directory` is not in a work tree. Missing Git throws. */
+/**
+ * `rev-parse --show-toplevel`, canonicalised; null when `directory` is not in a work tree. Missing Git and other Git
+ * failures, such as a repository Git refuses as unsafe, throw.
+ */
 export async function findGitRepositoryRoot(directory: string): Promise<string | null> {
-  const result = await runHistoryGit({ cwd: directory, args: ["rev-parse", "--show-toplevel"], allowedExitCodes: [0, 128] });
-  if (result.exitCode !== 0) {
+  const showTopLevel = async (): Promise<Buffer | null> => {
+    const { stdout } = await runHistoryGit({ cwd: directory, args: ["rev-parse", "--show-toplevel"] });
+    return stdout;
+  };
+  const output = await readInWorkTree(directory, showTopLevel, null);
+  if (output === null) {
     return null;
   }
-  const topLevel = result.stdout.toString("utf8").replace(/\n$/, "");
+  const topLevel = output.toString("utf8").replace(/\n$/, "");
   return topLevel === "" ? null : realpath(topLevel);
 }

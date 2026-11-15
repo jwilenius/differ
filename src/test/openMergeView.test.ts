@@ -83,7 +83,7 @@ describe("Differ: Open Merge View", () => {
     }
 
     expect(unhandledReasons).toEqual([]);
-    expect(vscodeMock.messages).toEqual([{ level: "error", text: "Differ could not open the merge view." }]);
+    expect(vscodeMock.messages).toEqual([{ level: "error", text: "Differ could not open the merge view. git failed" }]);
     expect(vscodeMock.webviewPanels).toHaveLength(1);
   });
 });

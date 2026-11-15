@@ -6,7 +6,15 @@ import * as vscode from "vscode";
 import { ConflictedFilesContext, type ConflictedFilesScan } from "../host/vscode/conflictedFilesContext";
 import { activate, deactivate } from "../host/vscode/extension";
 import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
-import { changeWindowFocus, changeWorkspaceFolders, type FakeFileSystemWatcher, RelativePattern, resetVscodeMock, vscodeMock } from "./vscodeMock";
+import {
+  changeWindowFocus,
+  changeWorkspaceFolders,
+  type ExecutedCommand,
+  type FakeFileSystemWatcher,
+  RelativePattern,
+  resetVscodeMock,
+  vscodeMock,
+} from "./vscodeMock";
 
 interface MenuEntry {
   readonly command: string;
@@ -43,10 +51,14 @@ function activateExtension(): void {
   activate({ subscriptions: [], extensionUri: vscode.Uri.file(folder), extensionPath: folder } as unknown as vscode.ExtensionContext);
 }
 
+/** Each setting of `differ.conflictedFiles`, one per refresh that finished current. */
+function conflictedFilesSettings(): readonly ExecutedCommand[] {
+  return vscodeMock.executedCommands.filter(({ command, args }) => command === "setContext" && args[0] === "differ.conflictedFiles");
+}
+
 /** The paths `differ.conflictedFiles` was last set to, sorted; undefined before it is set. */
 function conflictedFilesContext(): readonly string[] | undefined {
-  const settings = vscodeMock.executedCommands.filter(({ command, args }) => command === "setContext" && args[0] === "differ.conflictedFiles");
-  const paths = settings.at(-1)?.args[1] as readonly string[] | undefined;
+  const paths = conflictedFilesSettings().at(-1)?.args[1] as readonly string[] | undefined;
   return paths && [...paths].sort();
 }
 
@@ -165,9 +177,10 @@ describe("conflicted files context key", () => {
     vscodeMock.workspaceFolders = [workspaceFolder(repo), workspaceFolder(path.join(repo, "src"))];
     activateExtension();
     const watcher = await indexWatcher(path.join(repo, ".git", "index"));
+    await vi.waitFor(() => expect(conflictedFilesSettings()).toHaveLength(1));
 
     changeWindowFocus(true);
-    await vi.waitFor(() => expect(vscodeMock.executedCommands.filter(({ command }) => command === "setContext").length).toBeGreaterThan(1));
+    await vi.waitFor(() => expect(conflictedFilesSettings()).toHaveLength(2));
     expect(vscodeMock.fileSystemWatchers).toEqual([watcher]);
 
     changeWorkspaceFolders([]);
@@ -223,7 +236,7 @@ describe("conflicted files context key", () => {
     finds[1](["/current.txt"]);
 
     await expectConflictedFiles(["/current.txt"]);
-    expect(vscodeMock.executedCommands.filter(({ command }) => command === "setContext")).toHaveLength(1);
+    expect(conflictedFilesSettings()).toHaveLength(1);
     context.dispose();
   });
 

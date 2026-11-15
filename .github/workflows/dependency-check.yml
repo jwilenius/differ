@@ -1,0 +1,25 @@
+name: Dependency check
+
+# Packages are often reported malicious days after release, so recheck the locked versions weekly, not only on push.
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm run check:deps
+      # Signatures need installed packages; their install scripts never run in this job.
+      - run: npm ci --ignore-scripts
+      - run: npm run check:signatures

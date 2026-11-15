@@ -119,6 +119,16 @@ describe("buildTwoWayDiff", () => {
     ]);
   });
 
+  it("shows scattered changes in a large text as separate blocks", () => {
+    const text = (name: string): string =>
+      Array.from({ length: 10_000 }, (_, index) => (index % 12 === 0 ? `${name}(${index});` : `line ${index};`)).join("\n");
+
+    const diff = buildTwoWayDiff(text("oldName"), text("newName"), WORDS);
+
+    expect(diff.blocks).toHaveLength(834);
+    expect(diff.blocks[1]).toMatchObject({ kind: "modified", base: { start: 12, end: 13 }, result: { start: 12, end: 13 } });
+  });
+
   it("reports separate blocks in order", () => {
     const diff = buildTwoWayDiff("a\nb\nc\nd\ne", "a\nB\nc\nd", WORDS);
 

@@ -50,6 +50,21 @@ describe("buildMergeChunks", () => {
     ]);
   });
 
+  it("keeps one side's scattered renames in a large file apart from the other side's changes", () => {
+    const base = Array.from({ length: 10_000 }, (_, index) => (index % 12 === 0 ? `oldName(${index});` : `line ${index};`));
+    const left = base.map((line) => line.replace("oldName", "newName"));
+    const right = base.map((line, index) => (index === 5_000 || index === 7_001 ? `right change ${index};` : line));
+
+    const chunks = buildMergeChunks(base, left, right);
+
+    expect(chunks).toHaveLength(836);
+    expect(chunks.filter((chunk) => chunk.isConflict)).toEqual([]);
+    expect(chunks.filter((chunk) => chunk.rightKind !== null).map((chunk) => chunk.base)).toEqual([
+      { start: 5_000, end: 5_001 },
+      { start: 7_001, end: 7_002 },
+    ]);
+  });
+
   it("widens each side over the base lines its partner changed", () => {
     // Left changes b, right changes b and c: one chunk over b..c on both sides.
     const chunks = buildMergeChunks(lines("a\nb\nc\nd"), lines("a\nB\nc\nd"), lines("a\nb2\nc2\nd"));

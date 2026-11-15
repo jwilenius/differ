@@ -6,6 +6,11 @@ function distinctLines(tag: string, count: number): string[] {
   return Array.from({ length: count }, (_, index) => `${tag} ${index}`);
 }
 
+/** `count` lines where every twelfth calls `name`, so renaming it changes those lines only. */
+function linesCalling(name: string, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => (index % 12 === 0 ? `  ${name}(${index});` : `  line ${index};`));
+}
+
 describe("diffLines", () => {
   it("reports a modified line with the positions of the lines around it", () => {
     const diff = diffLines(["a", "b", "c"], ["a", "x", "y", "c"]);
@@ -24,7 +29,29 @@ describe("diffLines", () => {
     ]);
   });
 
-  it("gives up on fully divergent large inputs quickly with one whole-range change", () => {
+  it("keeps scattered changes apart when there are more of them than the search limit", () => {
+    const diff = diffLines(linesCalling("oldName", 10_000), linesCalling("newName", 10_000));
+
+    expect(diff.hunks).toHaveLength(834);
+    expect(diff.hunks.slice(0, 2)).toEqual([
+      { baseStart: 0, baseEnd: 1, sideStart: 0, sideEnd: 1 },
+      { baseStart: 12, baseEnd: 13, sideStart: 12, sideEnd: 13 },
+    ]);
+    expect(diff.hunks.at(-1)).toEqual({ baseStart: 9_996, baseEnd: 9_997, sideStart: 9_996, sideEnd: 9_997 });
+  });
+
+  it("gives up on large reorderings quickly with one whole-range change", () => {
+    const base = distinctLines("line", 10_000);
+    const side = [...base].reverse();
+
+    const started = performance.now();
+    const diff = diffLines(base, side);
+
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(diff.hunks).toEqual([{ baseStart: 0, baseEnd: 10_000, sideStart: 0, sideEnd: 10_000 }]);
+  });
+
+  it("reports fully divergent large inputs quickly as one whole-range change", () => {
     const base = distinctLines("base", 10_000);
     const side = distinctLines("side", 10_000);
 
@@ -38,8 +65,9 @@ describe("diffLines", () => {
   it("limits the whole-range change to the lines between the common start and end", () => {
     const prefix = distinctLines("prefix", 30);
     const suffix = distinctLines("suffix", 20);
-    const base = [...prefix, ...distinctLines("base", 5_000), ...suffix];
-    const side = [...prefix, ...distinctLines("side", 4_000), ...suffix];
+    const middle = distinctLines("middle", 5_000);
+    const base = [...prefix, ...middle, ...suffix];
+    const side = [...prefix, ...middle.slice(0, 4_000).reverse(), ...suffix];
 
     const diff = diffLines(base, side);
 

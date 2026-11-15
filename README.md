@@ -97,7 +97,8 @@ joined by connector ribbons.
   file. Modify/delete, symbolic-link and submodule conflicts are left to git.
 - Every stage must be UTF-8 text without NUL bytes. A binary or non-UTF-8 (e.g. Latin-1) conflict is still listed, but
   opens a page saying why it cannot be merged rather than corrupting its characters. A UTF-8 byte order mark is dropped
-  from the stages; VS Code's document keeps it with the file's encoding and writes it back on save.
+  from the stages and merged on its own (a side that added or removed it wins). Apply writes it once: VS Code saves the
+  mark of a file opened with one; otherwise, as after a conflict on line 1, the mark leads the written text.
 - **Differ: Open Three-Way Merge View**, or the merge button in the title bar of a file with conflict markers, opens the
   active file.
 

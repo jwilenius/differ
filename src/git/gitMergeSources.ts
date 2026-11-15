@@ -18,6 +18,8 @@ export interface MergeSources {
   readonly theirs: string;
   /** Common ancestor — git stage 1. Absent for add/add conflicts. */
   readonly base: string | null;
+  /** Whether the merged file starts with a UTF-8 byte order mark, which the three texts leave out. */
+  readonly hasByteOrderMark: boolean;
   readonly ourLabel: string;
   readonly theirLabel: string;
   /**
@@ -40,6 +42,8 @@ export interface UnmergeableConflict {
 
 const NO_MERGEABLE_CONFLICT: UnmergeableConflict = { unmergeable: "noMergeableConflict" };
 const BYTE_ORDER_MARK = "\uFEFF";
+/** The length of the byte order mark in UTF-8. */
+const BYTE_ORDER_MARK_BYTES = 3;
 /** Git's exit code for a fatal error, which is how it reports a directory outside any repository. */
 const FATAL_EXIT_CODE = 128;
 /** Git's exit code when a `--quiet` lookup finds nothing, as a missing ref or a detached HEAD. */
@@ -78,6 +82,7 @@ export async function readMergeSources(filePath: string): Promise<MergeSources |
     ours: stageText(stages.ours),
     theirs: stageText(stages.theirs),
     base: stages.base === null ? null : stageText(stages.base),
+    hasByteOrderMark: isByteOrderMarkMerged(stages.base, stages.ours, stages.theirs),
     ourLabel: await describeHead(directory),
     theirLabel: await describeIncoming(directory),
     isSidesSwapped,
@@ -139,11 +144,26 @@ function nonTextStageReason(stages: StagedVersions): NonTextBlobReason | null {
 
 /**
  * A stage's text without a leading byte order mark. The mark belongs to the file's encoding, not its text: an editor
- * such as VS Code leaves it out of the document and writes it back on save, so a merged mark would be saved twice.
+ * such as VS Code leaves it out of the document, so the merge decides it apart from the text, as `hasByteOrderMark`.
  */
 function stageText(blob: Buffer): string {
   const text = blob.toString("utf8");
   return text.startsWith(BYTE_ORDER_MARK) ? text.slice(BYTE_ORDER_MARK.length) : text;
+}
+
+/**
+ * Whether the merge keeps a byte order mark, merged as git merges a change only one side made: a side that added or
+ * removed the mark wins. An add/add conflict has no ancestor and merges against an empty one, which has no mark.
+ */
+function isByteOrderMarkMerged(base: Buffer | null, ours: Buffer, theirs: Buffer): boolean {
+  const isMarkInBase = base !== null && startsWithByteOrderMark(base);
+  const isMarkInOurs = startsWithByteOrderMark(ours);
+  const isMarkInTheirs = startsWithByteOrderMark(theirs);
+  return isMarkInOurs === isMarkInBase ? isMarkInTheirs : isMarkInOurs;
+}
+
+function startsWithByteOrderMark(blob: Buffer): boolean {
+  return blob.toString("utf8", 0, BYTE_ORDER_MARK_BYTES) === BYTE_ORDER_MARK;
 }
 
 /**

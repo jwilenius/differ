@@ -69,6 +69,7 @@ interface MergeContext {
   readonly rightLabel: string;
   readonly isSidesSwapped: boolean;
   readonly eol: string;
+  readonly hasByteOrderMark: boolean;
   readonly languageId: string;
 }
 
@@ -152,6 +153,7 @@ export class MergeViewPanel {
       rightLabel: sources.theirLabel,
       isSidesSwapped: sources.isSidesSwapped,
       eol: document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n",
+      hasByteOrderMark: sources.hasByteOrderMark,
       languageId: document.languageId,
     };
     this.state = startMerge(normalizeEol(sources.base ?? ""), normalizeEol(sources.ours), normalizeEol(sources.theirs));
@@ -420,7 +422,8 @@ export class MergeViewPanel {
     if (!isComplete && !(await confirm(`${describeTally(tally)} Apply the result anyway? The file will not be staged.`, "Apply"))) {
       return false;
     }
-    if (!(await writeMergeResult(this.uri, state.resultLines.join(this.context?.eol ?? "\n")))) {
+    const text = state.resultLines.join(this.context?.eol ?? "\n");
+    if (!(await writeMergeResult(this.uri, text, this.context?.hasByteOrderMark ?? false))) {
       return false;
     }
     if (isComplete) {

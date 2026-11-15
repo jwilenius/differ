@@ -46,7 +46,7 @@ describe("writeMergeResult", () => {
     const file = path.join(directory, "f.txt");
     fs.writeFileSync(file, "one\ntwo\n");
 
-    const isWritten = await writeMergeResult(vscode.Uri.file(file), "merged\n");
+    const isWritten = await writeMergeResult(vscode.Uri.file(file), "merged\n", false);
 
     expect(isWritten).toBe(true);
     expect(vscodeMock.appliedEdits).toHaveLength(1);
@@ -56,13 +56,31 @@ describe("writeMergeResult", () => {
     expect(vscodeMock.messages).toEqual([]);
   });
 
+  it("starts the text with the byte order mark of a result whose file starts with none", async () => {
+    const file = path.join(directory, "f.txt");
+    fs.writeFileSync(file, "<<<<<<< HEAD\n");
+
+    await writeMergeResult(vscode.Uri.file(file), "merged\n", true);
+
+    expect(vscodeMock.appliedEdits[0].text).toBe("\ufeffmerged\n");
+  });
+
+  it("leaves the byte order mark to the save of a file that starts with one", async () => {
+    const file = path.join(directory, "f.txt");
+    fs.writeFileSync(file, "\ufeffone\n");
+
+    await writeMergeResult(vscode.Uri.file(file), "merged\n", true);
+
+    expect(vscodeMock.appliedEdits[0].text).toBe("merged\n");
+  });
+
   it("refuses a symbolic link and tells the user", async () => {
     const file = path.join(directory, "f.txt");
     const target = path.join(directory, "target.txt");
     fs.writeFileSync(target, "precious\n");
     fs.symlinkSync(target, file);
 
-    const isWritten = await writeMergeResult(vscode.Uri.file(file), "merged\n");
+    const isWritten = await writeMergeResult(vscode.Uri.file(file), "merged\n", false);
 
     expect(isWritten).toBe(false);
     expect(vscodeMock.appliedEdits).toEqual([]);
@@ -74,10 +92,19 @@ describe("writeMergeResult", () => {
     const file = path.join(directory, "f.txt");
     failToOpen();
 
-    const isWritten = await writeMergeResult(vscode.Uri.file(file), "merged\n");
+    const isWritten = await writeMergeResult(vscode.Uri.file(file), "merged\n", false);
 
     expect(isWritten).toBe(true);
     expect(fs.readFileSync(file, "utf8")).toBe("merged\n");
+  });
+
+  it("creates a deleted file starting with the byte order mark of a result that has one", async () => {
+    const file = path.join(directory, "f.txt");
+    failToOpen();
+
+    await writeMergeResult(vscode.Uri.file(file), "merged\n", true);
+
+    expect(fs.readFileSync(file)).toEqual(Buffer.from("\ufeffmerged\n", "utf8"));
   });
 
   it("passes on the open failure of a file that is present", async () => {
@@ -85,7 +112,7 @@ describe("writeMergeResult", () => {
     fs.writeFileSync(file, "one\n");
     failToOpen();
 
-    await expect(writeMergeResult(vscode.Uri.file(file), "merged\n")).rejects.toThrow(`cannot open ${file}`);
+    await expect(writeMergeResult(vscode.Uri.file(file), "merged\n", false)).rejects.toThrow(`cannot open ${file}`);
     expect(fs.readFileSync(file, "utf8")).toBe("one\n");
   });
 
@@ -94,7 +121,7 @@ describe("writeMergeResult", () => {
     fs.writeFileSync(file, "one\n");
     vscodeMock.openFileDocument = (uri) => fileDocument(uri.fsPath, false);
 
-    const isWritten = await writeMergeResult(vscode.Uri.file(file), "merged\n");
+    const isWritten = await writeMergeResult(vscode.Uri.file(file), "merged\n", false);
 
     expect(isWritten).toBe(false);
     expect(vscodeMock.messages).toEqual([{ level: "error", text: "Differ could not write f.txt." }]);

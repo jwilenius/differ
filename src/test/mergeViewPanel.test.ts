@@ -13,12 +13,17 @@ import { ColorThemeKind, changeColorThemeKind, type FakeWebview, fireDidCloseTex
 let repo: string;
 let outside: string;
 
+const BYTE_ORDER_MARK = "\ufeff";
+
 /**
  * A file document whose save writes the last applied edit to disk, following symbolic links as the editor's save does.
- * Like VS Code's, it refuses to save once closed.
+ * Like VS Code's, it refuses to save once closed, and keeps a UTF-8 byte order mark the file starts with out of its
+ * text, writing it back on save; a mark at the start of the text of a file without one is saved as text.
  */
 function fileDocument(filePath: string): vscode.TextDocument {
-  const text = fs.readFileSync(filePath, "utf8");
+  const content = fs.readFileSync(filePath, "utf8");
+  const byteOrderMark = content.startsWith(BYTE_ORDER_MARK) ? BYTE_ORDER_MARK : "";
+  const text = content.slice(byteOrderMark.length);
   const lines = text.split("\n");
   const document = {
     uri: vscode.Uri.file(filePath),
@@ -32,7 +37,7 @@ function fileDocument(filePath: string): vscode.TextDocument {
       if (document.isClosed) {
         throw new Error("Document has been closed");
       }
-      fs.writeFileSync(filePath, vscodeMock.appliedEdits.at(-1)?.text ?? text);
+      fs.writeFileSync(filePath, byteOrderMark + (vscodeMock.appliedEdits.at(-1)?.text ?? text));
       return true;
     },
   };
@@ -122,16 +127,66 @@ describe("MergeViewPanel apply", () => {
 });
 
 describe("MergeViewPanel apply to a file with a byte order mark", () => {
-  it("leaves the mark out of the text, as VS Code's document holds it, so saving does not write a second", async () => {
+  it("keeps the mark when the conflict on the first line left the working copy without it", async () => {
     divergeFile(repo, "f.txt", { base: "\ufeffbase\n", feature: "\ufefffeature\n", trunk: "\ufefftrunk\n" });
     mergeFeature(repo);
-    const webview = await openPanel(fileDocument(path.join(repo, "f.txt")));
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
 
     post(webview, { type: "acceptSide", side: "left" });
     post(webview, { type: "apply" });
 
-    await vi.waitFor(() => expect(vscodeMock.appliedEdits).toHaveLength(1));
-    expect(vscodeMock.appliedEdits[0].text).toBe("trunk\n");
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(fs.readFileSync(file, "utf8")).toBe("\ufefftrunk\n");
+  });
+
+  it("writes no second mark when the working copy kept it, as VS Code then saves it", async () => {
+    divergeFile(repo, "f.txt", {
+      base: "\ufeffline1\nshared\n",
+      feature: "\ufeffline1\nmine\n",
+      trunk: "\ufeffline1\ntheirs\n",
+    });
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+
+    post(webview, { type: "acceptSide", side: "left" });
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(fs.readFileSync(file, "utf8")).toBe("\ufeffline1\ntheirs\n");
+  });
+
+  it("writes no mark to a file whose versions have none", async () => {
+    divergeFile(repo, "f.txt", { base: "base\n", feature: "feature\n", trunk: "trunk\n" });
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const webview = await openPanel(fileDocument(file));
+
+    post(webview, { type: "acceptSide", side: "left" });
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(fs.readFileSync(file, "utf8")).toBe("trunk\n");
+  });
+
+  it("writes the mark when it creates the file again after it was deleted", async () => {
+    divergeFile(repo, "f.txt", { base: "\ufeffbase\n", feature: "\ufefffeature\n", trunk: "\ufefftrunk\n" });
+    mergeFeature(repo);
+    const file = path.join(repo, "f.txt");
+    const document = fileDocument(file);
+    const webview = await openPanel(document);
+    closeDocument(document);
+    fs.rmSync(file);
+    vscodeMock.openFileDocument = (uri) => {
+      throw new Error(`cannot open ${uri.fsPath}: file not found`);
+    };
+
+    post(webview, { type: "acceptSide", side: "left" });
+    post(webview, { type: "apply" });
+
+    await vi.waitFor(() => expect(vscodeMock.webviewPanels[0].isDisposed).toBe(true));
+    expect(fs.readFileSync(file, "utf8")).toBe("\ufefftrunk\n");
   });
 });
 

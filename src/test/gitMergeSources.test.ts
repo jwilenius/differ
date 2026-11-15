@@ -268,7 +268,34 @@ describe("readMergeSources with versions that are not UTF-8 text", () => {
       trunk: "\ufeffline1\ntheirs\n",
     });
 
-    expect(sources).toMatchObject({ base: "line1\nshared\n", ours: "line1\ntheirs\n", theirs: "line1\nmine\n" });
+    expect(sources).toMatchObject({
+      base: "line1\nshared\n",
+      ours: "line1\ntheirs\n",
+      theirs: "line1\nmine\n",
+      hasByteOrderMark: true,
+    });
+  });
+
+  it("gives the result the byte order mark a side added, as git merges a change one side made", async () => {
+    const sources = await readConflictOver({ base: "line1\nshared\n", feature: "\ufeffline1\nmine\n", trunk: "line1\ntheirs\n" });
+
+    expect(sources).toMatchObject({ theirs: "line1\nmine\n", hasByteOrderMark: true });
+  });
+
+  it("leaves out of the result the byte order mark a side removed", async () => {
+    const sources = await readConflictOver({
+      base: "\ufeffline1\nshared\n",
+      feature: "\ufeffline1\nmine\n",
+      trunk: "line1\ntheirs\n",
+    });
+
+    expect(sources).toMatchObject({ ours: "line1\ntheirs\n", hasByteOrderMark: false });
+  });
+
+  it("gives no byte order mark to a result whose versions have none", async () => {
+    const sources = await readConflictOver({ base: "line1\nshared\n", feature: "line1\nmine\n", trunk: "line1\ntheirs\n" });
+
+    expect(sources).toMatchObject({ hasByteOrderMark: false });
   });
 });
 

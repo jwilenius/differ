@@ -2,17 +2,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
+const BYTE_ORDER_MARK = "\uFEFF";
+const UTF8_BYTE_ORDER_MARK = Buffer.from(BYTE_ORDER_MARK, "utf8");
+
 /**
  * Writes a merge result to its file through the file's document, so editors showing it follow; false, once the
- * user is told, when it was not written.
+ * user is told, when it was not written. The file starts with a UTF-8 byte order mark when `hasByteOrderMark`.
  */
-export async function writeMergeResult(uri: vscode.Uri, text: string): Promise<boolean> {
+export async function writeMergeResult(uri: vscode.Uri, text: string, hasByteOrderMark: boolean): Promise<boolean> {
   const name = path.basename(uri.fsPath);
   // The document captured at open may have been closed since; a closed one can no longer be saved.
   const document = await openPresentDocument(uri);
   if (document === null) {
     // "wx" refuses a file, or a link, that appeared since the document failed to open.
-    await fs.promises.writeFile(uri.fsPath, text, { flag: "wx" });
+    await fs.promises.writeFile(uri.fsPath, hasByteOrderMark ? BYTE_ORDER_MARK + text : text, { flag: "wx" });
     return true;
   }
   // Not atomic with the save: a link put in place in between is followed. Closing that gap would mean writing
@@ -24,9 +27,14 @@ export async function writeMergeResult(uri: vscode.Uri, text: string): Promise<b
     void vscode.window.showErrorMessage(`Differ will not write ${name}: ${reason}.`);
     return false;
   }
+  // VS Code keeps a byte order mark out of the document, writing it back on save, only when the file started with one
+  // as it was read; a conflict on the first line leaves the file starting with git's marker instead. In any other
+  // document, a mark at the start of the text is saved as it stands.
+  const isMarkSaved = await startsWithByteOrderMark(document.uri.fsPath);
+  const documentText = hasByteOrderMark && !isMarkSaved ? BYTE_ORDER_MARK + text : text;
   const edit = new vscode.WorkspaceEdit();
   const wholeDocument = new vscode.Range(new vscode.Position(0, 0), document.lineAt(document.lineCount - 1).range.end);
-  edit.replace(document.uri, wholeDocument, text);
+  edit.replace(document.uri, wholeDocument, documentText);
   const isWritten = (await vscode.workspace.applyEdit(edit)) && (await document.save());
   if (!isWritten) {
     void vscode.window.showErrorMessage(`Differ could not write ${name}.`);
@@ -54,6 +62,19 @@ async function lstatOrNull(filePath: string): Promise<fs.Stats | null> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null;
+    }
+    throw error;
+  }
+}
+
+/** Whether the file starts with a UTF-8 byte order mark; false when it is missing, as a deleted file is. */
+async function startsWithByteOrderMark(filePath: string): Promise<boolean> {
+  try {
+    const content = await fs.promises.readFile(filePath);
+    return content.subarray(0, UTF8_BYTE_ORDER_MARK.length).equals(UTF8_BYTE_ORDER_MARK);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
     }
     throw error;
   }

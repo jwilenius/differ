@@ -32,6 +32,15 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      # Decided before any dependency code runs, so that code cannot change the decision; the checks below still gate
+      # the release.
+      - name: Decide release version
+        id: release-version
+        if: github.ref == 'refs/heads/main'
+        # Assigned separately, so a failing script fails the step instead of reading as "no release".
+        run: |
+          version=$(node scripts/next-release-version.mjs)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       # Check the lockfile and registry signatures before any dependency install script runs.
       - run: npm run check:deps
       - run: npm ci --ignore-scripts
@@ -39,13 +48,6 @@ jobs:
       - run: npm rebuild
       - run: npm run typecheck
       - run: npm test
-      - name: Decide release version
-        id: release-version
-        if: github.ref == 'refs/heads/main'
-        # A separate assignment, so a failing script fails the step instead of reading as "no release".
-        run: |
-          version=$(node scripts/next-release-version.mjs)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Package release installer
         if: steps.release-version.outputs.version != ''
         env:
@@ -83,6 +85,11 @@ jobs:
           node-version: '22'
       - name: Commit and tag release
         run: |
+          # The version passed through a job that ran dependency code; accept only plain X.Y.Z.
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release version '$VERSION' is not plain X.Y.Z."
+            exit 1
+          fi
           npm version "$VERSION" --no-git-tag-version
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -90,7 +97,8 @@ jobs:
           git commit -m "chore: release v$VERSION"
           git tag -a "v$VERSION" -m "Release v$VERSION"
       # Publishes the commit and tag together; if main moved during the run, neither remote ref changes and the run
-      # fails. The run for the newer push releases these commits too.
+      # fails. The run for the newer push releases these commits too, unless that push skipped CI: then run this
+      # workflow on main by hand.
       - name: Push release commit and tag
         run: git push --atomic origin main "refs/tags/v$VERSION"
 

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { activate, deactivate } from "../host/vscode/extension";
 import type { HistoryDiffProvider } from "../host/vscode/historyDiffProvider";
@@ -12,8 +12,9 @@ interface Manifest {
   readonly activationEvents: readonly string[];
   readonly contributes: {
     readonly commands: readonly { readonly command: string }[];
-    readonly viewsContainers: { readonly panel: readonly { readonly id: string; readonly icon: string }[] };
-    readonly views: Readonly<Record<string, readonly { readonly id: string; readonly type: string }[]>>;
+    readonly viewsContainers: Readonly<Record<"activitybar" | "panel", readonly { readonly id: string; readonly icon: string }[]>>;
+    readonly views: Readonly<Record<string, readonly { readonly id: string; readonly type?: string }[]>>;
+    readonly viewsWelcome: readonly { readonly view: string; readonly contents: string }[];
     readonly menus: Readonly<Record<string, readonly { readonly command: string; readonly when?: string }[]>>;
     readonly configuration: { readonly properties: Readonly<Record<string, { readonly enum?: readonly string[]; readonly default?: unknown }>> };
   };
@@ -46,6 +47,7 @@ describe("extension activation", () => {
     activateExtension();
 
     expect([...vscodeMock.webviewViewProviders.keys()]).toEqual(["differ.history"]);
+    expect(vscodeMock.treeViews.map((view) => view.viewId)).toEqual(["differ.launcher"]);
     expect([...vscodeMock.contentProviders.keys()]).toEqual(["differ-history"]);
     expect([...vscodeMock.commands.keys()].sort()).toEqual([
       "differ.openHistory",
@@ -64,6 +66,32 @@ describe("extension activation", () => {
     expect(vscodeMock.executedCommands.map((executed) => executed.command)).toContain("differ.history.focus");
   });
 
+  it("opens the history panel and closes the side bar on the Explorer when the Activity Bar icon shows the launcher", async () => {
+    activateExtension();
+    const [launcher] = vscodeMock.treeViews;
+    vscodeMock.executedCommands.length = 0;
+
+    launcher.fireDidChangeVisibility(true);
+    await vi.waitFor(() => expect(vscodeMock.executedCommands).toHaveLength(3));
+
+    expect(vscodeMock.executedCommands.map((executed) => executed.command)).toEqual([
+      "workbench.view.explorer",
+      "workbench.action.closeSidebar",
+      "differ.history.focus",
+    ]);
+  });
+
+  it("leaves the side bar alone on activation and when the launcher hides", async () => {
+    activateExtension();
+    const [launcher] = vscodeMock.treeViews;
+
+    launcher.fireDidChangeVisibility(false);
+
+    const commands = vscodeMock.executedCommands.map((executed) => executed.command);
+    expect(commands).not.toContain("workbench.view.explorer");
+    expect(commands).not.toContain("workbench.action.closeSidebar");
+  });
+
   it("removes every registration and owned UI item on deactivation and disposal", async () => {
     const subscriptions = activateExtension();
 
@@ -73,6 +101,7 @@ describe("extension activation", () => {
 
     expect(vscodeMock.commands.size).toBe(0);
     expect(vscodeMock.webviewViewProviders.size).toBe(0);
+    expect(vscodeMock.treeViews.every((view) => view.isDisposed)).toBe(true);
     expect(vscodeMock.contentProviders.size).toBe(0);
     expect(vscodeMock.outputChannels.every((channel) => channel.isDisposed)).toBe(true);
     expect(vscodeMock.statusBarItems.every((item) => item.isDisposed)).toBe(true);
@@ -85,6 +114,9 @@ describe("extension activation", () => {
     expect(commands.map((entry) => entry.command).sort()).toEqual([...vscodeMock.commands.keys()].sort());
     expect(viewsContainers.panel).toEqual([{ id: "differHistory", title: "Differ", icon: "$(git-commit)" }]);
     expect(views.differHistory).toEqual([{ type: "webview", id: "differ.history", name: "Git History" }]);
+    expect(viewsContainers.activitybar).toEqual([{ id: "differLauncher", title: "Differ", icon: "media/differ-activitybar.svg" }]);
+    expect(views.differLauncher.map((view) => view.id)).toEqual(vscodeMock.treeViews.map((view) => view.viewId));
+    expect(fs.existsSync(path.join(__dirname, "..", "..", viewsContainers.activitybar[0].icon))).toBe(true);
     expect(menus["view/title"]).toEqual([
       { command: "differ.refreshHistory", when: "view == differ.history", group: "navigation" },
     ]);
@@ -94,6 +126,14 @@ describe("extension activation", () => {
       { command: "differ.openMergeView", when: "differ.hasConflicts", group: "navigation" },
     ]);
     expect(manifest.activationEvents).toContain("onStartupFinished");
+  });
+
+  it("offers an Open Git History link in the launcher in case it stays open", () => {
+    const [welcome] = manifest.contributes.viewsWelcome;
+
+    expect(manifest.contributes.viewsWelcome).toHaveLength(1);
+    expect(welcome.view).toBe("differ.launcher");
+    expect(welcome.contents).toContain("(command:differ.openHistory)");
   });
 
   it("contributes the history diff viewer setting with the IntelliJ view as default", () => {

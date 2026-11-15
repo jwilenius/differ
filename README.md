@@ -21,8 +21,10 @@ the diff shows only their changes, nothing from the commits between them._
 
 ### Opening it
 
-- Run **Differ: Open Git History**, or open the **Differ** tab in the bottom panel. **Differ: Refresh Git History** (also
-  the ↻ button in the view title) reloads commits and refs.
+- Click the **Differ** icon in the Activity Bar, run **Differ: Open Git History**, or open the **Differ** tab in the
+  bottom panel. **Differ: Refresh Git History** (also the ↻ button in the view title) reloads commits and refs.
+- The Activity Bar icon opens the bottom panel, not a side bar view: the side bar closes, and reopening it (Ctrl+B)
+  shows the Explorer.
 - The repository comes from the active editor and the workspace folders; the picker switches between them, and
   **Open…** adds any local repository folder. Each repository keeps its own selection and base for the session.
 - The status bar shows `<repository>: N selected · base …` and reopens the panel when it is hidden. Hiding and

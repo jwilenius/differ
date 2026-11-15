@@ -49,6 +49,13 @@
       }
     ],
     "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "differLauncher",
+          "title": "Differ",
+          "icon": "media/differ-activitybar.svg"
+        }
+      ],
       "panel": [
         {
           "id": "differHistory",
@@ -64,8 +71,20 @@
           "id": "differ.history",
           "name": "Git History"
         }
+      ],
+      "differLauncher": [
+        {
+          "id": "differ.launcher",
+          "name": "Launcher"
+        }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "differ.launcher",
+        "contents": "Differ's Git History opens in the bottom panel.\n[Open Git History](command:differ.openHistory)"
+      }
+    ],
     "menus": {
       "editor/title": [
         {

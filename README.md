@@ -14,6 +14,11 @@ from the commits in between. Double-click a file to open its diff in VS Code's n
 _Git History panel: branch graph, commit table, changed files, replay order and details; the selected commit's diff
 open above._
 
+![Git History panel with two commits from different branches selected and a pinned base, below the diff of src/inventory.ts against that selection](docs/images/history-multi-select.png)
+
+_Multi-commit selection: two non-adjacent commits on different branches, Ctrl+clicked, replayed onto a pinned base;
+the diff shows only their changes, nothing from the commits between them._
+
 ### Opening it
 
 - Run **Differ: Open Git History**, or open the **Differ** tab in the bottom panel. **Differ: Refresh Git History** (also

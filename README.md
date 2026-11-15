@@ -296,22 +296,23 @@ bump; the highest bump wins:
   `Merge branch 'x'`, `Revert "..."`) never releases, even with a breaking footer. Merged branches' commits count.
 - Last release: the highest `vX.Y.Z` tag reachable from the pushed commit. Without one, the `package.json` version
   counts as the last release and the whole history is scanned, so the first release is one bump over that version.
+  With a tag, `package.json` must hold its version, or the run fails: never edit the version by hand.
 - Dry run: `node scripts/next-release-version.mjs` prints the next version (or nothing) on stdout, the reason on
   stderr.
 - A release run sets the version in `package.json` and `package-lock.json`, packages `differ-X.Y.Z.vsix`, commits
   `chore: release vX.Y.Z` as `github-actions[bot]`, creates annotated tag `vX.Y.Z`, pushes both atomically
   (`--atomic`), then publishes a GitHub Release with the installer and generated notes. Only the tag and publish jobs
-  can write to the repository; they run no dependency code.
+  can write to the repository; they run no dependency code. The version is decided before any dependency code runs.
 - **Pull after a release:** CI commits to `main`, so `git pull` (`--rebase` with local commits) before pushing again.
 - The release commit and tag start no run: pushes made with `GITHUB_TOKEN` trigger no workflow, and `chore:` never
   releases.
 - Runs on `main` queue and never overlap; a release in progress is never cancelled; a newer push replaces a run still
   waiting. If `main` moves during a run, the atomic push fails without changing either remote ref and the run fails;
-  the run for the newer push releases the same commits.
+  the run for the newer push releases the same commits. If that push skipped CI, no run retries: use **Run workflow**.
 - Skip a run: `[skip ci]` in the pushed head commit's message (no checks, no installer); its commits still count toward
-  the next release. Retry: **Run workflow** on `main` decides again from the current `main`; on another branch it only
-  builds a development installer. If only the **publish** job failed, **Re-run failed jobs** publishes the existing
-  tag. A release cannot be forced without a `feat`, `fix` or breaking commit.
+  the next release, which waits for the next run. Retry: **Run workflow** on `main` decides again from the current
+  `main`; on another branch it only builds a development installer. If only the **publish** job failed, **Re-run
+  failed jobs** publishes the existing tag. A release cannot be forced without a `feat`, `fix` or breaking commit.
 - Repository settings: `github-actions[bot]` must be able to push to `main` and create `v*` tags. Branch protection or
   rulesets that require pull requests, status checks or signed commits on `main`, or that restrict `v*` tags, reject
   the push unless GitHub Actions may bypass them.

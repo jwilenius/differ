@@ -9,6 +9,11 @@ Two workflows: review the combined changes of any set of commits, and resolve me
 Select any subset of commits — including non-adjacent ones — and see exactly what those commits change, with nothing
 from the commits in between. Double-click a file to open its diff in VS Code's native diff editor.
 
+![Differ Git History panel below an open two-way diff of src/inventory.ts](docs/images/history-view.png)
+
+_Git History panel: branch graph, commit table, changed files, replay order and details; the selected commit's diff
+open above._
+
 ### Opening it
 
 - Run **Differ: Open Git History**, or open the **Differ** tab in the bottom panel. **Differ: Refresh Git History** (also
@@ -64,6 +69,10 @@ the left; changed files, replay order and commit details on the right.
 
 Files open in an IntelliJ-style side-by-side diff rather than VS Code's padded one:
 
+![Two-way diff of src/inventory.ts with added, modified and changed-word highlights](docs/images/diff-view.png)
+
+_One commit's changes to `src/inventory.ts`: added lines green, modified lines blue with changed words darker._
+
 - No filler rows. Each side shows only its own lines; inserted lines are one green block on the new side and a thin
   line between the rows of the old side, joined by a curved band. Deleted lines are grey, modified lines blue with the
   changed words in a darker shade.
@@ -90,6 +99,10 @@ Files open in an IntelliJ-style side-by-side diff rather than VS Code's padded o
 IntelliJ's merge dialog: your branch on the left, the editable result in the middle, the incoming version on the right,
 joined by connector ribbons.
 
+![Three-pane merge view of src/inventory.ts with connector ribbons and gutter buttons](docs/images/merge-view.png)
+
+_`src/inventory.ts` mid-merge: `main` left, result middle, `feature/sku` right; 7 changes, 4 conflicts._
+
 ### Opening it
 
 - **Differ: Resolve Conflicts** lists the conflicted (unmerged) files of every repository holding a workspace folder or
@@ -101,6 +114,10 @@ joined by connector ribbons.
   mark of a file opened with one; otherwise, as after a conflict on line 1, the mark leads the written text.
 - **Differ: Open Three-Way Merge View**, or the merge button in the title bar of a file with conflict markers, opens the
   active file.
+
+![Differ: Resolve Conflicts QuickPick listing README.md and src/inventory.ts](docs/images/resolve-conflicts-picker.png)
+
+_**Differ: Resolve Conflicts** lists the conflicted files._
 
 ### Panes
 
@@ -132,6 +149,10 @@ sides touched differently. The toolbar reports `N changes. M conflicts.`, then `
 Lines get a soft tint; gutters, ribbons and changed words a stronger shade. Light and high-contrast themes have their
 own palettes.
 
+![The same merge view in the Default Light Modern theme](docs/images/merge-view-light.png)
+
+_The same merge under Default Light Modern._
+
 ### Resolving
 
 - **»** / **«** in a side's gutter applies that side's block to the result; **×** ignores it. Each side of a block is
@@ -142,6 +163,11 @@ own palettes.
 - **Apply** writes the result to the file and saves it; when every block is resolved it also stages the file
   (`git add`). Unresolved blocks ask for confirmation first. **Cancel** discards the view's edits, after confirmation
   if there are any.
+
+![Merge view partway through resolving, with an edited result line](docs/images/merge-view-resolving.png)
+
+_Partway through: the first conflict takes both sides, the left's `console.debug` is applied, the right's `findItem`
+change ignored, result line 26 edited; 5 changes, 3 conflicts left._
 
 ### Editing the result
 

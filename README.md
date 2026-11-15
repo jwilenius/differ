@@ -268,8 +268,10 @@ npm run check:deps  # lockfile: npm audit (high+) and OSV malware advisories
 ```
 
 The [Dependency check](https://github.com/jwilenius/differ/actions/workflows/dependency-check.yml) workflow reruns
-`check:deps` and the registry signature check every Monday, and on demand, because packages are often reported
-malicious only days after release. GitHub emails the repository owner when a run fails.
+`check:deps` and the registry signature check every Monday at 06:23 UTC, and on demand, because packages are often
+reported malicious only days after release. GitHub sends failure notifications to the user who created the workflow or
+last changed its schedule. In a public repository GitHub disables the schedule after 60 days without repository
+activity; re-enable it on the workflow's page.
 
 Press `F5` in VS Code to launch an Extension Development Host, then open `samples/conflicted.ts` and run
 **Differ: Open Three-Way Merge View**.

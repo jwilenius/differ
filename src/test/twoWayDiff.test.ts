@@ -109,6 +109,29 @@ describe("buildTwoWayDiff", () => {
     expect(diff.blocks[0].resultWords[0]).toEqual({ line: 0, spans: [{ start: 15, end: 19 }] });
   });
 
+  it("stops word-diffing once costly blocks have used up the effort for one diff", () => {
+    const base = costlyBlocks("abcdefghij");
+    const result = costlyBlocks("klmnopqrst");
+
+    const started = performance.now();
+    const diff = buildTwoWayDiff(base, result, WORDS);
+
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(diff.blocks).toHaveLength(30);
+    expect(diff.blocks[0].resultWords).not.toEqual([]);
+    expect(diff.blocks[29]).toMatchObject({ kind: "modified", baseWords: [], resultWords: [] });
+  });
+
+  it("keeps word spans on every block of a large text with many small changes", () => {
+    const base = Array.from({ length: 10_000 }, (_, index) => `const line${index} = compute(${index}, other);`);
+    const result = base.map((line, index) => (index % 7 === 0 ? line.replace("const", "let").replace("compute", "calculate") : line));
+
+    const diff = buildTwoWayDiff(base.join("\n"), result.join("\n"), WORDS);
+
+    expect(diff.blocks).toHaveLength(1_429);
+    expect(diff.blocks.every((block) => block.baseWords.length === 1 && block.resultWords.length === 1)).toBe(true);
+  });
+
   it("shows fully divergent large texts as one modified block without word spans", () => {
     const lines = (tag: string): string => Array.from({ length: 10_000 }, (_, index) => `${tag} ${index}`).join("\n");
 
@@ -138,3 +161,9 @@ describe("buildTwoWayDiff", () => {
     ]);
   });
 });
+
+/** 30 blocks of 20 lines, each line 24 one-letter words: about 1,000 changed words per block when the letters differ. */
+function costlyBlocks(letters: string): string {
+  const line = (offset: number): string => Array.from({ length: 24 }, (_, index) => letters[(index + offset) % letters.length]).join(" ");
+  return Array.from({ length: 30 }, (_, block) => [`anchor ${block}`, ...Array.from({ length: 20 }, (_, offset) => line(offset))].join("\n")).join("\n");
+}

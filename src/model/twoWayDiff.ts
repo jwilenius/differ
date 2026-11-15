@@ -1,6 +1,6 @@
 import { diffLines } from "../core/lineDiff";
 import type { WordSpan } from "../core/types";
-import { diffWords } from "../core/wordDiff";
+import { diffWords, WordDiffBudget } from "../core/wordDiff";
 
 export type DiffBlockKind = "added" | "deleted" | "modified";
 
@@ -48,6 +48,7 @@ export const MAX_WORD_DIFF_CHARS = 20_000;
 export function buildTwoWayDiff(baseText: string, resultText: string, options: TwoWayDiffOptions): TwoWayDiff {
   const baseLines = baseText.split(LINE_SEPARATOR);
   const resultLines = resultText.split(LINE_SEPARATOR);
+  const budget = new WordDiffBudget();
   const blocks = diffLines(baseLines, resultLines).hunks.map((hunk) =>
     createBlock(
       { start: hunk.baseStart, end: hunk.baseEnd },
@@ -55,6 +56,7 @@ export function buildTwoWayDiff(baseText: string, resultText: string, options: T
       baseLines,
       resultLines,
       options,
+      budget,
     )
   );
 
@@ -67,6 +69,7 @@ function createBlock(
   baseLines: readonly string[],
   resultLines: readonly string[],
   options: TwoWayDiffOptions,
+  budget: WordDiffBudget,
 ): DiffBlock {
   const kind = blockKind(base, result);
   const baseText = joinRange(baseLines, base);
@@ -76,7 +79,7 @@ function createBlock(
     return { kind, base, result, baseWords: [], resultWords: [] };
   }
 
-  const words = diffWords(baseText, resultText);
+  const words = diffWords(baseText, resultText, budget);
   return {
     kind,
     base,

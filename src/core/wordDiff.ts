@@ -18,16 +18,46 @@ const EMPTY: WordDiffResult = { leftSpans: [], rightSpans: [] };
 const MAX_EDIT_LENGTH = 1_000;
 
 /**
+ * Edit work, in squared edit lengths, that one pass over a diff or merge may
+ * spend on word diffs. Myers explores about the square of the edit length it
+ * reaches, so each block under {@link MAX_EDIT_LENGTH} stays cheap, yet thirty
+ * divergent blocks took 3.5 s together. This allows about two blocks at that
+ * limit, 0.2 to 0.3 s, while thousands of small changed lines stay far below it.
+ */
+const PASS_EDIT_WORK = 2_000_000;
+
+/**
+ * The word diff work left in one pass over a diff or merge, shared by all its
+ * blocks in order. Once it runs out, the remaining blocks keep only their line tint.
+ */
+export class WordDiffBudget {
+  private remainingWork = PASS_EDIT_WORK;
+
+  /** The longest edit a word diff may still search for without overrunning the pass. */
+  affordableEditLength(): number {
+    return Math.min(MAX_EDIT_LENGTH, Math.floor(Math.sqrt(this.remainingWork)));
+  }
+
+  /** Records a search that went as far as `editLength`. */
+  spend(editLength: number): void {
+    this.remainingWork -= editLength * editLength;
+  }
+}
+
+/**
  * Finds the differing character ranges between two versions of a line, so that
  * only the words that actually changed get highlighted. Reports no ranges when
- * the versions differ in too many words to compare.
+ * the versions differ in too many words to compare within what is left of `budget`.
  */
-export function diffWords(left: string, right: string): WordDiffResult {
-  if (left === right) {
+export function diffWords(left: string, right: string, budget: WordDiffBudget): WordDiffResult {
+  const maxEditLength = budget.affordableEditLength();
+  // jsdiff reads a `maxEditLength` of 0 as no limit.
+  if (left === right || maxEditLength === 0) {
     return EMPTY;
   }
 
-  const parts = diffWithinEditLimit(left, right);
+  const parts = diffWithinEditLimit(left, right, maxEditLength);
+  budget.spend(parts === undefined ? maxEditLength : editLength(parts));
   if (parts === undefined) {
     return EMPTY;
   }
@@ -59,8 +89,13 @@ export function diffWords(left: string, right: string): WordDiffResult {
 }
 
 /** jsdiff returns `undefined` once the edit length passes `maxEditLength`, which its typings leave out. */
-function diffWithinEditLimit(left: string, right: string): Change[] | undefined {
-  return diffWordsWithSpace(left, right, { maxEditLength: MAX_EDIT_LENGTH }) as Change[] | undefined;
+function diffWithinEditLimit(left: string, right: string, maxEditLength: number): Change[] | undefined {
+  return diffWordsWithSpace(left, right, { maxEditLength }) as Change[] | undefined;
+}
+
+/** Removed plus added words and whitespace runs, the edit length Myers reached. */
+function editLength(parts: readonly Change[]): number {
+  return parts.filter((part) => part.added || part.removed).reduce((length, part) => length + (part.count ?? 0), 0);
 }
 
 /** Appends a span, merging it into the previous one when they touch. */

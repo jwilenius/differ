@@ -48,4 +48,34 @@ describe("describeMerge", () => {
     expect(describeMerge(state, WORDS)[0]).toMatchObject({ tint: "conflict", isResolved: false, resultWords: [] });
     expect(describeMerge(halfway, WORDS)[0]).toMatchObject({ isResolved: false, left: { resolution: "ignored" } });
   });
+
+  it("stops word-diffing once costly chunks have used up the effort for one description", () => {
+    const base = costlyBlocks("abcdefghij");
+    const state = startMerge(base, costlyBlocks("klmnopqrst"), base);
+
+    const started = performance.now();
+    const chunks = describeMerge(state, WORDS);
+
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(chunks).toHaveLength(30);
+    expect(chunks[0].left.words).not.toEqual([]);
+    expect(chunks[0].resultWords).not.toEqual([]);
+    expect(chunks[29]).toMatchObject({ left: { resolution: "pending", words: [] }, resultWords: [] });
+  });
+
+  it("keeps word spans on every chunk of a large merge with many small changes", () => {
+    const base = Array.from({ length: 10_000 }, (_, index) => `const line${index} = compute(${index}, other);`);
+    const left = base.map((line, index) => (index % 7 === 0 ? line.replace("const", "let").replace("compute", "calculate") : line));
+
+    const chunks = describeMerge(startMerge(base.join("\n"), left.join("\n"), base.join("\n")), WORDS);
+
+    expect(chunks).toHaveLength(1_429);
+    expect(chunks.every((chunk) => chunk.left.words.length === 1 && chunk.resultWords.length === 1)).toBe(true);
+  });
 });
+
+/** 30 blocks of 20 lines, each line 24 one-letter words: about 1,000 changed words per block when the letters differ. */
+function costlyBlocks(letters: string): string {
+  const line = (offset: number): string => Array.from({ length: 24 }, (_, index) => letters[(index + offset) % letters.length]).join(" ");
+  return Array.from({ length: 30 }, (_, block) => [`anchor ${block}`, ...Array.from({ length: 20 }, (_, offset) => line(offset))].join("\n")).join("\n");
+}

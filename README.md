@@ -275,29 +275,53 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 2. Download the `differ-<version>.vsix` file under **Assets**.
 3. In VS Code, run **Extensions: Install from VSIX...** and select that file.
 
-To publish a release, start with a clean `main` matching `origin/main`, with Node.js 22, npm, Bash, and Git available:
+## Release
 
-```sh
-bash scripts/release.sh 0.2.1   # same as: npm run release -- 0.2.1
-```
+Releases are automatic. Every push to `main` runs
+[Build and release VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml): lockfile
+malware and high-severity advisory checks, locked install without install scripts, registry signatures, install
+scripts, typecheck, tests. When all pass, `scripts/next-release-version.mjs` reads the
+[Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/) messages since the last release and picks the
+bump; the highest bump wins:
 
-Choose an unused version greater than the current version, as plain `X.Y.Z` without the `v`. The script refuses to
-run unless you are on `main` with a clean tree matching `origin/main` and tag `vX.Y.Z` does not exist. It puts
-`/tmp/node-v22.23.4-linux-x64/bin` on `PATH` when present; set `NODE_BIN` to use another Node.js 22. The script checks the lockfile for known malware and high-severity
-advisories, installs locked dependencies without running their install scripts, verifies registry signatures, then runs
-the install scripts, typecheck and tests, updates both package files, builds the VSIX, commits, tags, and atomically pushes the commit and tag.
-GitHub Actions then attaches the installer to a release with generated notes.
+| Commits since the last release                                                                   | Release                                      |
+| ------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| `<type>!:` or `<type>(scope)!:` on any type, or a `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer | major (also from 0.x: `0.4.0` → `1.0.0`)     |
+| `feat:` / `feat(scope):`                                                                         | minor                                        |
+| `fix:` / `fix(scope):`                                                                           | patch                                        |
+| only `docs`, `test`, `chore`, `style`, `refactor`, `perf`, `ci`, `build` or non-conforming       | none: the run builds a development installer |
 
-If packaging fails after the version update, the changed package files remain available to inspect or revert.
-If pushing fails, the release commit and tag remain local; fix the push error and retry
-`git push --atomic origin main refs/tags/v0.1.1` with the version you chose. Do not rerun the release command for that tag.
+- Types are case-insensitive (`Feat:`); the footer must be upper case at the start of a line after the header. Only
+  the header sets the type: a squashed body listing `feat:` lines does not. A non-conforming header (`Add search`,
+  `Merge branch 'x'`, `Revert "..."`) never releases, even with a breaking footer. Merged branches' commits count.
+- Last release: the highest `vX.Y.Z` tag reachable from the pushed commit. Without one, the `package.json` version
+  counts as the last release and the whole history is scanned, so the first release is one bump over that version.
+- Dry run: `node scripts/next-release-version.mjs` prints the next version (or nothing) on stdout, the reason on
+  stderr.
+- A release run sets the version in `package.json` and `package-lock.json`, packages `differ-X.Y.Z.vsix`, commits
+  `chore: release vX.Y.Z` as `github-actions[bot]`, creates annotated tag `vX.Y.Z`, pushes both atomically
+  (`--atomic`), then publishes a GitHub Release with the installer and generated notes. Only the tag and publish jobs
+  can write to the repository; they run no dependency code.
+- **Pull after a release:** CI commits to `main`, so `git pull` (`--rebase` with local commits) before pushing again.
+- The release commit and tag start no run: pushes made with `GITHUB_TOKEN` trigger no workflow, and `chore:` never
+  releases.
+- Runs on `main` queue and never overlap; a release in progress is never cancelled; a newer push replaces a run still
+  waiting. If `main` moves during a run, the atomic push fails without changing either remote ref and the run fails;
+  the run for the newer push releases the same commits.
+- Skip a run: `[skip ci]` in the pushed head commit's message (no checks, no installer); its commits still count toward
+  the next release. Retry: **Run workflow** on `main` decides again from the current `main`; on another branch it only
+  builds a development installer. If only the **publish** job failed, **Re-run failed jobs** publishes the existing
+  tag. A release cannot be forced without a `feat`, `fix` or breaking commit.
+- Repository settings: `github-actions[bot]` must be able to push to `main` and create `v*` tags. Branch protection or
+  rulesets that require pull requests, status checks or signed commits on `main`, or that restrict `v*` tags, reject
+  the push unless GitHub Actions may bypass them.
 
 ## Install a development build
 
-Every push to `main` builds a VS Code installer after the dependency checks, typecheck and tests pass; release commits are built once, by
-their tag's run. Manual builds are also available.
+Every push to `main` that does not release builds a development installer after the checks pass; a release run keeps
+its release installer instead. Manual builds are also available.
 
-1. Open [Build VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml).
+1. Open [Build and release VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml).
 2. Select a successful run and download the **differ-vsix** artifact (retained for 30 days).
 3. Extract the ZIP to get `differ-main-<commit>.vsix`, named by its 7-character commit hash so it never clashes with a
    release installer. Its internal version is still the last release's.

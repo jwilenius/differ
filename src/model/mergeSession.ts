@@ -53,10 +53,6 @@ export function startMerge(baseText: string, leftText: string, rightText: string
   return { baseLines, leftLines, rightLines, resultLines: baseLines, chunks, isModified: false };
 }
 
-export function resultText(state: MergeState): string {
-  return state.resultLines.join(LINE_SEPARATOR);
-}
-
 export function isChunkResolved(chunkState: ChunkState): boolean {
   return chunkState.left !== "pending" && chunkState.right !== "pending";
 }

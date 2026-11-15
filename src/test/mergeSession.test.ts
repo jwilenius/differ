@@ -8,14 +8,15 @@ import {
   ignoreSide,
   isChunkResolved,
   joinWithPrevious,
+  type MergeState,
   replaceLines,
-  resultText,
   splitLine,
   startMerge,
   tallyMerge,
 } from "../model/mergeSession";
 
 const lines = (text: string): string[] => text.split("\n");
+const resultText = (state: MergeState): string => state.resultLines.join("\n");
 
 // base:  a b c d e f g
 // left:  changes b, adds X after e            (two left-only chunks)

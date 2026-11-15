@@ -124,8 +124,9 @@ _`src/inventory.ts` mid-merge: `main` left, result middle, `feature/sku` right; 
 - **Resolve Conflict in Differ** in the right-click menu of a conflicted file opens that file: in the Explorer, on an
   editor tab, and in Source Control's Merge Changes. The Explorer and tab entries track the files the picker lists
   (including their paths through a workspace folder opened via a symbolic link); the list refreshes on activation, on
-  window focus, on workspace folder changes, when the `.git/index` of a repository inside a workspace folder changes,
-  and when a merge view closes.
+  window focus, on workspace folder changes, when the Git index of a repository it covers changes (including an index
+  outside the workspace folder: a linked worktree's, a submodule's, or that of a repository above the folder), and when
+  a merge view closes.
 
 ![Differ: Resolve Conflicts QuickPick listing README.md and src/inventory.ts](docs/images/resolve-conflicts-picker.png)
 

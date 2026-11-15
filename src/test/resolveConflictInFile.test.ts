@@ -3,10 +3,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
-import { ConflictedFilesContext } from "../host/vscode/conflictedFilesContext";
+import { ConflictedFilesContext, type ConflictedFilesScan } from "../host/vscode/conflictedFilesContext";
 import { activate, deactivate } from "../host/vscode/extension";
 import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
-import { changeWindowFocus, changeWorkspaceFolders, resetVscodeMock, vscodeMock } from "./vscodeMock";
+import { changeWindowFocus, changeWorkspaceFolders, type FakeFileSystemWatcher, RelativePattern, resetVscodeMock, vscodeMock } from "./vscodeMock";
 
 interface MenuEntry {
   readonly command: string;
@@ -55,6 +55,36 @@ async function expectConflictedFiles(paths: readonly string[]): Promise<void> {
   await vi.waitFor(() => expect(conflictedFilesContext()).toEqual([...paths].sort()));
 }
 
+/** The watchers not yet disposed, as the index files they watch. */
+function watchedIndexFiles(): readonly string[] {
+  return vscodeMock.fileSystemWatchers
+    .filter((watcher) => !watcher.isDisposed)
+    .map(({ globPattern }) => (globPattern instanceof RelativePattern ? path.join(globPattern.baseUri.fsPath, globPattern.pattern) : globPattern));
+}
+
+/** Waits for the one watcher of `indexFile` still watching. */
+async function indexWatcher(indexFile: string): Promise<FakeFileSystemWatcher> {
+  await vi.waitFor(() => expect(watchedIndexFiles()).toContain(indexFile));
+  const watchers = vscodeMock.fileSystemWatchers.filter((watcher) => !watcher.isDisposed);
+  return watchers[watchedIndexFiles().indexOf(indexFile)];
+}
+
+/**
+ * Activates with `folder` open, whose repository `merge` then leaves conflicted, and expects reporting a change of
+ * `indexFile` to list `conflictedFile`.
+ */
+async function expectIndexChangeRefreshes(folder: string, indexFile: string, merge: () => void, conflictedFile: string): Promise<void> {
+  vscodeMock.workspaceFolders = [workspaceFolder(folder)];
+  activateExtension();
+  await expectConflictedFiles([]);
+  const watcher = await indexWatcher(indexFile);
+
+  merge();
+  watcher.fireDidChange(vscode.Uri.file(indexFile));
+
+  await expectConflictedFiles([conflictedFile]);
+}
+
 beforeEach(() => {
   resetVscodeMock();
   vscodeMock.openFileDocument = fileDocument;
@@ -90,16 +120,59 @@ describe("conflicted files context key", () => {
 
   it("refreshes when a repository's index changes", async () => {
     divergeBranches(repo, ["a.txt"]);
-    vscodeMock.workspaceFolders = [workspaceFolder(repo)];
+
+    await expectIndexChangeRefreshes(repo, path.join(repo, ".git", "index"), () => mergeFeature(repo), path.join(repo, "a.txt"));
+    expect(watchedIndexFiles()).toEqual([path.join(repo, ".git", "index")]);
+  });
+
+  it("watches the index above a workspace folder inside the repository", async () => {
+    divergeBranches(repo, ["src/b.ts"]);
+
+    await expectIndexChangeRefreshes(path.join(repo, "src"), path.join(repo, ".git", "index"), () => mergeFeature(repo), path.join(repo, "src", "b.ts"));
+  });
+
+  it("watches a linked worktree's index in the main repository's git directory", async () => {
+    divergeBranches(repo, ["a.txt"]);
+    const worktree = path.join(links, "worktree");
+    runGit(repo, "worktree", "add", "-q", "-b", "other", worktree, "trunk");
+
+    const indexFile = path.join(repo, ".git", "worktrees", "worktree", "index");
+    await expectIndexChangeRefreshes(worktree, indexFile, () => mergeFeature(worktree), path.join(worktree, "a.txt"));
+  });
+
+  it("watches a submodule's index in the superproject's git directory", async () => {
+    divergeBranches(repo, ["a.txt"]);
+    const superproject = path.join(links, "super");
+    runGit(links, "init", "-q", superproject);
+    runGit(superproject, "-c", "protocol.file.allow=always", "submodule", "add", "-q", repo, "module");
+    const module = path.join(superproject, "module");
+    runGit(module, "config", "user.email", "test@example.com");
+    runGit(module, "config", "user.name", "Test");
+    const mergeIntoModule = (): void => {
+      try {
+        runGit(module, "merge", "origin/feature");
+      } catch {
+        // The merge is expected to conflict.
+      }
+    };
+
+    const indexFile = path.join(superproject, ".git", "modules", "module", "index");
+    await expectIndexChangeRefreshes(module, indexFile, mergeIntoModule, path.join(module, "a.txt"));
+  });
+
+  it("keeps one watcher per index and stops it once its repository is no longer searched", async () => {
+    divergeBranches(repo, ["src/b.ts"]);
+    vscodeMock.workspaceFolders = [workspaceFolder(repo), workspaceFolder(path.join(repo, "src"))];
     activateExtension();
-    await expectConflictedFiles([]);
-    const [watcher] = vscodeMock.fileSystemWatchers;
+    const watcher = await indexWatcher(path.join(repo, ".git", "index"));
 
-    mergeFeature(repo);
-    watcher.fireDidChange(vscode.Uri.file(path.join(repo, ".git", "index")));
+    changeWindowFocus(true);
+    await vi.waitFor(() => expect(vscodeMock.executedCommands.filter(({ command }) => command === "setContext").length).toBeGreaterThan(1));
+    expect(vscodeMock.fileSystemWatchers).toEqual([watcher]);
 
-    expect(watcher.globPattern).toBe("**/.git/index");
-    await expectConflictedFiles([path.join(repo, "a.txt")]);
+    changeWorkspaceFolders([]);
+
+    await vi.waitFor(() => expect(watcher.isDisposed).toBe(true));
   });
 
   it("refreshes when the window gains focus, as after resolving in another program", async () => {
@@ -141,7 +214,7 @@ describe("conflicted files context key", () => {
   it("runs one refresh at a time and reruns one asked for meanwhile, so a stale result is never shown", async () => {
     const finds: ((files: readonly string[]) => void)[] = [];
     const findConflictedFiles = (): Promise<readonly string[]> => new Promise((resolve) => finds.push(resolve));
-    const context = new ConflictedFilesContext(findConflictedFiles);
+    const context = new ConflictedFilesContext(async () => ({ files: await findConflictedFiles(), indexFiles: [] }));
 
     context.refresh();
     context.refresh();
@@ -155,15 +228,15 @@ describe("conflicted files context key", () => {
   });
 
   it("drops a refresh that finishes after disposal", async () => {
-    const finds: ((files: readonly string[]) => void)[] = [];
+    const finds: ((scan: ConflictedFilesScan) => void)[] = [];
     const context = new ConflictedFilesContext(() => new Promise((resolve) => finds.push(resolve)));
 
     context.dispose();
-    finds[0](["/a.txt"]);
+    finds[0]({ files: ["/a.txt"], indexFiles: ["/.git/index"] });
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(conflictedFilesContext()).toBeUndefined();
-    expect(vscodeMock.fileSystemWatchers[0].isDisposed).toBe(true);
+    expect(vscodeMock.fileSystemWatchers).toEqual([]);
   });
 
   it("refreshes when a merge view closes, as after applying a merge stages the file", async () => {

@@ -38,6 +38,17 @@ export async function listConflictedFiles(root: string): Promise<readonly string
 }
 
 /**
+ * The index file of the repository whose work tree is at `root`, which Git rewrites whenever a merge, `git add` or a
+ * checkout changes which files are conflicted. A linked worktree or a submodule keeps it outside `root`. Throws
+ * `HistoryGitError` when Git fails.
+ */
+export async function findIndexFile(root: string): Promise<string> {
+  const { stdout } = await runHistoryGit({ cwd: root, args: ["rev-parse", "--git-path", "index"] });
+  // Git prints the path relative to `root` unless it is elsewhere, as a linked worktree's is.
+  return path.resolve(root, stdout.toString("utf8").replace(/\n$/, ""));
+}
+
+/**
  * Stages `filePath`, marking its conflict resolved. The path is taken literally, so `[id].tsx` never also stages
  * `i.tsx`. Git is given only the file's name in its own directory, because it resolves symbolic links in the
  * repository root and would reject the full path of a file opened through a linked directory. Throws

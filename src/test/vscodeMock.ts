@@ -130,6 +130,14 @@ export class Uri {
   }
 }
 
+/** A glob pattern matched relative to `baseUri`, as `workspace.createFileSystemWatcher` takes one. */
+export class RelativePattern {
+  constructor(
+    readonly baseUri: Uri,
+    readonly pattern: string,
+  ) {}
+}
+
 export enum StatusBarAlignment {
   Left = 1,
   Right = 2,
@@ -465,7 +473,7 @@ export const workspace = {
     return register(vscodeMock.contentProviders, scheme, provider);
   },
 
-  createFileSystemWatcher(globPattern: string): FakeFileSystemWatcher {
+  createFileSystemWatcher(globPattern: string | RelativePattern): FakeFileSystemWatcher {
     const watcher = new FakeFileSystemWatcher(globPattern);
     vscodeMock.fileSystemWatchers.push(watcher);
     return watcher;
@@ -711,7 +719,7 @@ export class FakeFileSystemWatcher {
   readonly onDidCreate = this.didCreate.event;
   readonly onDidDelete = this.didDelete.event;
 
-  constructor(readonly globPattern: string) {}
+  constructor(readonly globPattern: string | RelativePattern) {}
 
   fireDidChange(uri: Uri): void {
     this.didChange.fire(uri);

@@ -538,8 +538,13 @@
     insertLines(selectedLines(), "");
   });
 
+  // An IME composes in the one line it starts in and would leave the rest of a selection across lines in place:
+  // the selection is removed first, as one edit, and the composition goes on where it was, as a line edit.
   resultLines.addEventListener("compositionstart", () => {
     isComposing = true;
+    if (isSelectionAcrossLines()) {
+      insertLines(selectedLines(), "");
+    }
   });
   resultLines.addEventListener("compositionend", () => {
     isComposing = false;

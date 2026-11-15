@@ -615,6 +615,11 @@ export class MergePage {
     this.userEvent(target, "beforeinput", { inputType, data });
   }
 
+  /** An IME starts composing in a result line; the browser has inserted none of its text yet. */
+  startComposition(target: FakeElement): void {
+    this.userEvent(target, "compositionstart");
+  }
+
   paste(target: FakeElement, text: string): void {
     this.userEvent(target, "paste", { clipboardData: { getData: () => text } });
   }

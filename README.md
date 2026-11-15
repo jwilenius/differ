@@ -152,6 +152,7 @@ own palettes.
 | `↑` / `↓`                                                        | Moves between result lines, keeping the column    |
 | `Shift+↑` / `Shift+↓`                                            | Extends the selection to the line above / below   |
 | Text, `Backspace`, `Delete`, `Enter` over a multi-line selection | Replaces it, as one undo step                     |
+| IME composition over a multi-line selection                      | Removes it as one undo step, then composes there  |
 | `Ctrl+X` (`Cmd+X`), `Shift+Delete` over a multi-line selection   | Cuts it, as one undo step                         |
 | `F7` / `Shift+F7`                                                | Next / previous unresolved block (also ↓/↑ icons) |
 | `Ctrl+Z` (`Cmd+Z`)                                               | Undoes the last edit or resolving action          |

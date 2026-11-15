@@ -385,6 +385,30 @@ describe("a selection across result lines", () => {
     expect(resultTexts(page)).toEqual(["ac", "d"]);
   });
 
+  it("is removed as one edit when an IME starts composing over it, after the held-back edit", () => {
+    const page = openPage();
+    page.type(page.resultCell(0), "a!");
+    page.select(textOf(page.resultCell(0)), 1, textOf(page.resultCell(2)), 0);
+
+    page.startComposition(page.resultCell(0));
+    const caret = selectionOf(page);
+    page.type(page.resultCell(0), "aかc");
+    vi.runAllTimers();
+
+    expect(caret).toEqual({ anchor: { line: 0, column: 1 }, focus: { line: 0, column: 1 } });
+    expect(page.posted).toEqual([editLine(0, "a!"), replaceLines(0, 3, ["ac"]), editLine(0, "aかc")]);
+    expect(resultTexts(page)).toEqual(["aかc", "d"]);
+  });
+
+  it("is left to the browser when an IME starts composing within one line", () => {
+    const page = openPage();
+    page.select(textOf(page.resultCell(1)), 0, textOf(page.resultCell(1)), 1);
+
+    page.startComposition(page.resultCell(1));
+
+    expect(page.posted).toEqual([]);
+  });
+
   it.each<[string, Record<string, unknown>]>([
     ["a shortcut", { key: "a", ctrlKey: true }],
     ["a named key", { key: "Tab" }],

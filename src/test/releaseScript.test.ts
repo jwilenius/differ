@@ -60,6 +60,23 @@ describe("release script", () => {
     expect(git("tag", "--list")).toBe("");
   });
 
+  it("stops before changing files when the dependency check fails", () => {
+    const packageFile = join(repo, "package.json");
+    const fixture = JSON.parse(readFileSync(packageFile, "utf8"));
+    fixture.scripts["check:deps"] = "node -e 'process.exit(1)'";
+    writeFileSync(packageFile, JSON.stringify(fixture));
+    git("commit", "-qam", "Fail the dependency check");
+    git("push", "-q", "origin", "main");
+
+    const result = spawnSync("bash", ["scripts/release.sh", "0.1.1"], { cwd: repo, encoding: "utf8" });
+
+    expect(result.status).not.toBe(0);
+    expect(JSON.parse(readFileSync(packageFile, "utf8")).version).toBe("0.1.0");
+    expect(git("status", "--porcelain")).toBe("");
+    expect(git("tag", "--list")).toBe("");
+    expect(git("--git-dir", remote, "rev-parse", "refs/heads/main")).toBe(git("rev-parse", "HEAD"));
+  });
+
   it("refuses uncommitted changes", () => {
     writeFileSync(join(repo, "uncommitted.txt"), "keep me");
     const result = spawnSync("bash", ["scripts/release.sh", "0.1.1"], { cwd: repo, encoding: "utf8" });

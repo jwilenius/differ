@@ -18,7 +18,8 @@ beforeEach(() => {
   remote = join(directory, "remote.git");
   mkdirSync(join(repo, "scripts"), { recursive: true });
   copyFileSync(resolve("scripts/release.sh"), join(repo, "scripts/release.sh"));
-  const scripts = { typecheck: "node -e ''", test: "node -e ''", package: "node -e ''" };
+  const stub = "node -e ''";
+  const scripts = { "check:deps": stub, "check:signatures": stub, typecheck: stub, test: stub, package: stub };
   writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "fixture", version: "0.1.0", scripts }));
   writeFileSync(join(repo, "package-lock.json"), JSON.stringify({
     name: "fixture", version: "0.1.0", lockfileVersion: 3,

@@ -146,7 +146,9 @@
     "build": "node -e \"const fs = require('fs'); fs.mkdirSync('dist', { recursive: true }); fs.copyFileSync('node_modules/vscode-oniguruma/release/onig.wasm', 'dist/onig.wasm')\" && esbuild src/host/vscode/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --main-fields=module,main",
     "watch": "npm run build -- --sourcemap --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:deps": "npm audit --audit-level=high && node scripts/check-osv-malware.mjs",
+    "check:signatures": "npm audit signatures"
   },
   "dependencies": {
     "diff": "^5.2.0",

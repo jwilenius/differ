@@ -42,7 +42,11 @@ if (changed === -1 || next[changed] < current[changed]) {
 }
 NODE
 
-npm ci
+# Check the lockfile and registry signatures before any dependency install script runs.
+npm run check:deps
+npm ci --ignore-scripts
+npm run check:signatures
+npm rebuild
 npm run typecheck
 npm test
 npm version "$version" --no-git-tag-version

@@ -21,7 +21,11 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: npm ci
+      # Check the lockfile and registry signatures before any dependency install script runs.
+      - run: npm run check:deps
+      - run: npm ci --ignore-scripts
+      - run: npm run check:signatures
+      - run: npm rebuild
       - name: Check release version
         if: startsWith(github.ref, 'refs/tags/')
         run: |

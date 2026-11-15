@@ -234,8 +234,9 @@ bash scripts/release.sh 0.2.1   # same as: npm run release -- 0.2.1
 
 Choose an unused version greater than the current version, as plain `X.Y.Z` without the `v`. The script refuses to
 run unless you are on `main` with a clean tree matching `origin/main` and tag `vX.Y.Z` does not exist. It puts
-`/tmp/node-v22.23.4-linux-x64/bin` on `PATH` when present; set `NODE_BIN` to use another Node.js 22. The script installs locked dependencies, runs typecheck
-and tests, updates both package files, builds the VSIX, commits, tags, and atomically pushes the commit and tag.
+`/tmp/node-v22.23.4-linux-x64/bin` on `PATH` when present; set `NODE_BIN` to use another Node.js 22. The script checks the lockfile for known malware and high-severity
+advisories, installs locked dependencies without running their install scripts, verifies registry signatures, then runs
+the install scripts, typecheck and tests, updates both package files, builds the VSIX, commits, tags, and atomically pushes the commit and tag.
 GitHub Actions then attaches the installer to a release with generated notes.
 
 If packaging fails after the version update, the changed package files remain available to inspect or revert.
@@ -244,7 +245,7 @@ If pushing fails, the release commit and tag remain local; fix the push error an
 
 ## Install a development build
 
-Every push to `main` builds a VS Code installer after typecheck and tests pass; release commits are built once, by
+Every push to `main` builds a VS Code installer after the dependency checks, typecheck and tests pass; release commits are built once, by
 their tag's run. Manual builds are also available.
 
 1. Open [Build VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml).
@@ -263,6 +264,7 @@ npm run build       # bundle to dist/extension.js
 npm run watch       # rebuild on change
 npm run typecheck   # tsc --noEmit
 npm test            # vitest, core + view model
+npm run check:deps  # lockfile: npm audit (high+) and OSV malware advisories
 ```
 
 Press `F5` in VS Code to launch an Extension Development Host, then open `samples/conflicted.ts` and run

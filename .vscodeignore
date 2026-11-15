@@ -13,3 +13,4 @@ MEMORY.local.md
 scripts/**
 vitest.config.mts
 docs/**
+media/differ-icon.svg

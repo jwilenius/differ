@@ -10,6 +10,7 @@
     "url": "https://github.com/jwilenius/differ.git"
   },
   "license": "MIT",
+  "icon": "media/differ-icon.png",
   "engines": {
     "vscode": "^1.90.0"
   },

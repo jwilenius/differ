@@ -1,0 +1,15 @@
+<!-- Source of media/differ-icon.png, the extension icon: the Activity Bar glyph (differ-activitybar.svg) in white on a
+     teal tile. The Marketplace accepts only PNG icons; render at 256x256 with a transparent background. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1FA39A"/>
+      <stop offset="1" stop-color="#0E6E7A"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#tile)"/>
+  <g transform="translate(16 16) scale(4)" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8.25 5.25h-4.5a1.5 1.5 0 0 0-1.5 1.5v10.5a1.5 1.5 0 0 0 1.5 1.5h4.5M15.75 5.25h4.5a1.5 1.5 0 0 1 1.5 1.5v10.5a1.5 1.5 0 0 1-1.5 1.5h-4.5"/>
+    <path d="M5.25 9.75h3c3.75 0 3.75 4.5 7.5 4.5h3M5.25 14.25h1.5M17.25 9.75h1.5"/>
+  </g>
+</svg>

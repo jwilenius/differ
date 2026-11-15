@@ -1,22 +1,33 @@
-name: Build VS Code installer
+name: Build and release VS Code installer
 
+# Every push to main is checked and packaged; when its Conventional Commits since the last release ask for one, the
+# same run commits the version bump, tags it and publishes a GitHub Release. Pushes made with GITHUB_TOKEN start no
+# workflow, so the release commit and tag do not run this again.
 on:
   push:
     branches: [main]
-    tags: ['v*.*.*']
   workflow_dispatch:
+
+# Runs queue instead of overlapping, and a release in progress is never cancelled. A newer push replaces a run still
+# waiting in the queue; that newer run scans every commit since the last release anyway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   package:
-    # scripts/release.sh pushes its release commit and tag together; the tag run builds and publishes that commit.
-    if: "github.ref_type == 'tag' || !startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.release-version.outputs.version }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          # The release decision reads every commit and tag since the last release.
+          fetch-depth: 0
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: '22'
@@ -26,19 +37,25 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check:signatures
       - run: npm rebuild
-      - name: Check release version
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          test "$GITHUB_REF_NAME" = "v$VERSION"
       - run: npm run typecheck
       - run: npm test
+      - name: Decide release version
+        id: release-version
+        if: github.ref == 'refs/heads/main'
+        # A separate assignment, so a failing script fails the step instead of reading as "no release".
+        run: |
+          version=$(node scripts/next-release-version.mjs)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Package release installer
-        if: github.ref_type == 'tag'
-        run: npm run package
+        if: steps.release-version.outputs.version != ''
+        env:
+          VERSION: ${{ steps.release-version.outputs.version }}
+        run: |
+          npm version "$VERSION" --no-git-tag-version
+          npm run package
       # Development builds carry the last release's version, so name them by commit to avoid clashing with it.
       - name: Package development installer
-        if: github.ref_type != 'tag'
+        if: steps.release-version.outputs.version == ''
         run: npm run package -- --out "differ-main-${GITHUB_SHA::7}.vsix"
       - uses: actions/upload-artifact@v7.0.2
         with:
@@ -47,12 +64,44 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/')
+  # The only jobs with write access; they run no dependency code. Tagging and publishing are separate jobs so that
+  # "Re-run failed jobs" can retry a failed publish without tagging again.
+  tag:
     needs: package
+    if: needs.package.outputs.version != ''
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.package.outputs.version }}
+    steps:
+      # Checks out the tested commit, not the current main.
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+      - name: Commit and tag release
+        run: |
+          npm version "$VERSION" --no-git-tag-version
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json
+          git commit -m "chore: release v$VERSION"
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+      # Publishes the commit and tag together; if main moved during the run, neither remote ref changes and the run
+      # fails. The run for the newer push releases these commits too.
+      - name: Push release commit and tag
+        run: git push --atomic origin main "refs/tags/v$VERSION"
+
+  publish:
+    needs: [package, tag]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.package.outputs.version }}
     steps:
       - uses: actions/download-artifact@v8.0.2
         with:
@@ -62,8 +111,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" installer/*.vsix \
+          gh release create "v$VERSION" installer/*.vsix \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "$GITHUB_REF_NAME" \
+            --title "v$VERSION" \
             --generate-notes

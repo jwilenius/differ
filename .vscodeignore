@@ -12,3 +12,4 @@ MEMORY.local.md
 .claude/**
 scripts/**
 vitest.config.mts
+docs/**

@@ -4,7 +4,7 @@
 // or `BREAKING-CHANGE:` footer on any type for a major bump; the highest bump wins. Other types and messages whose
 // header does not follow the format never release.
 // The last release is the highest vX.Y.Z tag reachable from HEAD. Without one, the package.json version counts as the
-// last release and every commit is scanned.
+// last release and every commit is scanned. With one, package.json must hold its version: only releases change it.
 // Usage: node scripts/next-release-version.mjs [repo-dir]   (defaults to the current directory)
 // Prints the next version, such as 0.4.0, on stdout, or nothing when no commit asks for a release; says why on stderr.
 import { execFileSync } from "node:child_process";
@@ -65,10 +65,18 @@ export function bumpVersion(version, bump) {
   }
 }
 
-/** Reads the last release and the commits since it in `repoDir`; `version` is empty when nothing asks for a release. */
+/**
+ * Reads the last release and the commits since it in `repoDir`; `version` is empty when nothing asks for a release.
+ * Throws when package.json does not hold the last release tag's version, since only releases may change it.
+ */
 function findNextRelease(repoDir) {
   const lastTag = lastReleaseTag(repoDir);
-  const baseVersion = lastTag === "" ? packageVersion(repoDir) : lastTag.slice(TAG_PREFIX.length);
+  const currentVersion = packageVersion(repoDir);
+  const baseVersion = lastTag === "" ? currentVersion : lastTag.slice(TAG_PREFIX.length);
+  if (currentVersion !== baseVersion) {
+    throw new Error(`package.json version ${currentVersion} differs from the last release tag ${lastTag}.`);
+  }
+
   const messages = commitMessages(repoDir, lastTag === "" ? "HEAD" : `${lastTag}..HEAD`);
   const bump = releaseBump(messages);
   return { lastTag, baseVersion, commitCount: messages.length, bump, version: bumpVersion(baseVersion, bump) };

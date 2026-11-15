@@ -130,6 +130,10 @@ describe("next release version command", () => {
     git("commit", "-q", "--allow-empty", "-m", message);
   }
 
+  function writePackageVersion(version: string): void {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "fixture", version }));
+  }
+
   function run(): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
     return spawnSync(process.execPath, [SCRIPT, repo], { encoding: "utf8" });
   }
@@ -137,7 +141,7 @@ describe("next release version command", () => {
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), "differ-next-release-"));
     git("init", "-q");
-    writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "fixture", version: "0.3.0" }));
+    writePackageVersion("0.3.0");
     git("add", ".");
     commit("chore: release v0.3.0");
   });
@@ -196,7 +200,8 @@ describe("next release version command", () => {
     git("tag", "v0.1.0");
     commit("feat: released in 0.9.0");
     git("tag", "v0.9.0");
-    commit("feat: released in 0.10.0");
+    writePackageVersion("0.10.0");
+    git("commit", "-qam", "feat: released in 0.10.0");
     git("tag", "-a", "v0.10.0", "-m", "Release v0.10.0");
     git("checkout", "-q", "-b", "unreleased");
     commit("feat: on another branch");
@@ -226,7 +231,7 @@ describe("next release version command", () => {
   });
 
   it("fails without printing a version when the package.json version is not plain X.Y.Z", () => {
-    writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "fixture", version: "1.0.0-beta.1" }));
+    writePackageVersion("1.0.0-beta.1");
     git("commit", "-qam", "fix: keep the caret");
 
     const result = run();
@@ -234,5 +239,17 @@ describe("next release version command", () => {
     expect(result.status).not.toBe(0);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain('Version "1.0.0-beta.1" is not plain X.Y.Z.');
+  });
+
+  it.each(["0.4.0", "0.2.0"])("fails when package.json holds %s instead of the last release tag's version", (version) => {
+    git("tag", "v0.3.0");
+    writePackageVersion(version);
+    git("commit", "-qam", "feat: add history search");
+
+    const result = run();
+
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(`package.json version ${version} differs from the last release tag v0.3.0.`);
   });
 });

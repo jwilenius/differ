@@ -380,6 +380,8 @@ describe("Resolve Conflict in Differ", () => {
       { command: COMMAND, when: "!explorerResourceIsFolder && resourcePath in differ.conflictedFiles", group: "navigation" },
     ]);
     expect(entriesOf("editor/title/context")).toEqual([{ command: COMMAND, when: "resourcePath in differ.conflictedFiles", group: "navigation" }]);
+    // VS Code builds Source Control resource menus without the resource's context keys (checked in 1.90 and on main,
+    // November 2026), so `resourcePath` there is not the clicked file's and cannot narrow the entry to mergeable files.
     expect(entriesOf("scm/resourceState/context")).toEqual([
       { command: COMMAND, when: "scmProvider == git && scmResourceGroup == merge", group: "navigation" },
     ]);

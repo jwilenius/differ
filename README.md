@@ -126,7 +126,9 @@ _`src/inventory.ts` mid-merge: `main` left, result middle, `feature/sku` right; 
   (including their paths through a workspace folder opened via a symbolic link); the list refreshes on activation, on
   window focus, on workspace folder changes, when the Git index of a repository it covers changes (including an index
   outside the workspace folder: a linked worktree's, a submodule's, or that of a repository above the folder), and when
-  a merge view closes.
+  a merge view closes. The Source Control entry shows on every file under Merge Changes, as VS Code gives that menu no
+  file path to test; on a conflict Differ cannot merge, such as a deleted side, a symbolic link or a binary file, it says
+  why.
 
 ![Differ: Resolve Conflicts QuickPick listing README.md and src/inventory.ts](docs/images/resolve-conflicts-picker.png)
 

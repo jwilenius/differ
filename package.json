@@ -37,6 +37,11 @@
         "icon": "$(git-merge)"
       },
       {
+        "command": "differ.resolveConflictInFile",
+        "title": "Resolve Conflict in Differ",
+        "category": "Differ"
+      },
+      {
         "command": "differ.openHistory",
         "title": "Open Git History",
         "category": "Differ",
@@ -94,6 +99,27 @@
           "group": "navigation"
         }
       ],
+      "explorer/context": [
+        {
+          "command": "differ.resolveConflictInFile",
+          "when": "!explorerResourceIsFolder && resourcePath in differ.conflictedFiles",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "differ.resolveConflictInFile",
+          "when": "resourcePath in differ.conflictedFiles",
+          "group": "navigation"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "differ.resolveConflictInFile",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "navigation"
+        }
+      ],
       "view/title": [
         {
           "command": "differ.refreshHistory",
@@ -108,6 +134,10 @@
         },
         {
           "command": "differ.resolveConflicts"
+        },
+        {
+          "command": "differ.resolveConflictInFile",
+          "when": "false"
         },
         {
           "command": "differ.openHistory"

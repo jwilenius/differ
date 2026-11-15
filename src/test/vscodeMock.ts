@@ -266,6 +266,8 @@ export interface VscodeMockState {
   readonly webviewPanels: FakeWebviewPanel[];
   /** Replacements of every `workspace.applyEdit` call, in order. */
   readonly appliedEdits: FakeReplacement[];
+  /** Watchers made by `workspace.createFileSystemWatcher`, in creation order. */
+  readonly fileSystemWatchers: FakeFileSystemWatcher[];
 }
 
 export const vscodeMock: VscodeMockState = {
@@ -292,6 +294,7 @@ export const vscodeMock: VscodeMockState = {
   openFileDocument: undefined,
   webviewPanels: [],
   appliedEdits: [],
+  fileSystemWatchers: [],
 };
 
 let didCloseTextDocument = new EventEmitter<vscode.TextDocument>();
@@ -301,6 +304,7 @@ let didChangeWorkspaceFolders = new EventEmitter<vscode.WorkspaceFoldersChangeEv
 let didChangeConfiguration = new EventEmitter<vscode.ConfigurationChangeEvent>();
 let didChangeExtensions = new EventEmitter<void>();
 let didChangeActiveColorTheme = new EventEmitter<{ readonly kind: ColorThemeKind }>();
+let didChangeWindowState = new EventEmitter<{ readonly focused: boolean }>();
 
 export function resetVscodeMock(): void {
   vscodeMock.commands.clear();
@@ -326,6 +330,7 @@ export function resetVscodeMock(): void {
   vscodeMock.openFileDocument = undefined;
   vscodeMock.webviewPanels.length = 0;
   vscodeMock.appliedEdits.length = 0;
+  vscodeMock.fileSystemWatchers.length = 0;
   didCloseTextDocument = new EventEmitter();
   didChangeTextDocument = new EventEmitter();
   didChangeActiveTextEditor = new EventEmitter();
@@ -333,6 +338,7 @@ export function resetVscodeMock(): void {
   didChangeConfiguration = new EventEmitter();
   didChangeExtensions = new EventEmitter();
   didChangeActiveColorTheme = new EventEmitter();
+  didChangeWindowState = new EventEmitter();
 }
 
 /** Sets a setting by full key and reports it as changed, affecting that key and its enclosing sections. */
@@ -350,6 +356,11 @@ export function changeExtensions(extensions: FakeExtension[]): void {
 export function changeColorThemeKind(kind: ColorThemeKind): void {
   vscodeMock.colorThemeKind = kind;
   didChangeActiveColorTheme.fire({ kind });
+}
+
+/** Reports the window gaining or losing focus. */
+export function changeWindowFocus(isFocused: boolean): void {
+  didChangeWindowState.fire({ focused: isFocused });
 }
 
 export function fireDidCloseTextDocument(document: vscode.TextDocument): void {
@@ -452,6 +463,12 @@ export const workspace = {
 
   registerTextDocumentContentProvider(scheme: string, provider: vscode.TextDocumentContentProvider): Disposable {
     return register(vscodeMock.contentProviders, scheme, provider);
+  },
+
+  createFileSystemWatcher(globPattern: string): FakeFileSystemWatcher {
+    const watcher = new FakeFileSystemWatcher(globPattern);
+    vscodeMock.fileSystemWatchers.push(watcher);
+    return watcher;
   },
 
   onDidCloseTextDocument(listener: Listener<vscode.TextDocument>, thisArgs?: unknown, disposables?: DisposableLike[]): Disposable {
@@ -588,6 +605,10 @@ export const window = {
   ): Disposable {
     return didChangeActiveTextEditor.event(listener, thisArgs, disposables);
   },
+
+  onDidChangeWindowState(listener: Listener<{ readonly focused: boolean }>, thisArgs?: unknown, disposables?: DisposableLike[]): Disposable {
+    return didChangeWindowState.event(listener, thisArgs, disposables);
+  },
 };
 
 export class FakeWebview implements vscode.Webview {
@@ -677,6 +698,27 @@ export class FakeTreeView {
   dispose(): void {
     this.isDisposed = true;
     this.didChangeVisibility.dispose();
+  }
+}
+
+/** A watcher of `globPattern` whose changes tests report through `fireDidChange`. */
+export class FakeFileSystemWatcher {
+  isDisposed = false;
+  private readonly didChange = new EventEmitter<Uri>();
+  private readonly didCreate = new EventEmitter<Uri>();
+  private readonly didDelete = new EventEmitter<Uri>();
+  readonly onDidChange = this.didChange.event;
+  readonly onDidCreate = this.didCreate.event;
+  readonly onDidDelete = this.didDelete.event;
+
+  constructor(readonly globPattern: string) {}
+
+  fireDidChange(uri: Uri): void {
+    this.didChange.fire(uri);
+  }
+
+  dispose(): void {
+    this.isDisposed = true;
   }
 }
 

@@ -121,6 +121,11 @@ _`src/inventory.ts` mid-merge: `main` left, result middle, `feature/sku` right; 
   mark of a file opened with one; otherwise, as after a conflict on line 1, the mark leads the written text.
 - **Differ: Open Three-Way Merge View**, or the merge button in the title bar of a file with conflict markers, opens the
   active file.
+- **Resolve Conflict in Differ** in the right-click menu of a conflicted file opens that file: in the Explorer, on an
+  editor tab, and in Source Control's Merge Changes. The Explorer and tab entries track the files the picker lists
+  (including their paths through a workspace folder opened via a symbolic link); the list refreshes on activation, on
+  window focus, on workspace folder changes, when the `.git/index` of a repository inside a workspace folder changes,
+  and when a merge view closes.
 
 ![Differ: Resolve Conflicts QuickPick listing README.md and src/inventory.ts](docs/images/resolve-conflicts-picker.png)
 

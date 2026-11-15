@@ -53,6 +53,7 @@ describe("extension activation", () => {
       "differ.openHistory",
       "differ.openMergeView",
       "differ.refreshHistory",
+      "differ.resolveConflictInFile",
       "differ.resolveConflicts",
     ]);
     expect(vscodeMock.outputChannels.map((channel) => channel.name)).toEqual(["Differ History"]);
@@ -71,10 +72,13 @@ describe("extension activation", () => {
     const [launcher] = vscodeMock.treeViews;
     vscodeMock.executedCommands.length = 0;
 
+    // Context keys set meanwhile, such as the conflicted files found on activation, are not commands the launcher ran.
+    const launcherCommands = (): string[] =>
+      vscodeMock.executedCommands.map((executed) => executed.command).filter((command) => command !== "setContext");
     launcher.fireDidChangeVisibility(true);
-    await vi.waitFor(() => expect(vscodeMock.executedCommands).toHaveLength(3));
+    await vi.waitFor(() => expect(launcherCommands()).toHaveLength(3));
 
-    expect(vscodeMock.executedCommands.map((executed) => executed.command)).toEqual([
+    expect(launcherCommands()).toEqual([
       "workbench.view.explorer",
       "workbench.action.closeSidebar",
       "differ.history.focus",

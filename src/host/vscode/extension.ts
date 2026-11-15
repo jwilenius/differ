@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { hasConflictMarkers } from "../../core/conflictParser";
 import { listConflictedFiles } from "../../git/gitConflictedFiles";
+import { ConflictedFilesContext } from "./conflictedFilesContext";
 import { HISTORY_DOCUMENT_SCHEME, HistoryDiffProvider } from "./historyDiffProvider";
 import { registerHistoryLauncher } from "./historyLauncher";
 import { candidateDirectories, discoverRepositoryRoots, findGitRepositoryRoot } from "./historyRepositoryDiscovery";
@@ -13,6 +14,7 @@ import { TwoWayDiffPanels } from "./twoWayDiffPanel";
 const CONTEXT_HAS_CONFLICTS = "differ.hasConflicts";
 const REFRESH_HISTORY_COMMAND = "differ.refreshHistory";
 const RESOLVE_CONFLICTS_COMMAND = "differ.resolveConflicts";
+const RESOLVE_CONFLICT_IN_FILE_COMMAND = "differ.resolveConflictInFile";
 const HISTORY_OUTPUT_CHANNEL = "Differ History";
 
 /** Open merge views by document URI, settled or still loading. */
@@ -25,19 +27,23 @@ interface Services {
   readonly mediaRoot: vscode.Uri;
   readonly highlighter: SyntaxHighlighting;
   readonly log: vscode.OutputChannel;
+  readonly conflictedFiles: ConflictedFilesContext;
 }
 
 export function activate(context: vscode.ExtensionContext): void {
   const mediaRoot = vscode.Uri.joinPath(context.extensionUri, "media");
   const log = vscode.window.createOutputChannel(HISTORY_OUTPUT_CHANNEL);
   const highlighter = new SyntaxHighlighting(path.join(context.extensionPath, "dist", "onig.wasm"), (message) => log.appendLine(message));
-  const services: Services = { mediaRoot, highlighter, log };
+  const conflictedFiles = new ConflictedFilesContext(() => findConflictedFiles(log));
+  const services: Services = { mediaRoot, highlighter, log, conflictedFiles };
 
   context.subscriptions.push(
     highlighter,
     log,
+    conflictedFiles,
     vscode.commands.registerCommand("differ.openMergeView", () => openActiveMergeView(services)),
     vscode.commands.registerCommand(RESOLVE_CONFLICTS_COMMAND, () => resolveConflicts(services)),
+    vscode.commands.registerCommand(RESOLVE_CONFLICT_IN_FILE_COMMAND, (target?: ResolveTarget) => resolveConflictInFile(target, services)),
     vscode.window.onDidChangeActiveTextEditor(updateConflictContext),
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document === vscode.window.activeTextEditor?.document) {
@@ -89,7 +95,32 @@ async function resolveConflicts(services: Services): Promise<void> {
   if (!picked) {
     return;
   }
-  const document = await vscode.workspace.openTextDocument(vscode.Uri.file(picked.filePath));
+  await openFileMergeView(vscode.Uri.file(picked.filePath), services);
+}
+
+/** What a context menu passes: a file's URI from the Explorer or an editor tab, a resource state from Source Control. */
+type ResolveTarget = vscode.Uri | vscode.SourceControlResourceState;
+
+/** Opens the merge view of the file a context menu was opened on; without one, as from a key binding, the active file's. */
+async function resolveConflictInFile(target: ResolveTarget | undefined, services: Services): Promise<void> {
+  if (!target) {
+    openActiveMergeView(services);
+    return;
+  }
+  await openFileMergeView(target instanceof vscode.Uri ? target : target.resourceUri, services);
+}
+
+/** Opens the merge view of the file at `uri`; one that cannot be opened, such as a deleted side's, is reported. */
+async function openFileMergeView(uri: vscode.Uri, services: Services): Promise<void> {
+  let document: vscode.TextDocument;
+  try {
+    document = await vscode.workspace.openTextDocument(uri);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    services.log.appendLine(`Opening ${uri.fsPath} failed. ${message}`);
+    void vscode.window.showErrorMessage(`Differ could not open ${path.basename(uri.fsPath)}. ${message}`);
+    return;
+  }
   await openMergeView(document, services);
 }
 
@@ -130,7 +161,11 @@ async function openMergeView(document: vscode.TextDocument, services: Services):
     mediaRoot: services.mediaRoot,
     highlighter: services.highlighter,
     log: (message) => services.log.appendLine(message),
-    onDispose: () => forgetMergeView(key, opening),
+    onDispose: () => {
+      forgetMergeView(key, opening);
+      // Applying a complete merge stages the file before closing the view.
+      services.conflictedFiles.refresh();
+    },
   });
   openPanels.set(key, opening);
   try {

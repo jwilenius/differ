@@ -64,9 +64,6 @@ describe("findGitRepositoryRoot", () => {
   it("reports a repository Git refuses as unsafe as an error instead of no repository", async () => {
     const fixture = createHistoryRepository();
     vi.stubEnv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
-    // A machine-wide safe.directory, as on CI runners, would trust the repository anyway.
-    vi.stubEnv("GIT_CONFIG_GLOBAL", "/dev/null");
-    vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
     try {
       const finding = findGitRepositoryRoot(fixture.root);
 

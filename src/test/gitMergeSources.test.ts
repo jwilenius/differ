@@ -26,8 +26,6 @@ beforeAll(() => {
   file = path.join(repo, "f.txt");
 
   execFileSync("git", ["init", "-q", "-b", "trunk", repo], { stdio: "pipe" });
-  git("config", "user.email", "test@example.com");
-  git("config", "user.name", "Test");
 
   fs.writeFileSync(file, "line1\nshared\nline3\n");
   git("add", "f.txt");
@@ -131,9 +129,6 @@ describe("readMergeSources", () => {
 
   it("reports a repository Git refuses as unsafe as an error instead of a file with no conflict", async () => {
     vi.stubEnv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
-    // A machine-wide safe.directory, as on CI runners, would trust the repository anyway.
-    vi.stubEnv("GIT_CONFIG_GLOBAL", "/dev/null");
-    vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
 
     const reading = readMergeSources(file);
 

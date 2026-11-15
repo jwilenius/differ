@@ -316,6 +316,9 @@ npm test            # vitest, core + view model
 npm run check:deps  # lockfile: npm audit (high+) and OSV malware advisories
 ```
 
+Tests run Git with only `src/test/fixtures/gitconfig` and no inherited `GIT_*` variables
+(`src/test/gitTestEnvironment.ts`), so machine or user Git configuration cannot change results.
+
 The [Dependency check](https://github.com/jwilenius/differ/actions/workflows/dependency-check.yml) workflow reruns
 `check:deps` and the registry signature check every Monday at 06:23 UTC, and on demand, because packages are often
 reported malicious only days after release. GitHub sends failure notifications to the user who created the workflow or

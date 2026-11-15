@@ -7,9 +7,6 @@ import * as path from "node:path";
 export function createConflictRepository(): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "differ-conflicts-")));
   execFileSync("git", ["init", "-q", "-b", "trunk", root], { stdio: "pipe" });
-  runGit(root, "config", "user.email", "test@example.com");
-  runGit(root, "config", "user.name", "Test");
-  runGit(root, "config", "commit.gpgSign", "false");
   return root;
 }
 

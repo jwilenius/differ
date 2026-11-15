@@ -159,8 +159,6 @@ describe("conflicted files context key", () => {
     runGit(links, "init", "-q", superproject);
     runGit(superproject, "-c", "protocol.file.allow=always", "submodule", "add", "-q", repo, "module");
     const module = path.join(superproject, "module");
-    runGit(module, "config", "user.email", "test@example.com");
-    runGit(module, "config", "user.name", "Test");
     const mergeIntoModule = (): void => {
       try {
         runGit(module, "merge", "origin/feature");

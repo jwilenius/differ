@@ -9,5 +9,6 @@ export default defineConfig({
   test: {
     include: ["src/test/**/*.test.ts"],
     environment: "node",
+    setupFiles: ["src/test/gitTestEnvironment.ts"],
   },
 });

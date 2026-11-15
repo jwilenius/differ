@@ -1,0 +1,12 @@
+# Global Git configuration for every test run; src/test/gitTestEnvironment.ts points GIT_CONFIG_GLOBAL here.
+[user]
+	name = Test
+	email = test@example.com
+[init]
+	defaultBranch = main
+[core]
+	autocrlf = false
+[commit]
+	gpgSign = false
+[tag]
+	gpgSign = false

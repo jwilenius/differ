@@ -26,8 +26,6 @@ beforeEach(() => {
     packages: { "": { name: "fixture", version: "0.1.0" } },
   }));
   git("init", "-q", "-b", "main");
-  git("config", "user.name", "Release Test");
-  git("config", "user.email", "release@example.com");
   git("init", "-q", "--bare", remote);
   git("remote", "add", "origin", remote);
   git("add", ".");

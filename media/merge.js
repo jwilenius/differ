@@ -344,9 +344,11 @@
 
   // A selection across result lines spans their separate editables, which the browser edits none of: what is typed
   // over it replaces it here, as one edit. The key reaches the document when the selection was dragged from the
-  // line numbers, which leaves no line focused.
+  // line numbers, which leaves no line focused. A key on any other element, such as a button the selection
+  // outlived a click on, belongs to that element.
   document.addEventListener("keydown", (event) => {
-    const selected = event.isComposing || resultLines.inert ? null : selectedLines();
+    const isForResult = !event.isComposing && !resultLines.inert && isResultKeyTarget(event.target);
+    const selected = isForResult ? selectedLines() : null;
     const text = selected && selected.first !== selected.last ? textTypedOver(event) : null;
     if (text === null) {
       return;
@@ -354,6 +356,12 @@
     event.preventDefault();
     insertLines(selected, text);
   });
+
+  /** Whether a key goes to the result: pressed in one of its lines, or with no element focused. */
+  function isResultKeyTarget(target) {
+    const cell = editableOf(target);
+    return target === document.body || (cell !== null && resultLines.contains(cell));
+  }
 
   /** The text a key types over a selection: a line break, none for a removal, or its character; null for other keys. */
   function textTypedOver(event) {

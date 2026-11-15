@@ -344,6 +344,27 @@ describe("a selection across result lines", () => {
     expect(resultTexts(page)).toEqual(["a", "", "d"]);
   });
 
+  it.each<["Enter" | " "]>([["Enter"], [" "]])("leaves %j on a focused button to the button", (key) => {
+    const page = openPage();
+    selectFromLine0To2(page);
+    const accept = page.button((button) => button.dataset.accept === "left");
+
+    page.pressOnButton(accept, key);
+
+    expect(page.posted).toEqual([{ type: "acceptSide", side: "left", page: PAGE }]);
+    expect(resultTexts(page)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("leaves a key on the hidden undo seed to the browser", () => {
+    const page = openPage();
+    selectFromLine0To2(page);
+
+    page.key(page.historySeed(), { key: "x", keyCode: 88 });
+
+    expect(page.posted).toEqual([]);
+    expect(resultTexts(page)).toEqual(["a", "b", "c", "d"]);
+  });
+
   it("is replaced by text the browser inserts", () => {
     const page = openPage();
     selectFromLine0To2(page);

@@ -623,6 +623,15 @@ export class MergePage {
     this.userEvent(button, "click");
   }
 
+  /** Presses Enter or Space on a focused button, which the browser then clicks unless the page took the key. */
+  pressOnButton(button: FakeElement, key: "Enter" | " "): void {
+    button.focus();
+    const keydown = this.userEvent(button, "keydown", { key });
+    if (keydown && !keydown.defaultPrevented) {
+      this.click(button);
+    }
+  }
+
   /** A message from the host. */
   receive(message: Readonly<Record<string, unknown>>): void {
     this.window.notify(new FakeEvent("message", this.window, { data: message }));
@@ -643,11 +652,14 @@ export class MergePage {
     node.remove();
   }
 
-  private userEvent(target: FakeElement, type: string, init: Readonly<Record<string, unknown>> = {}): void {
-    if (!this.isInInertSubtree(target)) {
-      target.dispatch(new FakeEvent(type, target, init));
+  /** Dispatches a user's event; null when the target is inert and the event never happens. */
+  private userEvent(target: FakeElement, type: string, init: Readonly<Record<string, unknown>> = {}): FakeEvent | null {
+    const event = this.isInInertSubtree(target) ? null : new FakeEvent(type, target, init);
+    if (event) {
+      target.dispatch(event);
     }
     this.endTask();
+    return event;
   }
 
   /** The page's observer callback drops the records a task leaves; only those of the current task can be taken. */

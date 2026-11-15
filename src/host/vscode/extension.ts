@@ -34,7 +34,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const mediaRoot = vscode.Uri.joinPath(context.extensionUri, "media");
   const log = vscode.window.createOutputChannel(HISTORY_OUTPUT_CHANNEL);
   const highlighter = new SyntaxHighlighting(path.join(context.extensionPath, "dist", "onig.wasm"), (message) => log.appendLine(message));
-  const conflictedFiles = new ConflictedFilesContext(() => scanConflictedFiles(log));
+  const conflictedFiles = new ConflictedFilesContext(scanConflictedFiles, (line) => log.appendLine(line));
   const services: Services = { mediaRoot, highlighter, log, conflictedFiles };
 
   context.subscriptions.push(
@@ -126,15 +126,18 @@ async function openFileMergeView(uri: vscode.Uri, services: Services): Promise<v
 
 /** Conflicted files of every repository holding the workspace folders or the active editor; failures are logged. */
 async function findConflictedFiles(log: vscode.OutputChannel): Promise<readonly string[]> {
-  return (await scanConflictedFiles(log)).files;
+  return (await scanConflictedFiles((failure) => log.appendLine(failure))).files;
 }
 
-/** The conflicted files and index files of the repositories of the workspace and the active editor. */
-async function scanConflictedFiles(log: vscode.OutputChannel): Promise<ConflictedFilesScan> {
-  const logFailure = (directory: string, error: unknown): void => {
-    log.appendLine(`Listing conflicts in ${directory} failed. ${error instanceof Error ? error.message : String(error)}`);
+/**
+ * The conflicted files and index files of the repositories of the workspace and the active editor; each failure is
+ * reported through `onFailure`.
+ */
+async function scanConflictedFiles(onFailure: (failure: string) => void): Promise<ConflictedFilesScan> {
+  const reportFailure = (directory: string, error: unknown): void => {
+    onFailure(`Listing conflicts in ${directory} failed. ${error instanceof Error ? error.message : String(error)}`);
   };
-  const { roots } = await discoverRepositoryRoots(candidateDirectories(), findGitRepositoryRoot, logFailure);
+  const { roots } = await discoverRepositoryRoots(candidateDirectories(), findGitRepositoryRoot, reportFailure);
   const files: string[] = [];
   const indexFiles: string[] = [];
   for (const root of roots) {
@@ -142,7 +145,7 @@ async function scanConflictedFiles(log: vscode.OutputChannel): Promise<Conflicte
       indexFiles.push(await findIndexFile(root));
       files.push(...(await listConflictedFiles(root)));
     } catch (error) {
-      logFailure(root, error);
+      reportFailure(root, error);
     }
   }
   return { files, indexFiles };

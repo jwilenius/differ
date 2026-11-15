@@ -13,20 +13,28 @@ export interface ConflictedFilesScan {
   readonly indexFiles: readonly string[];
 }
 
+/** Searches the workspace's repositories, reporting each failure through `onFailure` as a line to log. */
+export type ConflictedFilesScanner = (onFailure: (failure: string) => void) => Promise<ConflictedFilesScan>;
+
 /**
  * Keeps the `differ.conflictedFiles` context key current, so the Explorer and editor tab menus offer the merge view on
  * conflicted files. It refreshes on creation, when the window gains focus, when workspace folders change, when the index
- * of a repository the last refresh searched changes, and on `refresh()`.
+ * of a repository the last refresh searched changes, and on `refresh()`. A failure is logged once while it lasts.
  */
 export class ConflictedFilesContext implements vscode.Disposable {
   private isRefreshing = false;
   /** Set when a refresh is asked for while one runs; that one then runs again, as its result may be stale. */
   private isRefreshPending = false;
   private isDisposed = false;
+  /** What the previous search failed on; it is not logged again while every search fails on it. */
+  private previousFailures: ReadonlySet<string> = new Set();
   private readonly indexWatchers = new GitIndexWatchers(() => this.refresh());
   private readonly disposables: readonly vscode.Disposable[];
 
-  constructor(private readonly scan: () => Promise<ConflictedFilesScan>) {
+  constructor(
+    private readonly scan: ConflictedFilesScanner,
+    private readonly log: (line: string) => void,
+  ) {
     const refresh = (): void => this.refresh();
     this.disposables = [
       this.indexWatchers,
@@ -62,7 +70,7 @@ export class ConflictedFilesContext implements vscode.Disposable {
     try {
       do {
         this.isRefreshPending = false;
-        const scan = await this.scan();
+        const scan = await this.scanLoggingNewFailures();
         const paths = await withWorkspaceFolderAliases(scan.files);
         const isCurrent = !this.isRefreshPending && !this.isDisposed;
         if (isCurrent) {
@@ -73,6 +81,17 @@ export class ConflictedFilesContext implements vscode.Disposable {
     } finally {
       this.isRefreshing = false;
     }
+  }
+
+  /** Searches, logging the failures the previous search did not have, so one that recurs on every refresh shows once. */
+  private async scanLoggingNewFailures(): Promise<ConflictedFilesScan> {
+    const failures = new Set<string>();
+    const scan = await this.scan((failure) => failures.add(failure));
+    if (!this.isDisposed) {
+      [...failures].filter((failure) => !this.previousFailures.has(failure)).forEach((failure) => this.log(failure));
+    }
+    this.previousFailures = failures;
+    return scan;
   }
 }
 

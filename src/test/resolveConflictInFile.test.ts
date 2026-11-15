@@ -227,7 +227,7 @@ describe("conflicted files context key", () => {
   it("runs one refresh at a time and reruns one asked for meanwhile, so a stale result is never shown", async () => {
     const finds: ((files: readonly string[]) => void)[] = [];
     const findConflictedFiles = (): Promise<readonly string[]> => new Promise((resolve) => finds.push(resolve));
-    const context = new ConflictedFilesContext(async () => ({ files: await findConflictedFiles(), indexFiles: [] }));
+    const context = new ConflictedFilesContext(async () => ({ files: await findConflictedFiles(), indexFiles: [] }), () => undefined);
 
     context.refresh();
     context.refresh();
@@ -242,7 +242,7 @@ describe("conflicted files context key", () => {
 
   it("drops a refresh that finishes after disposal", async () => {
     const finds: ((scan: ConflictedFilesScan) => void)[] = [];
-    const context = new ConflictedFilesContext(() => new Promise((resolve) => finds.push(resolve)));
+    const context = new ConflictedFilesContext(() => new Promise((resolve) => finds.push(resolve)), () => undefined);
 
     context.dispose();
     finds[0]({ files: ["/a.txt"], indexFiles: ["/.git/index"] });
@@ -250,6 +250,43 @@ describe("conflicted files context key", () => {
 
     expect(conflictedFilesContext()).toBeUndefined();
     expect(vscodeMock.fileSystemWatchers).toEqual([]);
+  });
+
+  it("logs a failure once while every refresh fails on it, and again once it changes or recurs", async () => {
+    const failuresByScan = [["Git is missing."], ["Git is missing."], ["Git is broken."], [], ["Git is broken."]];
+    const lines: string[] = [];
+    const context = new ConflictedFilesContext(async (onFailure) => {
+      failuresByScan.shift()?.forEach(onFailure);
+      return { files: [], indexFiles: [] };
+    }, (line) => lines.push(line));
+
+    for (const refreshes of [1, 2, 3, 4]) {
+      await vi.waitFor(() => expect(conflictedFilesSettings()).toHaveLength(refreshes));
+      context.refresh();
+    }
+
+    await vi.waitFor(() => expect(conflictedFilesSettings()).toHaveLength(5));
+    expect(lines).toEqual(["Git is missing.", "Git is broken.", "Git is broken."]);
+    context.dispose();
+  });
+
+  it("logs that Git is missing once, not on every refresh", async () => {
+    vscodeMock.workspaceFolders = [workspaceFolder(repo)];
+    const inheritedPath = process.env.PATH;
+    process.env.PATH = links;
+    try {
+      activateExtension();
+      for (const refreshes of [1, 2, 3]) {
+        await vi.waitFor(() => expect(conflictedFilesSettings()).toHaveLength(refreshes));
+        changeWindowFocus(true);
+      }
+      await vi.waitFor(() => expect(conflictedFilesSettings()).toHaveLength(4));
+    } finally {
+      process.env.PATH = inheritedPath;
+    }
+
+    const failures = vscodeMock.outputChannels[0].lines.filter((line) => line.startsWith(`Listing conflicts in ${repo} failed.`));
+    expect(failures).toHaveLength(1);
   });
 
   it("refreshes when a merge view closes, as after applying a merge stages the file", async () => {

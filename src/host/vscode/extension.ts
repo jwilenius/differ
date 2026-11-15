@@ -134,18 +134,24 @@ async function findConflictedFiles(log: vscode.OutputChannel): Promise<readonly 
  * reported through `onFailure`.
  */
 async function scanConflictedFiles(onFailure: (failure: string) => void): Promise<ConflictedFilesScan> {
-  const reportFailure = (directory: string, error: unknown): void => {
-    onFailure(`Listing conflicts in ${directory} failed. ${error instanceof Error ? error.message : String(error)}`);
+  const reportFailure = (action: string, directory: string, error: unknown): void => {
+    onFailure(`${action} ${directory} failed. ${error instanceof Error ? error.message : String(error)}`);
   };
-  const { roots } = await discoverRepositoryRoots(candidateDirectories(), findGitRepositoryRoot, reportFailure);
+  const reportListingFailure = (directory: string, error: unknown): void => reportFailure("Listing conflicts in", directory, error);
+  const { roots } = await discoverRepositoryRoots(candidateDirectories(), findGitRepositoryRoot, reportListingFailure);
   const files: string[] = [];
   const indexFiles: string[] = [];
   for (const root of roots) {
     try {
-      indexFiles.push(await findIndexFile(root));
       files.push(...(await listConflictedFiles(root)));
     } catch (error) {
-      reportFailure(root, error);
+      reportListingFailure(root, error);
+    }
+    // Apart from the listing, so a repository whose index cannot be found still has its conflicts listed.
+    try {
+      indexFiles.push(await findIndexFile(root));
+    } catch (error) {
+      reportFailure("Finding the Git index of", root, error);
     }
   }
   return { files, indexFiles };

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -287,6 +288,26 @@ describe("conflicted files context key", () => {
 
     const failures = vscodeMock.outputChannels[0].lines.filter((line) => line.startsWith(`Listing conflicts in ${repo} failed.`));
     expect(failures).toHaveLength(1);
+  });
+
+  it("lists the conflicts of a repository whose index cannot be found", async () => {
+    divergeBranches(repo, ["a.txt"]);
+    mergeFeature(repo);
+    vscodeMock.workspaceFolders = [workspaceFolder(repo)];
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    const gitFailingIndexLookup = `#!/bin/sh\ncase "$*" in *--git-path*) exit 1 ;; esac\nexec "${realGit}" "$@"\n`;
+    fs.writeFileSync(path.join(links, "git"), gitFailingIndexLookup, { mode: 0o755 });
+    const inheritedPath = process.env.PATH;
+    process.env.PATH = links;
+    try {
+      activateExtension();
+      await expectConflictedFiles([path.join(repo, "a.txt")]);
+    } finally {
+      process.env.PATH = inheritedPath;
+    }
+
+    expect(watchedIndexFiles()).toEqual([]);
+    expect(vscodeMock.outputChannels[0].lines).toContainEqual(expect.stringMatching(`^Finding the Git index of ${repo} failed.`));
   });
 
   it("refreshes when a merge view closes, as after applying a merge stages the file", async () => {

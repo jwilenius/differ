@@ -98,8 +98,8 @@ export class ConflictedFilesContext implements vscode.Disposable {
 }
 
 /**
- * One watcher per Git index file, each calling `onChange`. A pattern based on a folder outside the workspace, as the
- * git directory of a linked worktree or submodule is, starts a watcher of its own; inside it, the workspace's serves.
+ * One watcher per Git index file, each calling `onChange`. An index under a workspace folder is covered by VS Code's
+ * workspace watcher; one outside it, as a linked worktree's or a submodule's is, gets a watcher of its own.
  */
 class GitIndexWatchers implements vscode.Disposable {
   private readonly watchersByIndexFile = new Map<string, vscode.Disposable>();

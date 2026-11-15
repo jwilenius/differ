@@ -4,6 +4,8 @@ import * as vscode from "vscode";
 
 /** Paths of the conflicted files, read by the `resourcePath in differ.conflictedFiles` menu conditions. */
 const CONTEXT_CONFLICTED_FILES = "differ.conflictedFiles";
+/** A Windows path's leading drive letter, as in `C:\repo`. */
+const DRIVE_LETTER_PATTERN = /^[A-Za-z]:/;
 
 /** What one search of the workspace's repositories found. */
 export interface ConflictedFilesScan {
@@ -71,7 +73,7 @@ export class ConflictedFilesContext implements vscode.Disposable {
       do {
         this.isRefreshPending = false;
         const scan = await this.scanLoggingNewFailures();
-        const paths = await withWorkspaceFolderAliases(scan.files);
+        const paths = withDriveLetterCasings(await withWorkspaceFolderAliases(scan.files), process.platform);
         const isCurrent = !this.isRefreshPending && !this.isDisposed;
         if (isCurrent) {
           this.indexWatchers.watch(scan.indexFiles);
@@ -153,4 +155,24 @@ async function aliasesInFolder(folder: string, files: readonly string[]): Promis
   return files
     .filter((file) => file.startsWith(`${canonicalFolder}${path.sep}`))
     .map((file) => path.join(folder, path.relative(canonicalFolder, file)));
+}
+
+/**
+ * `paths` plus, on Windows, each with its drive letter in both cases. The menus compare `resourcePath` exactly, which
+ * comes from `Uri.fsPath` and so has a lowercase drive letter, while Git and `realpath` may give it in upper case.
+ */
+export function withDriveLetterCasings(paths: readonly string[], platform: NodeJS.Platform): readonly string[] {
+  if (platform !== "win32") {
+    return paths;
+  }
+  return [...new Set(paths.flatMap((filePath) => driveLetterCasings(filePath)))];
+}
+
+/** `filePath` with its drive letter in lower and in upper case; just `filePath` when it has none, as a UNC path. */
+function driveLetterCasings(filePath: string): readonly string[] {
+  if (!DRIVE_LETTER_PATTERN.test(filePath)) {
+    return [filePath];
+  }
+  const afterDriveLetter = filePath.slice(1);
+  return [filePath[0].toLowerCase() + afterDriveLetter, filePath[0].toUpperCase() + afterDriveLetter];
 }

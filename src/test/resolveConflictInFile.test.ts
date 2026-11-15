@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
-import { ConflictedFilesContext, type ConflictedFilesScan } from "../host/vscode/conflictedFilesContext";
+import { ConflictedFilesContext, type ConflictedFilesScan, withDriveLetterCasings } from "../host/vscode/conflictedFilesContext";
 import { activate, deactivate } from "../host/vscode/extension";
 import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
 import {
@@ -301,6 +301,28 @@ describe("conflicted files context key", () => {
     vscodeMock.webviewPanels[0].dispose();
 
     await expectConflictedFiles([]);
+  });
+});
+
+describe("withDriveLetterCasings", () => {
+  it("adds each Windows path with its drive letter in the other case, as `Uri.fsPath` lowercases it", () => {
+    const paths = ["C:\\repo\\a.txt", "d:\\repo\\b.txt", "\\\\server\\share\\c.txt"];
+
+    expect(withDriveLetterCasings(paths, "win32")).toEqual([
+      "c:\\repo\\a.txt",
+      "C:\\repo\\a.txt",
+      "d:\\repo\\b.txt",
+      "D:\\repo\\b.txt",
+      "\\\\server\\share\\c.txt",
+    ]);
+  });
+
+  it("adds a path once when both casings are already listed", () => {
+    expect(withDriveLetterCasings(["c:\\a.txt", "C:\\a.txt"], "win32")).toEqual(["c:\\a.txt", "C:\\a.txt"]);
+  });
+
+  it("leaves other platforms' paths alone", () => {
+    expect(withDriveLetterCasings(["/repo/a.txt", "C:/not-a-drive"], "linux")).toEqual(["/repo/a.txt", "C:/not-a-drive"]);
   });
 });
 

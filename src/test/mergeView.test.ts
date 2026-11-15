@@ -63,6 +63,16 @@ describe("describeMerge", () => {
     expect(chunks[29]).toMatchObject({ left: { resolution: "pending", words: [] }, resultWords: [] });
   });
 
+  it("marks words in the result for exactly the chunks whose side shows them, however far the effort goes", () => {
+    const base = costlyBlocks("abcdefghij", 20);
+    const state = startMerge(base, costlyBlocks("klmnopqrst", 20), base);
+
+    const chunks = describeMerge(state, WORDS);
+
+    expect(chunks[0].left.words).not.toEqual([]);
+    expect(chunks.filter((chunk) => (chunk.left.words.length > 0) !== (chunk.resultWords.length > 0))).toEqual([]);
+  });
+
   it("keeps word spans on every chunk of a large merge with many small changes", () => {
     const base = Array.from({ length: 10_000 }, (_, index) => `const line${index} = compute(${index}, other);`);
     const left = base.map((line, index) => (index % 7 === 0 ? line.replace("const", "let").replace("compute", "calculate") : line));
@@ -74,8 +84,8 @@ describe("describeMerge", () => {
   });
 });
 
-/** 30 blocks of 20 lines, each line 24 one-letter words: about 1,000 changed words per block when the letters differ. */
-function costlyBlocks(letters: string): string {
-  const line = (offset: number): string => Array.from({ length: 24 }, (_, index) => letters[(index + offset) % letters.length]).join(" ");
+/** 30 blocks of 20 lines of one-letter words: by default about 1,000 changed words per block when the letters differ. */
+function costlyBlocks(letters: string, wordsPerLine = 24): string {
+  const line = (offset: number): string => Array.from({ length: wordsPerLine }, (_, index) => letters[(index + offset) % letters.length]).join(" ");
   return Array.from({ length: 30 }, (_, block) => [`anchor ${block}`, ...Array.from({ length: 20 }, (_, offset) => line(offset))].join("\n")).join("\n");
 }

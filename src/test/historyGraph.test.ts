@@ -84,10 +84,27 @@ describe("buildHistoryGraph", () => {
     expect(rowOf(rows, "b1")).toMatchObject({ lane: 0, lower: [] });
   });
 
-  it("ends lanes for parents outside the loaded commits", () => {
+  it("ends lanes for parents outside the loaded commits in a stub straight down", () => {
     const [row] = buildHistoryGraph([commit("a", "missing")]);
 
     expect(row?.lower).toEqual([]);
+    expect(row?.cuts).toEqual([{ from: 0, to: 0, color: row?.color }]);
+    expect(row?.width).toBe(1);
+  });
+
+  it("angles stubs for unloaded parents beside the lane to a loaded parent", () => {
+    const rows = buildHistoryGraph([commit("m", "p1", "gone1", "gone2"), commit("p1")]);
+    const merge = rowOf(rows, "m");
+
+    expect(ends(merge.lower)).toEqual([[0, 0]]);
+    expect(ends(merge.cuts)).toEqual([[0, 1], [0, 2]]);
+    expect(merge.width).toBe(3);
+  });
+
+  it("draws no stubs for true roots or for parents that are loaded", () => {
+    const rows = buildHistoryGraph([commit("m", "p1", "p2"), commit("p2", "r"), commit("p1", "r"), commit("r")]);
+
+    expect(rows.flatMap((row) => row.cuts)).toEqual([]);
   });
 
   it("produces identical output for repeated input", () => {

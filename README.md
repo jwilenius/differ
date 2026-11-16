@@ -61,7 +61,8 @@ the left; changed files, replay order and commit details on the right.
 - The table shows 200 commits at a time; **Load more** adds 200.
 - The panel loads at most `jwDiffer.historyMaxCommits` commits (default 20,000, minimum 100): the newest ones in
   topological order across local and remote branches, tags and a detached HEAD. When older history is left out, the
-  status line and the end of the table say "Showing the newest 20,000 commits". Changing the setting reloads the panel.
+  status line and the end of the table say "Showing the newest 20,000 commits", and graph lines to parents that were
+  not loaded end in a short dashed stub. Changing the setting reloads the panel.
   Very large values can make VS Code's extension host run out of memory on big repositories.
 
 ### Comparison base

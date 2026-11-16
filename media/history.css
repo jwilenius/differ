@@ -381,6 +381,12 @@ input::placeholder {
   opacity: 0.6;
 }
 
+/* Parents beyond the loaded history: a faint stub that stops short of the row edge. */
+.graph-cut {
+  stroke-dasharray: 1.5 1.5;
+  opacity: 0.6;
+}
+
 .graph-node {
   stroke: var(--lane-color);
   stroke-width: 1.5;

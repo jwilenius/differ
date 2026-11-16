@@ -19,6 +19,12 @@ export interface HistoryGraphRow {
   readonly color: number;
   readonly upper: readonly GraphSegment[];
   readonly lower: readonly GraphSegment[];
+  /**
+   * Short lower stubs from the node for parents beyond the loaded commits:
+   * straight down when no loaded parent continues the lane, else angled to
+   * the lanes right of the node, one per unloaded parent.
+   */
+  readonly cuts: readonly GraphSegment[];
   /** Number of lane positions this row touches; at least `lane + 1`. */
   readonly width: number;
 }
@@ -44,8 +50,8 @@ interface RowLayoutResult {
 
 /**
  * Lays out the branch graph for commits ordered children before parents.
- * Parents outside `commits` are not drawn, so a truncated history ends its
- * lanes like roots instead of leaving lanes open forever.
+ * Parents outside `commits` get no lane, so a truncated history does not leave
+ * lanes open forever; they end in `cuts` stubs instead, unlike true roots.
  */
 export function buildHistoryGraph(commits: readonly HistoryCommit[]): readonly HistoryGraphRow[] {
   const loadedOids = new Set(commits.map((commit) => commit.oid));
@@ -55,7 +61,8 @@ export function buildHistoryGraph(commits: readonly HistoryCommit[]): readonly H
 
   for (const commit of commits) {
     const parents = commit.parents.filter((parent) => loadedOids.has(parent));
-    const layout = layoutRow(commit.oid, parents, lanes, nextColor);
+    const unloadedParentCount = commit.parents.length - parents.length;
+    const layout = layoutRow(commit.oid, parents, unloadedParentCount, lanes, nextColor);
     rows.push(layout.row);
     lanes = layout.lanes;
     nextColor = layout.nextColor;
@@ -83,7 +90,13 @@ export function filterHistoryGraph(rows: readonly HistoryGraphRow[], visibleOids
   });
 }
 
-function layoutRow(oid: string, parents: readonly string[], incoming: readonly Lane[], firstFreeColor: number): RowLayoutResult {
+function layoutRow(
+  oid: string,
+  parents: readonly string[],
+  unloadedParentCount: number,
+  incoming: readonly Lane[],
+  firstFreeColor: number,
+): RowLayoutResult {
   let nextColor = firstFreeColor;
   const existingLane = incoming.findIndex((lane) => lane.oid === oid);
   const isNewLane = existingLane < 0;
@@ -123,8 +136,16 @@ function layoutRow(oid: string, parents: readonly string[], incoming: readonly L
     lower.push({ from: nodeLane, to: laneOf(parent), color });
   });
 
-  const width = Math.max(nodeLane + 1, incoming.length, middle.length, outgoing.length);
-  const row: HistoryGraphRow = { oid, lane: nodeLane, color: nodeColor, upper, lower, width };
+  const firstCutLane = parents.length > 0 ? nodeLane + 1 : nodeLane;
+  const cuts: GraphSegment[] = Array.from({ length: unloadedParentCount }, (_unused, index) => ({
+    from: nodeLane,
+    to: firstCutLane + index,
+    color: nodeColor,
+  }));
+
+  const widestCut = firstCutLane + unloadedParentCount;
+  const width = Math.max(nodeLane + 1, incoming.length, middle.length, outgoing.length, widestCut);
+  const row: HistoryGraphRow = { oid, lane: nodeLane, color: nodeColor, upper, lower, cuts, width };
   return { row, lanes: outgoing, nextColor };
 }
 

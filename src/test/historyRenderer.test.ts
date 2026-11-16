@@ -124,6 +124,19 @@ describe("HtmlHistoryRenderer", () => {
     expect(html).toContain("2 hidden by filters");
   });
 
+  it("ends lines to unloaded parents in stubs while true roots end at their node", () => {
+    const cut: HistoryData = { ...history, commits: history.commits.filter((entry) => entry.oid !== ROOT), isTruncated: true };
+
+    const truncated = render({ history: cut }, { visibleOids: [MERGE, SIDE, MIDDLE] });
+    const complete = render();
+    const graphOf = (id: string): string => truncated.slice(truncated.indexOf(rowFor(truncated, id))).split("</tr>")[0]!;
+
+    expect(graphOf(SIDE)).toMatch(/<line class="graph-edge lane-\d graph-cut" x1="18" y1="11" x2="18" y2="17"\/>/);
+    expect(graphOf(MIDDLE)).toContain("graph-cut");
+    expect(graphOf(MERGE)).not.toContain("graph-cut");
+    expect(complete).not.toContain("graph-cut");
+  });
+
   it("marks hidden rows in the graph instead of joining visible rows", () => {
     const html = render({}, { visibleOids: [MERGE, ROOT] });
 

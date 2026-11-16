@@ -82,6 +82,8 @@ interface StatusLine {
 const LANE_WIDTH = 12;
 const ROW_HEIGHT = 22;
 const NODE_RADIUS = 3.5;
+/** Cut stubs stop short of the row's bottom edge, so they never read as a line continuing into the next row. */
+const CUT_STUB_END_Y = ROW_HEIGHT - 5;
 const LANE_COLOR_COUNT = 8;
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
 const ISO_MINUTE_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
@@ -393,22 +395,35 @@ function renderRefLabels(view: HistoryView, oid: string): string {
 
 // ------------------------------------------------------------------ graph
 
-/** Decorative SVG; dashed `graph-gap` lines mark rows hidden by filters instead of joining across them. */
+/**
+ * Decorative SVG; dashed `graph-gap` lines mark rows hidden by filters instead
+ * of joining across them, and short `graph-cut` stubs mark parents beyond the
+ * loaded history.
+ */
 function renderGraph(entry: VisibleGraphRow, lanes: number, isMerge: boolean): string {
   const { row } = entry;
   const width = lanes * LANE_WIDTH;
   const middle = ROW_HEIGHT / 2;
   const upper = row.upper.map((segment) => renderSegment(segment, 0, middle, entry.hasHiddenAbove));
   const lower = row.lower.map((segment) => renderSegment(segment, middle, ROW_HEIGHT, entry.hasHiddenBelow));
+  const cuts = row.cuts.map((segment) => renderCutStub(segment, middle));
   const nodeClass = `graph-node ${laneClass(row.color)}${isMerge ? " is-merge" : ""}`;
   const node = `<circle class="${nodeClass}" cx="${laneX(row.lane)}" cy="${middle}" r="${NODE_RADIUS}"/>`;
 
-  return `<svg class="graph" width="${width}" height="${ROW_HEIGHT}" viewBox="0 0 ${width} ${ROW_HEIGHT}" aria-hidden="true" focusable="false">${upper.join("")}${lower.join("")}${node}</svg>`;
+  return `<svg class="graph" width="${width}" height="${ROW_HEIGHT}" viewBox="0 0 ${width} ${ROW_HEIGHT}" aria-hidden="true" focusable="false">${upper.join("")}${lower.join("")}${cuts.join("")}${node}</svg>`;
 }
 
 function renderSegment(segment: GraphSegment, y1: number, y2: number, isGap: boolean): string {
   const classes = `graph-edge ${laneClass(segment.color)}${isGap ? " graph-gap" : ""}`;
   return `<line class="${classes}" x1="${laneX(segment.from)}" y1="${y1}" x2="${laneX(segment.to)}" y2="${y2}"/>`;
+}
+
+/** The first part of the lower segment the parent would have had, from the node toward `to`. */
+function renderCutStub(segment: GraphSegment, middle: number): string {
+  const fromX = laneX(segment.from);
+  const shortening = (CUT_STUB_END_Y - middle) / (ROW_HEIGHT - middle);
+  const endX = fromX + (laneX(segment.to) - fromX) * shortening;
+  return `<line class="graph-edge ${laneClass(segment.color)} graph-cut" x1="${fromX}" y1="${middle}" x2="${endX}" y2="${CUT_STUB_END_Y}"/>`;
 }
 
 function laneX(lane: number): number {

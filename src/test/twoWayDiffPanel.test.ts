@@ -105,6 +105,12 @@ describe("TwoWayDiffPanels", () => {
     expect(panel.options.localResourceRoots).toEqual([MEDIA_ROOT]);
   });
 
+  it("offers VS Code's find widget, so Ctrl+F searches both sides of the diff", async () => {
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request());
+
+    expect(onlyPanel().options.enableFindWidget).toBe(true);
+  });
+
   it("renders both sides with a nonce-guarded content security policy", async () => {
     await panels(highlighter(() => Promise.resolve(BLUE))).open(request());
 

@@ -91,11 +91,11 @@ describe("HtmlTwoWayDiffRenderer", () => {
     expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;");
   });
 
-  it("puts each pane's own lines and line numbers in order, gutter facing the strip", () => {
+  it("puts each pane's own lines and line numbers in order, gutter facing the strip, numbers out of Ctrl+F's text", () => {
     const html = render("one\ntwo", "one\ntwo\nthree");
 
-    expect(lineOf(html, "base", 1).markup).toBe(`<span class="code"><span class="tk-base-0">two</span></span><span class="num">2</span>`);
-    expect(lineOf(html, "result", 2).markup).toMatch(/^<span class="num">3<\/span><span class="code">/);
+    expect(lineOf(html, "base", 1).markup).toBe(`<span class="code"><span class="tk-base-0">two</span></span><span class="num" data-number="2"></span>`);
+    expect(lineOf(html, "result", 2).markup).toMatch(/^<span class="num" data-number="3"><\/span><span class="code">/);
     expect(html.split(`id="scroll-base"`)[1].split(`id="scroll-result"`)[0].match(/class="line[ "]/g)).toHaveLength(2);
   });
 
@@ -157,7 +157,7 @@ describe("HtmlTwoWayDiffRenderer", () => {
   it("drops the carriage return of CRLF lines so each stays on one row", () => {
     const html = render("a\r\nb\r\n", "a\r\nb\r\n");
 
-    expect(lineOf(html, "base", 0).markup).toBe(`<span class="code"><span class="tk-base-0">a</span></span><span class="num">1</span>`);
+    expect(lineOf(html, "base", 0).markup).toBe(`<span class="code"><span class="tk-base-0">a</span></span><span class="num" data-number="1"></span>`);
     expect(html).not.toContain("\r");
   });
 

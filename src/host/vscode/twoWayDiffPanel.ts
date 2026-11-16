@@ -191,7 +191,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       VIEW_TYPE,
       request.title,
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
-      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [this.options.mediaRoot] },
+      { enableScripts: true, enableFindWidget: true, retainContextWhenHidden: true, localResourceRoots: [this.options.mediaRoot] },
     );
     const open: OpenPanel = { panel, request };
     this.current = open;

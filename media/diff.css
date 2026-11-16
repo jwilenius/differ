@@ -219,6 +219,11 @@ button:focus-visible {
   background: var(--vscode-editor-background);
 }
 
+/* Drawn from the attribute, so Ctrl+F matches only the files' text. */
+.num::before {
+  content: attr(data-number);
+}
+
 .pane-base .num {
   right: 0;
   border-left: 1px solid var(--divider);

@@ -115,7 +115,7 @@ export class MergeViewPanel {
       VIEW_TYPE,
       this.title,
       vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [options.mediaRoot] },
+      { enableScripts: true, enableFindWidget: true, retainContextWhenHidden: true, localResourceRoots: [options.mediaRoot] },
     );
     this.panel.webview.onDidReceiveMessage((message: unknown) => this.handleMessage(message), undefined, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), undefined, this.disposables);

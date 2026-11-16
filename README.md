@@ -117,6 +117,8 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   difference does the same towards the previous file, landing on its last difference. Files with no text difference to
   show (binary, too large, not UTF-8, rename- or mode-only) are skipped; at either end of the list the hint says "No more files" / "No
   previous files". The `↑`/`↓` buttons stay within the file, and the built-in diff editor keeps VS Code's own F7.
+- `Ctrl+F` (`Cmd+F`) opens VS Code's find widget over both sides, off-screen lines included (not the line numbers);
+  `Enter` / `Shift+Enter` go to the next / previous match, `Escape` closes it and returns the keys to the diff.
 - Syntax colouring uses the grammars of your installed VS Code extensions and the active colour theme (including
   `editor.tokenColorCustomizations` → `textMateRules`), and follows theme changes. Semantic colouring from language
   servers is not applied, so some identifiers can differ slightly from the editor. Files over 500 000 characters, or
@@ -230,6 +232,7 @@ change ignored, result line 26 edited; 5 changes, 3 conflicts left._
 | IME composition over a multi-line selection                      | Removes it as one undo step, then composes there  |
 | `Ctrl+X` (`Cmd+X`), `Shift+Delete` over a multi-line selection   | Cuts it, as one undo step                         |
 | `F7` / `Shift+F7`                                                | Next / previous unresolved block (also ↓/↑ icons) |
+| `Ctrl+F` (`Cmd+F`)                                               | Finds text in all panes (VS Code's find widget)   |
 | `Ctrl+Z` (`Cmd+Z`)                                               | Undoes the last edit or resolving action          |
 | `Ctrl+Shift+Z` (`Cmd+Shift+Z`), `Ctrl+Y`                         | Redoes it                                         |
 

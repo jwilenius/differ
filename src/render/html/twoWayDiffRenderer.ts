@@ -204,7 +204,8 @@ function renderLine(pane: PaneInput, rawText: string, index: number): string {
     gapAfter ? `gap-after gap-${gapAfter}` : "",
   ].filter(Boolean).join(" ");
   const code = renderCode(text, pane.highlight.lines[index] ?? [], pane.words.get(index) ?? [], pane.side);
-  const number = `<span class="num">${index + 1}</span>`;
+  // diff.css draws the number, which keeps it out of the page text that VS Code's find widget searches.
+  const number = `<span class="num" data-number="${index + 1}"></span>`;
   const content = pane.side === "base" ? `<span class="code">${code}</span>${number}` : `${number}<span class="code">${code}</span>`;
 
   return `<div class="${classes}">${content}</div>`;

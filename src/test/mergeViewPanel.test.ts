@@ -104,6 +104,17 @@ afterEach(() => {
   fs.rmSync(outside, { recursive: true, force: true });
 });
 
+describe("MergeViewPanel find", () => {
+  it("offers VS Code's find widget, so Ctrl+F searches the sides and the result", async () => {
+    divergeBranches(repo, ["f.txt"]);
+    mergeFeature(repo);
+
+    await openPanel(fileDocument(path.join(repo, "f.txt")));
+
+    expect(vscodeMock.webviewPanels[0].options.enableFindWidget).toBe(true);
+  });
+});
+
 describe("MergeViewPanel apply", () => {
   it("refuses to write or stage a file that became a symbolic link", async () => {
     divergeBranches(repo, ["f.txt"]);

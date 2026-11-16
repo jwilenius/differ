@@ -23,6 +23,11 @@ the diff shows only their changes, nothing from the commits between them._
 
 ### Opening it
 
+<img src="docs/images/history-button-explorer.png" width="301" alt="The jw-differ history button in the Explorer's folder header"> <img src="docs/images/history-button-scm.png" width="301" alt="The jw-differ history button in Source Control's Changes header">
+
+_The jw-differ history button in the Explorer's folder header (left) and Source Control's **Changes** header
+(right)._
+
 - Click the jw-differ button (two panes joined by a ribbon) in the Explorer's folder header or the Source Control
   header (Git repositories), run **jw-differ: Open Git History**, or open the **jw-differ** tab in the bottom panel.
   **jw-differ: Refresh Git History** (also the ↻ button in the view title) reloads commits and refs.

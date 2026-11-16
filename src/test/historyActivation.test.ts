@@ -138,7 +138,7 @@ describe("extension activation", () => {
 
     expect(cap).toMatchObject({ type: "number", default: 20_000, minimum: 100 });
     expect(cap?.maximum).toBeUndefined();
-    expect(cap?.description).toMatch(/run out of memory/);
+    expect(cap?.description).toMatch(/use more of the extension host.s memory/);
   });
 
   it("opens history text files in a diff panel, unstyled without a grammar, and closes it on disposal", async () => {

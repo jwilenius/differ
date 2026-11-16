@@ -63,7 +63,9 @@ the left; changed files, replay order and commit details on the right.
   date across local and remote branches, tags and a detached HEAD; the table then lists them in date order rather than
   topological order. When older history is left out, the status line and the end of the table say "Showing the newest
   20,000 commits", and graph lines to parents that were not loaded end in a short dashed stub. Changing the setting
-  reloads the panel. Very large values can make VS Code's extension host run out of memory on big repositories.
+  reloads the panel. Larger values make loading and searching slower and use more of the extension host's memory.
+- The graph draws at most 16 lanes. Commits on later lanes share a 17th overflow column with a dimmed dotted marker,
+  and lines into it fade out at its edge; hovering such a row's graph explains this.
 
 ### Comparison base
 

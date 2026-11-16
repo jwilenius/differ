@@ -457,6 +457,20 @@ describe("diff client file steps", () => {
     expect(messages).toEqual([{ type: "ready" }]);
   });
 
+  it("ends the offer when a toolbar button moves the view", () => {
+    vi.useFakeTimers();
+    const { document, elements, messages } = startAtLastBlock();
+
+    document.fire("keydown", { key: "F7" });
+    elements.prev.fire("click");
+    expect(elements["file-step"].textContent).toBe("");
+    elements.next.fire("click");
+    document.fire("keydown", { key: "F7" });
+
+    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
+    expect(messages).toEqual([{ type: "ready" }]);
+  });
+
   it("offers and opens the previous file with Shift+F7 at the first change", () => {
     vi.useFakeTimers();
     const { document, elements, messages } = startClient(BLOCKS, { files: BOTH_FILES });

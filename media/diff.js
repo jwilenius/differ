@@ -199,8 +199,15 @@
     syncFrom("result");
     scheduleDraw();
   });
-  document.getElementById("prev").addEventListener("click", () => navigate(-1));
-  document.getElementById("next").addEventListener("click", () => navigate(1));
+  // The buttons stay within the file; a click ends any offer of the next or previous file.
+  document.getElementById("prev").addEventListener("click", () => {
+    endFileStep();
+    navigate(-1);
+  });
+  document.getElementById("next").addEventListener("click", () => {
+    endFileStep();
+    navigate(1);
+  });
   document.getElementById("open-native").addEventListener("click", () => vscode.postMessage({ type: "openNative" }));
   document.addEventListener("keydown", (event) => {
     if (event.key !== "F7") {

@@ -105,6 +105,11 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   changed words in a darker shade.
 - Both panes scroll together, keeping corresponding blocks level; `↑`/`↓` (or F7 / Shift+F7) jump between
   differences.
+- F7 at the last difference shows "Press F7 again to go to the next file"; pressing F7 again within 2.5 s opens the
+  next file of the panel's **Changed files** list (same comparison) at its first difference. Shift+F7 at the first
+  difference does the same towards the previous file, landing on its last difference. Files with no text difference to
+  show (binary, rename- or mode-only) are skipped; at either end of the list the hint says "No more files" / "No
+  previous files". The `↑`/`↓` buttons stay within the file, and the built-in diff editor keeps VS Code's own F7.
 - Syntax colouring uses the grammars of your installed VS Code extensions and the active colour theme (including
   `editor.tokenColorCustomizations` → `textMateRules`), and follows theme changes. Semantic colouring from language
   servers is not applied, so some identifiers can differ slightly from the editor. Files over 500 000 characters, or

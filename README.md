@@ -355,6 +355,34 @@ bump; the highest bump wins:
   rulesets that require pull requests, status checks or signed commits on `main`, or that restrict `v*` tags, reject
   the push unless GitHub Actions may bypass them.
 
+### Marketplace publishing
+
+Manual promotion of an existing GitHub Release; nothing is rebuilt.
+
+- Promote: `scripts/publish-marketplace.sh X.Y.Z` (or `vX.Y.Z`; needs `gh`, authenticated). It fetches tags, then
+  checks: release tag `vX.Y.Z` on `origin`; no `vscode-vX.Y.Z` locally or on `origin`; `X.Y.Z` above every
+  `vscode-v*` tag on `origin` (the Marketplace accepts only increasing versions); GitHub Release `vX.Y.Z` has
+  `jw-differ-X.Y.Z.vsix`. It then creates annotated tag `vscode-vX.Y.Z` on the release commit (not `HEAD`) and pushes
+  only that tag. Pushing the tag by hand works too.
+- The tag push runs
+  [Publish to VS Code Marketplace](https://github.com/jwilenius/differ/actions/workflows/publish-marketplace.yml)
+  (`publish-marketplace.yml`), which checks: tag is `vscode-vX.Y.Z` (plain `X.Y.Z`); `vX.Y.Z` exists on the same
+  commit; release asset `jw-differ-X.Y.Z.vsix` downloads; its packaged `extension/package.json` is
+  `jwilenius.jw-differ` at `X.Y.Z` (releases up to `v0.5.0` carry publisher `local` and are rejected). Then
+  the dependency checks of the build (`check:deps`, `npm ci --ignore-scripts`, `check:signatures`) and
+  `vsce publish --oidc --packagePath` with the locked `@vscode/vsce`.
+- Authentication: Marketplace Trusted Publishing (GitHub OIDC, no PAT). The Marketplace exchanges the job's OIDC token
+  for a credential valid 15 minutes. Policy on publisher `jwilenius`: owner `jwilenius`, repository `differ`, workflow
+  `publish-marketplace.yml`, environment `marketplace`; renaming any of them breaks publishing until the policy
+  matches.
+- Repository settings: environment `marketplace` with deployment branches and tags limited to tag pattern
+  `vscode-v*`. Optional: a tag ruleset on `vscode-v*` that restricts creation to maintainers, since creating the tag
+  publishes.
+- Do not promote `v0.5.0` or earlier (publisher `local`). The dependency checks read the release's lockfile at
+  promotion time: a newly published high-severity advisory blocks promotion until a newer release.
+- A failed run can be re-run; a version already on the Marketplace fails the publish step. To drop a promotion that
+  cannot succeed, delete its `vscode-vX.Y.Z` tag locally and on `origin`: it otherwise counts as promoted.
+
 ## Install a development build
 
 Every push to `main` that does not release builds a development installer after the checks pass; a release run keeps

@@ -175,16 +175,36 @@ describe("GitHistoryRepository", () => {
       expect(oids.at(-1)).toBe(base);
     });
 
-    it("asks Git for one commit more than the cap instead of reading the whole history", async () => {
-      commitChain(cap + 2);
+    function tracedGitCalls(): { readonly repository: GitHistoryRepository; readonly calls: () => readonly string[] } {
       const tracePath = path.join(fixture.directory, "git-trace.log");
-      const tracedRepository = new GitHistoryRepository(fixture.root, { ...fixtureGitEnvironment(), GIT_TRACE: tracePath });
+      const traced = new GitHistoryRepository(fixture.root, { ...fixtureGitEnvironment(), GIT_TRACE: tracePath });
+      const calls = (): readonly string[] => fs.readFileSync(tracePath, "utf8").split("\n").filter((line) => / git (log|rev-list) /.test(line));
+      return { repository: traced, calls };
+    }
 
-      await tracedRepository.loadHistory(cap, signal);
+    it("counts at most one commit more than the cap, then reads only the capped log", async () => {
+      commitChain(cap + 2);
+      const traced = tracedGitCalls();
 
-      const logCalls = fs.readFileSync(tracePath, "utf8").split("\n").filter((line) => / git log /.test(line));
+      await traced.repository.loadHistory(cap, signal);
+
+      const [count, log, ...rest] = traced.calls();
+      expect(count).toMatch(/ git rev-list --count /);
+      expect(count).toContain(`--max-count=${cap + 1}`);
+      expect(log).toMatch(/ git log .*--date-order /);
+      expect(log).toContain(`--max-count=${cap} `);
+      expect(rest).toEqual([]);
+    });
+
+    it("reads the log once when the whole history fits under the cap", async () => {
+      commitChain(cap);
+      const traced = tracedGitCalls();
+
+      await traced.repository.loadHistory(cap, signal);
+
+      const logCalls = traced.calls().filter((line) => / git log /.test(line));
       expect(logCalls).toHaveLength(1);
-      expect(logCalls[0]).toContain(`--max-count=${cap + 1}`);
+      expect(logCalls[0]).toContain("--topo-order");
     });
   });
 

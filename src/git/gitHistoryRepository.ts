@@ -70,14 +70,10 @@ export class GitHistoryRepository {
     }
 
     // A capped topological walk follows one line of history deep before others, dropping recent branches; the
-    // date-ordered walk picks the newest commits. One commit beyond the cap tells a longer history from a full one.
-    const newest = await this.readLog("--date-order", maxCommits + 1, tips, signal);
-    const isTruncated = newest.length > maxCommits;
-    if (isTruncated) {
-      return { commits: newest.slice(0, maxCommits), refs, isTruncated };
-    }
-    // Re-reading a history that fits under the cap is cheap.
-    const commits = await this.readLog("--topo-order", maxCommits, tips, signal);
+    // date-ordered walk picks the newest commits. Counting one commit beyond the cap tells a longer history from a
+    // full one far more cheaply than formatting the log twice.
+    const isTruncated = await this.countCommits(maxCommits + 1, tips, signal) > maxCommits;
+    const commits = await this.readLog(isTruncated ? "--date-order" : "--topo-order", maxCommits, tips, signal);
     return { commits, refs, isTruncated };
   }
 
@@ -164,6 +160,16 @@ export class GitHistoryRepository {
       const [oid = "", ...parents] = line.split(" ");
       return { oid, parents };
     });
+  }
+
+  /** Commits reachable from `tips`, counted no further than `maxCount`. */
+  private async countCommits(maxCount: number, tips: readonly string[], signal: AbortSignal): Promise<number> {
+    const result = await this.git(["rev-list", "--count", `--max-count=${maxCount}`, "--stdin"], signal, revisionInput(tips));
+    const count = result.stdout.toString("utf8").trim();
+    if (!/^\d+$/.test(count)) {
+      throw new HistoryOutputError(`Unexpected commit count "${count}".`);
+    }
+    return Number(count);
   }
 
   /** Up to `maxCount` commits reachable from `tips`, children before parents, in the given order. */

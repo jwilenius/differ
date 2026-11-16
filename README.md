@@ -1,4 +1,6 @@
-# Differ
+# jw-differ
+
+_jw-differ is short for "just-working-differ" or "jim-wilenius-differ" — take your pick._
 
 IntelliJ-style Git commit diff viewer and three-way merge conflict resolver for VS Code.
 
@@ -9,7 +11,7 @@ Two workflows: review the combined changes of any set of commits, and resolve me
 Select any subset of commits — including non-adjacent ones — and see exactly what those commits change, with nothing
 from the commits in between. Double-click a file to open its diff in VS Code's native diff editor.
 
-![Differ Git History panel below an open two-way diff of src/inventory.ts](docs/images/history-view.png)
+![jw-differ Git History panel below an open two-way diff of src/inventory.ts](docs/images/history-view.png)
 
 _Git History panel: branch graph, commit table, changed files, replay order and details; the selected commit's diff
 open above._
@@ -21,8 +23,9 @@ the diff shows only their changes, nothing from the commits between them._
 
 ### Opening it
 
-- Click the **Differ** icon in the Activity Bar, run **Differ: Open Git History**, or open the **Differ** tab in the
-  bottom panel. **Differ: Refresh Git History** (also the ↻ button in the view title) reloads commits and refs.
+- Click the **jw-differ** icon in the Activity Bar, run **jw-differ: Open Git History**, or open the **jw-differ** tab
+  in the bottom panel. **jw-differ: Refresh Git History** (also the ↻ button in the view title) reloads commits and
+  refs.
 - The Activity Bar icon opens the bottom panel, not a side bar view: the side bar closes, and reopening it (Ctrl+B)
   shows the Explorer.
 - The repository comes from the active editor and the workspace folders; the picker switches between them, and
@@ -55,15 +58,15 @@ the left; changed files, replay order and commit details on the right.
 - **Automatic** (default): the parent of the earliest selected commit, or the empty tree when that is the root commit.
   The ancestry decides "earliest", not table order or dates. The toolbar shows the resolved hash and subject.
 - When the selection has several earliest commits that are not ancestors of each other (for example commits on two
-  branches), Differ asks for a base: type a commit, branch or tag and press **Pin**. A pinned ref is resolved once and
-  stays on that commit even if the branch later moves; **Automatic** unpins it.
+  branches), jw-differ asks for a base: type a commit, branch or tag and press **Pin**. A pinned ref is resolved once
+  and stays on that commit even if the branch later moves; **Automatic** unpins it.
 - A selected merge commit gets a parent selector in the replay list (default: first parent). Its changes are taken
   relative to that parent, and the choice also moves the Automatic base when the merge is the earliest commit.
 
 ### What is compared
 
-- Differ replays only the selected commits' own changes (each against its parent) onto the base, oldest first, in Git's
-  topological order. The replay order is listed in the panel.
+- jw-differ replays only the selected commits' own changes (each against its parent) onto the base, oldest first, in
+  Git's topological order. The replay order is listed in the panel.
 - The file list shows the net change from base to result: additions, deletions, modifications, renames, mode changes,
   binary files and submodules. Changes that cancel out disappear; if everything cancels, the panel says so.
 - If a selected commit depends on a commit you left out and cannot be applied, replay stops at that commit and lists
@@ -89,7 +92,7 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   `editor.tokenColorCustomizations` → `textMateRules`), and follows theme changes. Semantic colouring from language
   servers is not applied, so some identifiers can differ slightly from the editor. Files over 500 000 characters, or
   that take more than about 2 seconds to colour, are shown partly or wholly uncoloured.
-- **Open in VS Code diff** shows the same comparison in the built-in diff editor. Set `differ.historyDiffViewer` to
+- **Open in VS Code diff** shows the same comparison in the built-in diff editor. Set `jwDiffer.historyDiffViewer` to
   `native` to always use it. Opening another file reuses the same tab.
 
 ### Limits
@@ -112,27 +115,27 @@ _`src/inventory.ts` mid-merge: `main` left, result middle, `feature/sku` right; 
 
 ### Opening it
 
-- **Differ: Resolve Conflicts** lists the conflicted (unmerged) files of every repository holding a workspace folder or
-  the active editor; pick one to open it. Only text conflicts are listed: both sides present, every stage a regular
+- **jw-differ: Resolve Conflicts** lists the conflicted (unmerged) files of every repository holding a workspace folder
+  or the active editor; pick one to open it. Only text conflicts are listed: both sides present, every stage a regular
   file. Modify/delete, symbolic-link and submodule conflicts are left to git.
 - Every stage must be UTF-8 text without NUL bytes. A binary or non-UTF-8 (e.g. Latin-1) conflict is still listed, but
   opens a page saying why it cannot be merged rather than corrupting its characters. A UTF-8 byte order mark is dropped
   from the stages and merged on its own (a side that added or removed it wins). Apply writes it once: VS Code saves the
   mark of a file opened with one; otherwise, as after a conflict on line 1, the mark leads the written text.
-- **Differ: Open Three-Way Merge View**, or the merge button in the title bar of a file with conflict markers, opens the
-  active file.
-- **Resolve Conflict in Differ** in the right-click menu of a conflicted file opens that file: in the Explorer, on an
+- **jw-differ: Open Three-Way Merge View**, or the merge button in the title bar of a file with conflict markers, opens
+  the active file.
+- **Resolve Conflict in jw-differ** in the right-click menu of a conflicted file opens that file: in the Explorer, on an
   editor tab, and in Source Control's Merge Changes. The Explorer and tab entries track the files the picker lists
   (including their paths through a workspace folder opened via a symbolic link); the list refreshes on activation, on
   window focus, on workspace folder changes, when the Git index of a repository it covers changes (including an index
   outside the workspace folder: a linked worktree's, a submodule's, or that of a repository above the folder), and when
   a merge view closes. The Source Control entry shows on every file under Merge Changes, as VS Code gives that menu no
-  file path to test; on a conflict Differ cannot merge, such as a deleted side, a symbolic link or a binary file, it says
-  why.
+  file path to test; on a conflict jw-differ cannot merge, such as a deleted side, a symbolic link or a binary file, it
+  says why.
 
-![Differ: Resolve Conflicts QuickPick listing README.md and src/inventory.ts](docs/images/resolve-conflicts-picker.png)
+![jw-differ: Resolve Conflicts QuickPick listing README.md and src/inventory.ts](docs/images/resolve-conflicts-picker.png)
 
-_**Differ: Resolve Conflicts** lists the conflicted files._
+_**jw-differ: Resolve Conflicts** lists the conflicted files._
 
 ### Panes
 
@@ -214,20 +217,20 @@ The change colours of the two-way diff and the merge view are theme colours: eac
 `workbench.colorCustomizations` in `settings.json` overrides them for every theme or, under `"[Theme Name]"`, for one
 theme. Open views repaint when the setting changes. Colour themes can set the same ids in their `colors`.
 
-| Id                                     | Paints                                                                    | Dark      | Light     | High contrast |
-| -------------------------------------- | ------------------------------------------------------------------------- | --------- | --------- | ------------- |
-| `differ.diffAddedBackground`           | Two-way diff: added lines (green), their line numbers and ribbons         | `#2f4337` | `#e3f3e6` | `#1b3323`     |
-| `differ.diffDeletedBackground`         | Two-way diff: deleted lines (grey), their line numbers and ribbons        | `#484a4a` | `#ebebeb` | `#3a3a3a`     |
-| `differ.diffModifiedBackground`        | Two-way diff: modified lines (blue), their line numbers and ribbons       | `#28323d` | `#e6eefb` | `#1b2a3d`     |
-| `differ.diffModifiedWordBackground`    | Two-way diff: changed words inside modified lines                         | `#3e546e` | `#c5d7f5` | `#2e5788`     |
-| `differ.mergeConflictBackground`       | Merge: conflict lines (red)                                               | `#241f1f` | `#fff0ec` | `#3d2421`     |
-| `differ.mergeConflictStrongBackground` | Merge: a conflict's gutters, result line numbers, ribbons and words       | `#312623` | `#fbd4ca` | `#6b3a33`     |
-| `differ.mergeAddedBackground`          | Merge: added lines (green)                                                | `#25322a` | `#e3f3e6` | `#1b3323`     |
-| `differ.mergeAddedStrongBackground`    | Merge: an added block's gutters, result line numbers and ribbons          | `#25322a` | `#c9e8cf` | `#2b5537`     |
-| `differ.mergeDeletedBackground`        | Merge: deleted lines (grey)                                               | `#363737` | `#ebebeb` | `#3a3a3a`     |
-| `differ.mergeDeletedStrongBackground`  | Merge: a deleted block's gutters, result line numbers and ribbons         | `#363737` | `#d6d6d6` | `#555555`     |
-| `differ.mergeModifiedBackground`       | Merge: modified lines (blue)                                              | `#222930` | `#edf3fd` | `#1b2a3d`     |
-| `differ.mergeModifiedStrongBackground` | Merge: a modified block's gutters, result line numbers, ribbons and words | `#2f3d50` | `#c5d7f5` | `#2e5788`     |
+| Id                                       | Paints                                                                    | Dark      | Light     | High contrast |
+| ---------------------------------------- | ------------------------------------------------------------------------- | --------- | --------- | ------------- |
+| `jwDiffer.diffAddedBackground`           | Two-way diff: added lines (green), their line numbers and ribbons         | `#2f4337` | `#e3f3e6` | `#1b3323`     |
+| `jwDiffer.diffDeletedBackground`         | Two-way diff: deleted lines (grey), their line numbers and ribbons        | `#484a4a` | `#ebebeb` | `#3a3a3a`     |
+| `jwDiffer.diffModifiedBackground`        | Two-way diff: modified lines (blue), their line numbers and ribbons       | `#28323d` | `#e6eefb` | `#1b2a3d`     |
+| `jwDiffer.diffModifiedWordBackground`    | Two-way diff: changed words inside modified lines                         | `#3e546e` | `#c5d7f5` | `#2e5788`     |
+| `jwDiffer.mergeConflictBackground`       | Merge: conflict lines (red)                                               | `#241f1f` | `#fff0ec` | `#3d2421`     |
+| `jwDiffer.mergeConflictStrongBackground` | Merge: a conflict's gutters, result line numbers, ribbons and words       | `#312623` | `#fbd4ca` | `#6b3a33`     |
+| `jwDiffer.mergeAddedBackground`          | Merge: added lines (green)                                                | `#25322a` | `#e3f3e6` | `#1b3323`     |
+| `jwDiffer.mergeAddedStrongBackground`    | Merge: an added block's gutters, result line numbers and ribbons          | `#25322a` | `#c9e8cf` | `#2b5537`     |
+| `jwDiffer.mergeDeletedBackground`        | Merge: deleted lines (grey)                                               | `#363737` | `#ebebeb` | `#3a3a3a`     |
+| `jwDiffer.mergeDeletedStrongBackground`  | Merge: a deleted block's gutters, result line numbers and ribbons         | `#363737` | `#d6d6d6` | `#555555`     |
+| `jwDiffer.mergeModifiedBackground`       | Merge: modified lines (blue)                                              | `#222930` | `#edf3fd` | `#1b2a3d`     |
+| `jwDiffer.mergeModifiedStrongBackground` | Merge: a modified block's gutters, result line numbers, ribbons and words | `#2f3d50` | `#c5d7f5` | `#2e5788`     |
 
 High contrast light themes use the light defaults. Values are hex colours (`#RRGGBB`). Use opaque colours: the gutters
 and line numbers stay in place while the code scrolls sideways beneath them, so a translucent value (`#RRGGBBAA`) lets
@@ -237,17 +240,17 @@ that code show through and tints the line numbers twice.
 // settings.json
 "workbench.colorCustomizations": {
   // Every theme: added lines in the two-way diff.
-  "differ.diffAddedBackground": "#2e5a3a",
+  "jwDiffer.diffAddedBackground": "#2e5a3a",
   // Default Light Modern only, winning over the entry above: a light green, stronger merge-conflict reds.
   "[Default Light Modern]": {
-    "differ.diffAddedBackground": "#c9f0d2",
-    "differ.mergeConflictBackground": "#ffd9d0",
-    "differ.mergeConflictStrongBackground": "#f5a898"
+    "jwDiffer.diffAddedBackground": "#c9f0d2",
+    "jwDiffer.mergeConflictBackground": "#ffd9d0",
+    "jwDiffer.mergeConflictStrongBackground": "#f5a898"
   }
 }
 ```
 
-Typing `differ.` inside `workbench.colorCustomizations` lists the ids with their descriptions.
+Typing `jwDiffer.` inside `workbench.colorCustomizations` lists the ids with their descriptions.
 
 ## Architecture
 
@@ -272,8 +275,16 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 ## Install from GitHub Releases
 
 1. Open [Releases](https://github.com/jwilenius/differ/releases/latest).
-2. Download the `differ-<version>.vsix` file under **Assets**.
-3. In VS Code, run **Extensions: Install from VSIX...** and select that file.
+2. Download the `jw-differ-<version>.vsix` file under **Assets**.
+3. In VS Code, run **Extensions: Install from VSIX...** and select that file, or run
+   `code --install-extension jw-differ-<version>.vsix`.
+
+### Upgrading from Differ
+
+The extension was renamed from Differ to jw-differ, so its id changed from `local.differ` to `local.jw-differ`, and VS
+Code treats it as a different extension. Uninstall the old Differ before installing jw-differ. Its command, view,
+setting and colour ids moved from `differ.*` to `jwDiffer.*`: update keybindings, `settings.json` entries such as
+`differ.historyDiffViewer`, and `workbench.colorCustomizations` that use the old ids.
 
 ## Release
 
@@ -299,7 +310,7 @@ bump; the highest bump wins:
   With a tag, `package.json` must hold its version, or the run fails: never edit the version by hand.
 - Dry run: `node scripts/next-release-version.mjs` prints the next version (or nothing) on stdout, the reason on
   stderr.
-- A release run sets the version in `package.json` and `package-lock.json`, packages `differ-X.Y.Z.vsix`, commits
+- A release run sets the version in `package.json` and `package-lock.json`, packages `jw-differ-X.Y.Z.vsix`, commits
   `chore: release vX.Y.Z` as `github-actions[bot]`, creates annotated tag `vX.Y.Z`, pushes both atomically
   (`--atomic`), then publishes a GitHub Release with the installer and generated notes. Only the tag and publish jobs
   can write to the repository; they run no dependency code. The version is decided before any dependency code runs.
@@ -323,9 +334,9 @@ Every push to `main` that does not release builds a development installer after 
 its release installer instead. Manual builds are also available.
 
 1. Open [Build and release VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml).
-2. Select a successful run and download the **differ-vsix** artifact (retained for 30 days).
-3. Extract the ZIP to get `differ-main-<commit>.vsix`, named by its 7-character commit hash so it never clashes with a
-   release installer. Its internal version is still the last release's.
+2. Select a successful run and download the **jw-differ-vsix** artifact (retained for 30 days).
+3. Extract the ZIP to get `jw-differ-main-<commit>.vsix`, named by its 7-character commit hash so it never clashes with
+   a release installer. Its internal version is still the last release's.
 4. In VS Code, run **Extensions: Install from VSIX...** and select that file.
 
 For a local installer, use Node.js 22, run `npm ci`, then `npm run package`.
@@ -351,7 +362,7 @@ last changed its schedule. In a public repository GitHub disables the schedule a
 activity; re-enable it on the workflow's page.
 
 Press `F5` in VS Code to launch an Extension Development Host, then open `samples/conflicted.ts` and run
-**Differ: Open Three-Way Merge View**.
+**jw-differ: Open Three-Way Merge View**.
 
 > The `.vscode/` path in this checkout is a device node, not a directory, so no `launch.json` could be written. If `F5`
 > offers no "Run Extension" configuration, add one with `type: extensionHost` and
@@ -389,7 +400,7 @@ Press `F5` in VS Code to launch an Extension Development Host, then open `sample
 | `src/git/gitComparisonRepository.ts`     | Git adapter implementing `HistoryRepository`, snapshot leases  |
 | `src/render/html/historyRenderer.ts`     | History panel HTML: toolbar, graph, table, files, details      |
 | `src/host/vscode/historyViewProvider.ts` | Panel lifecycle, repositories, messages, publishing            |
-| `src/host/vscode/historyDiffProvider.ts` | Read-only `differ-history:` documents and `vscode.diff`        |
+| `src/host/vscode/historyDiffProvider.ts` | Read-only `jw-differ-history:` documents and `vscode.diff`     |
 | `src/host/vscode/historyMessages.ts`     | Validation of every message from the history webview           |
 | `src/model/twoWayDiff.ts`                | Line blocks and word spans for the two-way diff                |
 | `src/render/html/twoWayDiffRenderer.ts`  | IntelliJ-style two-pane diff HTML with token colours           |

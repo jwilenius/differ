@@ -2,7 +2,7 @@
   "name": "jw-differ",
   "displayName": "jw-differ",
   "description": "IntelliJ-style Git commit diff viewer and three-way merge conflict resolver for VS Code",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "jwilenius",
   "private": true,
   "repository": {

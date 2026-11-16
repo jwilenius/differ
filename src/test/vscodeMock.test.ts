@@ -19,31 +19,31 @@ describe("vscode test alias", () => {
 
   it("calls registered command handlers until the registration is disposed", async () => {
     const handler = vi.fn(() => "result");
-    const registration = vscode.commands.registerCommand("differ.test", handler);
+    const registration = vscode.commands.registerCommand("jwDiffer.test", handler);
 
-    const result = await vscode.commands.executeCommand("differ.test", 1, "two");
+    const result = await vscode.commands.executeCommand("jwDiffer.test", 1, "two");
     registration.dispose();
-    const afterDispose = await vscode.commands.executeCommand("differ.test");
+    const afterDispose = await vscode.commands.executeCommand("jwDiffer.test");
 
     expect(result).toBe("result");
     expect(handler).toHaveBeenCalledOnce();
     expect(handler).toHaveBeenCalledWith(1, "two");
     expect(afterDispose).toBeUndefined();
     expect(vscodeMock.executedCommands).toEqual([
-      { command: "differ.test", args: [1, "two"] },
-      { command: "differ.test", args: [] },
+      { command: "jwDiffer.test", args: [1, "two"] },
+      { command: "jwDiffer.test", args: [] },
     ]);
   });
 
   it("removes content and webview view providers on disposal", () => {
-    const contentRegistration = vscode.workspace.registerTextDocumentContentProvider("differ-history", {
+    const contentRegistration = vscode.workspace.registerTextDocumentContentProvider("jw-differ-history", {
       provideTextDocumentContent: () => "",
     });
-    const viewRegistration = vscode.window.registerWebviewViewProvider("differ.history", {
+    const viewRegistration = vscode.window.registerWebviewViewProvider("jwDiffer.history", {
       resolveWebviewView: () => undefined,
     });
-    expect(vscodeMock.contentProviders.has("differ-history")).toBe(true);
-    expect(vscodeMock.webviewViewProviders.has("differ.history")).toBe(true);
+    expect(vscodeMock.contentProviders.has("jw-differ-history")).toBe(true);
+    expect(vscodeMock.webviewViewProviders.has("jwDiffer.history")).toBe(true);
 
     contentRegistration.dispose();
     viewRegistration.dispose();
@@ -68,7 +68,7 @@ describe("vscode test alias", () => {
   it("fires document close events to current subscribers only", () => {
     const listener = vi.fn();
     const subscription = vscode.workspace.onDidCloseTextDocument(listener);
-    const document = { uri: Uri.parse("differ-history:/a") } as vscode.TextDocument;
+    const document = { uri: Uri.parse("jw-differ-history:/a") } as vscode.TextDocument;
 
     fireDidCloseTextDocument(document);
     subscription.dispose();
@@ -96,7 +96,7 @@ describe("vscode test alias", () => {
     ["spaces and newlines", "/dir with space/line\nbreak.txt", "a b\nc"],
     ["query and fragment characters", "/a?b#c%d/../e", "x=1&y=?#%"],
   ])("round-trips %s through URI strings", (_label, uriPath, query) => {
-    const uri = Uri.from({ scheme: "differ-history", path: uriPath, query });
+    const uri = Uri.from({ scheme: "jw-differ-history", path: uriPath, query });
 
     const parsed = Uri.parse(uri.toString());
 
@@ -117,14 +117,14 @@ describe("vscode test alias", () => {
     vscodeMock.openDialogResponse = [Uri.file("/repo")];
 
     const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
-    item.text = "Differ";
+    item.text = "jw-differ";
     item.show();
-    vscode.window.createOutputChannel("Differ History").appendLine("failure");
+    vscode.window.createOutputChannel("jw-differ History").appendLine("failure");
     await vscode.window.showErrorMessage("Oops");
     const picked = await vscode.window.showOpenDialog({ canSelectFolders: true });
 
-    expect(vscodeMock.statusBarItems[0]).toMatchObject({ text: "Differ", isVisible: true, priority: 10 });
-    expect(vscodeMock.outputChannels[0]).toMatchObject({ name: "Differ History", lines: ["failure"] });
+    expect(vscodeMock.statusBarItems[0]).toMatchObject({ text: "jw-differ", isVisible: true, priority: 10 });
+    expect(vscodeMock.outputChannels[0]).toMatchObject({ name: "jw-differ History", lines: ["failure"] });
     expect(vscodeMock.messages).toEqual([{ level: "error", text: "Oops" }]);
     expect(vscodeMock.openDialogRequests).toEqual([{ canSelectFolders: true }]);
     expect(picked?.[0]?.fsPath).toBe("/repo");
@@ -153,7 +153,7 @@ describe("vscode test alias", () => {
   it("clears recorded state and subscriptions on reset", () => {
     const listener = vi.fn();
     vscode.workspace.onDidCloseTextDocument(listener);
-    vscode.commands.registerCommand("differ.test", () => undefined);
+    vscode.commands.registerCommand("jwDiffer.test", () => undefined);
     vscodeMock.workspaceFolders = [];
 
     resetVscodeMock();

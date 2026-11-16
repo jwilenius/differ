@@ -24,7 +24,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "pa
 
 /** An extension folder holding only the bundled regex engine, as the build lays it out. */
 function extensionFolder(): string {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "differ-extension-"));
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-extension-"));
   fs.mkdirSync(path.join(folder, "dist"));
   fs.copyFileSync(require.resolve("vscode-oniguruma/release/onig.wasm"), path.join(folder, "dist", "onig.wasm"));
   return folder;
@@ -46,25 +46,25 @@ describe("extension activation", () => {
   it("registers the history view, document provider and commands next to merge opening", () => {
     activateExtension();
 
-    expect([...vscodeMock.webviewViewProviders.keys()]).toEqual(["differ.history"]);
-    expect(vscodeMock.treeViews.map((view) => view.viewId)).toEqual(["differ.launcher"]);
-    expect([...vscodeMock.contentProviders.keys()]).toEqual(["differ-history"]);
+    expect([...vscodeMock.webviewViewProviders.keys()]).toEqual(["jwDiffer.history"]);
+    expect(vscodeMock.treeViews.map((view) => view.viewId)).toEqual(["jwDiffer.launcher"]);
+    expect([...vscodeMock.contentProviders.keys()]).toEqual(["jw-differ-history"]);
     expect([...vscodeMock.commands.keys()].sort()).toEqual([
-      "differ.openHistory",
-      "differ.openMergeView",
-      "differ.refreshHistory",
-      "differ.resolveConflictInFile",
-      "differ.resolveConflicts",
+      "jwDiffer.openHistory",
+      "jwDiffer.openMergeView",
+      "jwDiffer.refreshHistory",
+      "jwDiffer.resolveConflictInFile",
+      "jwDiffer.resolveConflicts",
     ]);
-    expect(vscodeMock.outputChannels.map((channel) => channel.name)).toEqual(["Differ History"]);
+    expect(vscodeMock.outputChannels.map((channel) => channel.name)).toEqual(["jw-differ History"]);
   });
 
   it("opens history through the contributed view's focus command", async () => {
     activateExtension();
 
-    await vscode.commands.executeCommand("differ.openHistory");
+    await vscode.commands.executeCommand("jwDiffer.openHistory");
 
-    expect(vscodeMock.executedCommands.map((executed) => executed.command)).toContain("differ.history.focus");
+    expect(vscodeMock.executedCommands.map((executed) => executed.command)).toContain("jwDiffer.history.focus");
   });
 
   it("opens the history panel and closes the side bar on the Explorer when the Activity Bar icon shows the launcher", async () => {
@@ -81,7 +81,7 @@ describe("extension activation", () => {
     expect(launcherCommands()).toEqual([
       "workbench.view.explorer",
       "workbench.action.closeSidebar",
-      "differ.history.focus",
+      "jwDiffer.history.focus",
     ]);
   });
 
@@ -116,18 +116,18 @@ describe("extension activation", () => {
     const { commands, viewsContainers, views, menus } = manifest.contributes;
 
     expect(commands.map((entry) => entry.command).sort()).toEqual([...vscodeMock.commands.keys()].sort());
-    expect(viewsContainers.panel).toEqual([{ id: "differHistory", title: "Differ", icon: "$(git-commit)" }]);
-    expect(views.differHistory).toEqual([{ type: "webview", id: "differ.history", name: "Git History" }]);
-    expect(viewsContainers.activitybar).toEqual([{ id: "differLauncher", title: "Differ", icon: "media/differ-activitybar.svg" }]);
-    expect(views.differLauncher.map((view) => view.id)).toEqual(vscodeMock.treeViews.map((view) => view.viewId));
+    expect(viewsContainers.panel).toEqual([{ id: "jwDifferHistory", title: "jw-differ", icon: "$(git-commit)" }]);
+    expect(views.jwDifferHistory).toEqual([{ type: "webview", id: "jwDiffer.history", name: "Git History" }]);
+    expect(viewsContainers.activitybar).toEqual([{ id: "jwDifferLauncher", title: "jw-differ", icon: "media/differ-activitybar.svg" }]);
+    expect(views.jwDifferLauncher.map((view) => view.id)).toEqual(vscodeMock.treeViews.map((view) => view.viewId));
     expect(fs.existsSync(path.join(__dirname, "..", "..", viewsContainers.activitybar[0].icon))).toBe(true);
     expect(menus["view/title"]).toEqual([
-      { command: "differ.refreshHistory", when: "view == differ.history", group: "navigation" },
+      { command: "jwDiffer.refreshHistory", when: "view == jwDiffer.history", group: "navigation" },
     ]);
     const paletteHistory = menus.commandPalette.filter((entry) => entry.command.endsWith("History"));
-    expect(paletteHistory).toEqual([{ command: "differ.openHistory" }, { command: "differ.refreshHistory" }]);
+    expect(paletteHistory).toEqual([{ command: "jwDiffer.openHistory" }, { command: "jwDiffer.refreshHistory" }]);
     expect(menus["editor/title"]).toEqual([
-      { command: "differ.openMergeView", when: "differ.hasConflicts", group: "navigation" },
+      { command: "jwDiffer.openMergeView", when: "jwDiffer.hasConflicts", group: "navigation" },
     ]);
     expect(manifest.activationEvents).toContain("onStartupFinished");
   });
@@ -136,12 +136,12 @@ describe("extension activation", () => {
     const [welcome] = manifest.contributes.viewsWelcome;
 
     expect(manifest.contributes.viewsWelcome).toHaveLength(1);
-    expect(welcome.view).toBe("differ.launcher");
-    expect(welcome.contents).toContain("(command:differ.openHistory)");
+    expect(welcome.view).toBe("jwDiffer.launcher");
+    expect(welcome.contents).toContain("(command:jwDiffer.openHistory)");
   });
 
   it("contributes the history diff viewer setting with the IntelliJ view as default", () => {
-    const viewer = manifest.contributes.configuration.properties["differ.historyDiffViewer"];
+    const viewer = manifest.contributes.configuration.properties["jwDiffer.historyDiffViewer"];
 
     expect(viewer.enum).toEqual(["intellij", "native"]);
     expect(viewer.default).toBe("intellij");
@@ -149,7 +149,7 @@ describe("extension activation", () => {
 
   it("opens history text files in a diff panel, unstyled without a grammar, and closes it on disposal", async () => {
     const subscriptions = activateExtension();
-    const provider = vscodeMock.contentProviders.get("differ-history") as HistoryDiffProvider;
+    const provider = vscodeMock.contentProviders.get("jw-differ-history") as HistoryDiffProvider;
     const repository = {
       readFile: (_snapshotId: string, _fileId: string, side: string) => Promise.resolve({ kind: "text", text: `${side}\n` }),
     } as unknown as HistoryRepository;

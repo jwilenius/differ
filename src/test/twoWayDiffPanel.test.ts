@@ -59,9 +59,9 @@ function unrenderable(side: TwoWayDiffRequest["base"]): TwoWayDiffRequest["base"
 function request(changes: Partial<TwoWayDiffRequest> = {}): TwoWayDiffRequest & { nativeOpens: number; releases: number } {
   const result = {
     title: "app.ts (1807da6c ↔ 2 selected commits)",
-    base: { uri: vscode.Uri.from({ scheme: "differ-history", path: "/b/src/app.ts" }), text: "old\n", label: "1807da6c", path: "src/app.ts" },
-    result: { uri: vscode.Uri.from({ scheme: "differ-history", path: "/r/src/app.ts" }), text: "new\n", label: "2 selected commits", path: "src/app.ts" },
-    languageUri: vscode.Uri.from({ scheme: "differ-history", path: "/r/src/app.ts" }),
+    base: { uri: vscode.Uri.from({ scheme: "jw-differ-history", path: "/b/src/app.ts" }), text: "old\n", label: "1807da6c", path: "src/app.ts" },
+    result: { uri: vscode.Uri.from({ scheme: "jw-differ-history", path: "/r/src/app.ts" }), text: "new\n", label: "2 selected commits", path: "src/app.ts" },
+    languageUri: vscode.Uri.from({ scheme: "jw-differ-history", path: "/r/src/app.ts" }),
     nativeOpens: 0,
     releases: 0,
     openNative: () => {
@@ -98,7 +98,7 @@ describe("TwoWayDiffPanels", () => {
     await panels(highlighter(() => Promise.resolve(BLUE))).open(request());
 
     const panel = onlyPanel();
-    expect(panel.viewType).toBe("differ.twoWayDiff");
+    expect(panel.viewType).toBe("jwDiffer.twoWayDiff");
     expect(panel.title).toBe("app.ts (1807da6c ↔ 2 selected commits)");
     expect(panel.showOptions).toEqual({ viewColumn: vscode.ViewColumn.Active, preserveFocus: false });
     expect(panel.options.enableScripts).toBe(true);
@@ -157,7 +157,7 @@ describe("TwoWayDiffPanels", () => {
     onlyPanel().webview.fireDidReceiveMessage({ type: "openNative" });
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(vscodeMock.messages).toEqual([{ level: "error", text: "Differ could not open the VS Code diff editor." }]);
+    expect(vscodeMock.messages).toEqual([{ level: "error", text: "jw-differ could not open the VS Code diff editor." }]);
     expect(logged[0]).toContain("no editor");
   });
 
@@ -300,7 +300,7 @@ describe("TwoWayDiffPanels", () => {
     const diffPanels = panels(recording);
     await diffPanels.open(request());
 
-    changeConfiguration("differ.wordLevelHighlighting", false);
+    changeConfiguration("jwDiffer.wordLevelHighlighting", false);
     // The active-theme event, not the setting, reports a theme switch.
     changeConfiguration("workbench.colorTheme", "Default Light Modern");
     diffPanels.dispose();

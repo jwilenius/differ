@@ -167,7 +167,7 @@ describe("SyntaxHighlighting", () => {
 
   it("gives up on a theme file that never finishes reading and retries on the next highlight", async () => {
     // Reading a FIFO without a writer blocks until one opens it.
-    const directory = mkdtempSync(path.join(os.tmpdir(), "differ-theme-"));
+    const directory = mkdtempSync(path.join(os.tmpdir(), "jw-differ-theme-"));
     const fifo = path.join(directory, "hung.json");
     execFileSync("mkfifo", [fifo]);
     const hungTheme: FakeExtension = {

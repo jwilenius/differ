@@ -1,6 +1,6 @@
 {
-  "name": "differ",
-  "displayName": "Differ",
+  "name": "jw-differ",
+  "displayName": "jw-differ",
   "description": "IntelliJ-style Git commit diff viewer and three-way merge conflict resolver for VS Code",
   "version": "0.4.0",
   "publisher": "local",
@@ -25,144 +25,144 @@
   "contributes": {
     "commands": [
       {
-        "command": "differ.openMergeView",
+        "command": "jwDiffer.openMergeView",
         "title": "Open Three-Way Merge View",
-        "category": "Differ",
+        "category": "jw-differ",
         "icon": "$(git-merge)"
       },
       {
-        "command": "differ.resolveConflicts",
+        "command": "jwDiffer.resolveConflicts",
         "title": "Resolve Conflicts",
-        "category": "Differ",
+        "category": "jw-differ",
         "icon": "$(git-merge)"
       },
       {
-        "command": "differ.resolveConflictInFile",
-        "title": "Resolve Conflict in Differ",
-        "category": "Differ"
+        "command": "jwDiffer.resolveConflictInFile",
+        "title": "Resolve Conflict in jw-differ",
+        "category": "jw-differ"
       },
       {
-        "command": "differ.openHistory",
+        "command": "jwDiffer.openHistory",
         "title": "Open Git History",
-        "category": "Differ",
+        "category": "jw-differ",
         "icon": "$(history)"
       },
       {
-        "command": "differ.refreshHistory",
+        "command": "jwDiffer.refreshHistory",
         "title": "Refresh Git History",
-        "category": "Differ",
+        "category": "jw-differ",
         "icon": "$(refresh)"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "differLauncher",
-          "title": "Differ",
+          "id": "jwDifferLauncher",
+          "title": "jw-differ",
           "icon": "media/differ-activitybar.svg"
         }
       ],
       "panel": [
         {
-          "id": "differHistory",
-          "title": "Differ",
+          "id": "jwDifferHistory",
+          "title": "jw-differ",
           "icon": "$(git-commit)"
         }
       ]
     },
     "views": {
-      "differHistory": [
+      "jwDifferHistory": [
         {
           "type": "webview",
-          "id": "differ.history",
+          "id": "jwDiffer.history",
           "name": "Git History"
         }
       ],
-      "differLauncher": [
+      "jwDifferLauncher": [
         {
-          "id": "differ.launcher",
+          "id": "jwDiffer.launcher",
           "name": "Launcher"
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "differ.launcher",
-        "contents": "Differ's Git History opens in the bottom panel.\n[Open Git History](command:differ.openHistory)"
+        "view": "jwDiffer.launcher",
+        "contents": "jw-differ's Git History opens in the bottom panel.\n[Open Git History](command:jwDiffer.openHistory)"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "differ.openMergeView",
-          "when": "differ.hasConflicts",
+          "command": "jwDiffer.openMergeView",
+          "when": "jwDiffer.hasConflicts",
           "group": "navigation"
         }
       ],
       "explorer/context": [
         {
-          "command": "differ.resolveConflictInFile",
-          "when": "!explorerResourceIsFolder && resourcePath in differ.conflictedFiles",
+          "command": "jwDiffer.resolveConflictInFile",
+          "when": "!explorerResourceIsFolder && resourcePath in jwDiffer.conflictedFiles",
           "group": "navigation"
         }
       ],
       "editor/title/context": [
         {
-          "command": "differ.resolveConflictInFile",
-          "when": "resourcePath in differ.conflictedFiles",
+          "command": "jwDiffer.resolveConflictInFile",
+          "when": "resourcePath in jwDiffer.conflictedFiles",
           "group": "navigation"
         }
       ],
       "scm/resourceState/context": [
         {
-          "command": "differ.resolveConflictInFile",
+          "command": "jwDiffer.resolveConflictInFile",
           "when": "scmProvider == git && scmResourceGroup == merge",
           "group": "navigation"
         }
       ],
       "view/title": [
         {
-          "command": "differ.refreshHistory",
-          "when": "view == differ.history",
+          "command": "jwDiffer.refreshHistory",
+          "when": "view == jwDiffer.history",
           "group": "navigation"
         }
       ],
       "commandPalette": [
         {
-          "command": "differ.openMergeView",
+          "command": "jwDiffer.openMergeView",
           "when": "editorIsOpen"
         },
         {
-          "command": "differ.resolveConflicts"
+          "command": "jwDiffer.resolveConflicts"
         },
         {
-          "command": "differ.resolveConflictInFile",
+          "command": "jwDiffer.resolveConflictInFile",
           "when": "false"
         },
         {
-          "command": "differ.openHistory"
+          "command": "jwDiffer.openHistory"
         },
         {
-          "command": "differ.refreshHistory"
+          "command": "jwDiffer.refreshHistory"
         }
       ]
     },
     "configuration": {
-      "title": "Differ",
+      "title": "jw-differ",
       "properties": {
-        "differ.wordLevelHighlighting": {
+        "jwDiffer.wordLevelHighlighting": {
           "type": "boolean",
           "default": true,
           "description": "Highlight the changed words inside modified lines."
         },
-        "differ.historyDiffViewer": {
+        "jwDiffer.historyDiffViewer": {
           "type": "string",
           "enum": [
             "intellij",
             "native"
           ],
           "enumDescriptions": [
-            "Open changed files from Git History in Differ's IntelliJ-style side-by-side diff.",
+            "Open changed files from Git History in jw-differ's IntelliJ-style side-by-side diff.",
             "Open changed files from Git History in VS Code's built-in diff editor."
           ],
           "default": "intellij",
@@ -172,7 +172,7 @@
     },
     "colors": [
       {
-        "id": "differ.diffAddedBackground",
+        "id": "jwDiffer.diffAddedBackground",
         "description": "Two-way diff: added lines, their line numbers and ribbons.",
         "defaults": {
           "dark": "#2f4337",
@@ -181,7 +181,7 @@
         }
       },
       {
-        "id": "differ.diffDeletedBackground",
+        "id": "jwDiffer.diffDeletedBackground",
         "description": "Two-way diff: deleted lines, their line numbers and ribbons.",
         "defaults": {
           "dark": "#484a4a",
@@ -190,7 +190,7 @@
         }
       },
       {
-        "id": "differ.diffModifiedBackground",
+        "id": "jwDiffer.diffModifiedBackground",
         "description": "Two-way diff: modified lines, their line numbers and ribbons.",
         "defaults": {
           "dark": "#28323d",
@@ -199,7 +199,7 @@
         }
       },
       {
-        "id": "differ.diffModifiedWordBackground",
+        "id": "jwDiffer.diffModifiedWordBackground",
         "description": "Two-way diff: changed words inside modified lines.",
         "defaults": {
           "dark": "#3e546e",
@@ -208,7 +208,7 @@
         }
       },
       {
-        "id": "differ.mergeConflictBackground",
+        "id": "jwDiffer.mergeConflictBackground",
         "description": "Merge view: lines of a conflict (both sides changed the block).",
         "defaults": {
           "dark": "#241f1f",
@@ -217,7 +217,7 @@
         }
       },
       {
-        "id": "differ.mergeConflictStrongBackground",
+        "id": "jwDiffer.mergeConflictStrongBackground",
         "description": "Merge view: a conflict's gutters, result line numbers, ribbons and changed words.",
         "defaults": {
           "dark": "#312623",
@@ -226,7 +226,7 @@
         }
       },
       {
-        "id": "differ.mergeAddedBackground",
+        "id": "jwDiffer.mergeAddedBackground",
         "description": "Merge view: lines a side added.",
         "defaults": {
           "dark": "#25322a",
@@ -235,7 +235,7 @@
         }
       },
       {
-        "id": "differ.mergeAddedStrongBackground",
+        "id": "jwDiffer.mergeAddedStrongBackground",
         "description": "Merge view: an added block's gutters, result line numbers and ribbons.",
         "defaults": {
           "dark": "#25322a",
@@ -244,7 +244,7 @@
         }
       },
       {
-        "id": "differ.mergeDeletedBackground",
+        "id": "jwDiffer.mergeDeletedBackground",
         "description": "Merge view: lines a side deleted.",
         "defaults": {
           "dark": "#363737",
@@ -253,7 +253,7 @@
         }
       },
       {
-        "id": "differ.mergeDeletedStrongBackground",
+        "id": "jwDiffer.mergeDeletedStrongBackground",
         "description": "Merge view: a deleted block's gutters, result line numbers and ribbons.",
         "defaults": {
           "dark": "#363737",
@@ -262,7 +262,7 @@
         }
       },
       {
-        "id": "differ.mergeModifiedBackground",
+        "id": "jwDiffer.mergeModifiedBackground",
         "description": "Merge view: lines a side modified.",
         "defaults": {
           "dark": "#222930",
@@ -271,7 +271,7 @@
         }
       },
       {
-        "id": "differ.mergeModifiedStrongBackground",
+        "id": "jwDiffer.mergeModifiedStrongBackground",
         "description": "Merge view: a modified block's gutters, result line numbers, ribbons and changed words.",
         "defaults": {
           "dark": "#2f3d50",

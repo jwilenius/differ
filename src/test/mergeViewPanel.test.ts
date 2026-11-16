@@ -96,7 +96,7 @@ beforeEach(() => {
   resetVscodeMock();
   vscodeMock.openFileDocument = (uri) => fileDocument(uri.fsPath);
   repo = createConflictRepository();
-  outside = fs.mkdtempSync(path.join(os.tmpdir(), "differ-outside-"));
+  outside = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-outside-"));
 });
 
 afterEach(() => {
@@ -288,7 +288,7 @@ describe("MergeViewPanel apply after confirming an unresolved result", () => {
     post(webview, { type: "apply" });
 
     await vi.waitFor(() => expect(vscodeMock.messages.map(({ level }) => level)).toEqual(["warning", "error"]));
-    expect(vscodeMock.messages[1].text).toBe("Differ could not complete the merge action. The file cannot be opened.");
+    expect(vscodeMock.messages[1].text).toBe("jw-differ could not complete the merge action. The file cannot be opened.");
   });
 });
 
@@ -415,7 +415,7 @@ describe("MergeViewPanel for a conflict it cannot merge", () => {
 
     const { html } = vscodeMock.webviewPanels[0].webview;
     expect(html).not.toContain("No merge in progress");
-    expect(html).toContain("Differ cannot merge f.txt");
+    expect(html).toContain("jw-differ cannot merge f.txt");
     expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">`);
   });
 
@@ -427,7 +427,7 @@ describe("MergeViewPanel for a conflict it cannot merge", () => {
     await openPanel(fileDocument(path.join(repo, "f.txt")));
 
     const { html } = vscodeMock.webviewPanels[0].webview;
-    expect(html).toContain("Differ cannot merge f.txt");
+    expect(html).toContain("jw-differ cannot merge f.txt");
     expect(html).toContain("is not UTF-8 text");
     expect(html).not.toContain("not conflicted");
   });
@@ -439,7 +439,7 @@ describe("MergeViewPanel for a conflict it cannot merge", () => {
     await openPanel(fileDocument(path.join(repo, "f.txt")));
 
     const { html } = vscodeMock.webviewPanels[0].webview;
-    expect(html).toContain("Differ cannot merge f.txt");
+    expect(html).toContain("jw-differ cannot merge f.txt");
     expect(html).toContain("is binary");
     expect(html).not.toContain("not conflicted");
   });

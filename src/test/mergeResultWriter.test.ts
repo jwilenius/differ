@@ -34,7 +34,7 @@ function failToOpen(): void {
 beforeEach(() => {
   resetVscodeMock();
   vscodeMock.openFileDocument = (uri) => fileDocument(uri.fsPath);
-  directory = fs.mkdtempSync(path.join(os.tmpdir(), "differ-writer-"));
+  directory = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-writer-"));
 });
 
 afterEach(() => {
@@ -85,7 +85,7 @@ describe("writeMergeResult", () => {
     expect(isWritten).toBe(false);
     expect(vscodeMock.appliedEdits).toEqual([]);
     expect(fs.readFileSync(target, "utf8")).toBe("precious\n");
-    expect(vscodeMock.messages).toEqual([{ level: "error", text: "Differ will not write f.txt: it is a symbolic link, and saving would change the file it points to." }]);
+    expect(vscodeMock.messages).toEqual([{ level: "error", text: "jw-differ will not write f.txt: it is a symbolic link, and saving would change the file it points to." }]);
   });
 
   it("creates a deleted file that no document can open", async () => {
@@ -124,6 +124,6 @@ describe("writeMergeResult", () => {
     const isWritten = await writeMergeResult(vscode.Uri.file(file), "merged\n", false);
 
     expect(isWritten).toBe(false);
-    expect(vscodeMock.messages).toEqual([{ level: "error", text: "Differ could not write f.txt." }]);
+    expect(vscodeMock.messages).toEqual([{ level: "error", text: "jw-differ could not write f.txt." }]);
   });
 });

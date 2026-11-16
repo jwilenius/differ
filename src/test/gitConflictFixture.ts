@@ -5,7 +5,7 @@ import * as path from "node:path";
 
 /** A temporary repository on `trunk`; remove it with `fs.rmSync(root, { recursive: true, force: true })`. */
 export function createConflictRepository(): string {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "differ-conflicts-")));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-conflicts-")));
   execFileSync("git", ["init", "-q", "-b", "trunk", root], { stdio: "pipe" });
   return root;
 }

@@ -107,7 +107,7 @@ async function assertParentsAvailable(
   const boundaryOid = selectedOids.find((oid) => shallowOids.has(oid));
   if (boundaryOid !== undefined) {
     const message = `The parents of commit ${boundaryOid} are missing from this shallow clone. `
-      + "Deepen the history with Git outside Differ, then compare again.";
+      + "Deepen the history with Git outside jw-differ, then compare again.";
     throw new HistoryComparisonError(message, "shallowHistory");
   }
 }

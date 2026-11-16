@@ -238,7 +238,7 @@ describe("runHistoryGit with a simulated child process", () => {
 
   it("starts Git in the temporary directory and passes the requested directory as -C", async () => {
     const child = createFakeChild();
-    const requested = fs.mkdtempSync(path.join(os.tmpdir(), "differ-cwd-"));
+    const requested = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-cwd-"));
     try {
       const { promise, spawnProcess } = await startRun(child, { cwd: requested, args: ["log", "-1"] });
       child.emitter.emit("close", 0, null);

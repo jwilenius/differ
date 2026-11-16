@@ -139,7 +139,7 @@ describe("next release version command", () => {
   }
 
   beforeEach(() => {
-    repo = mkdtempSync(join(tmpdir(), "differ-next-release-"));
+    repo = mkdtempSync(join(tmpdir(), "jw-differ-next-release-"));
     git("init", "-q");
     writePackageVersion("0.3.0");
     git("add", ".");

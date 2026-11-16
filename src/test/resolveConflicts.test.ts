@@ -25,12 +25,12 @@ afterEach(() => {
   fs.rmSync(repo, { recursive: true, force: true });
 });
 
-describe("Differ: Resolve Conflicts", () => {
+describe("jw-differ: Resolve Conflicts", () => {
   it("offers each conflicted file by name and folder", async () => {
     divergeBranches(repo, ["top.txt", "src/deep.ts"]);
     mergeFeature(repo);
 
-    await vscode.commands.executeCommand("differ.resolveConflicts");
+    await vscode.commands.executeCommand("jwDiffer.resolveConflicts");
 
     const [request] = vscodeMock.quickPickRequests;
     const offered = request.items.map(({ label, description }) => ({ label, description }));
@@ -41,9 +41,9 @@ describe("Differ: Resolve Conflicts", () => {
   it("reports when nothing is conflicted instead of showing an empty picker", async () => {
     divergeBranches(repo, ["a.txt"]);
 
-    await vscode.commands.executeCommand("differ.resolveConflicts");
+    await vscode.commands.executeCommand("jwDiffer.resolveConflicts");
 
     expect(vscodeMock.quickPickRequests).toEqual([]);
-    expect(vscodeMock.messages).toEqual([{ level: "information", text: "Differ found no conflicted files." }]);
+    expect(vscodeMock.messages).toEqual([{ level: "information", text: "jw-differ found no conflicted files." }]);
   });
 });

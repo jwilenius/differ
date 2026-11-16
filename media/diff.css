@@ -5,10 +5,10 @@
    contributes.colors), which VS Code sets per theme kind and users override with
    workbench.colorCustomizations; the fallbacks are their dark defaults. */
 :root {
-  --chg-modified: var(--vscode-differ-diffModifiedBackground, #28323d);
-  --chg-modified-word: var(--vscode-differ-diffModifiedWordBackground, #3e546e);
-  --chg-added: var(--vscode-differ-diffAddedBackground, #2f4337);
-  --chg-deleted: var(--vscode-differ-diffDeletedBackground, #484a4a);
+  --chg-modified: var(--vscode-jwDiffer-diffModifiedBackground, #28323d);
+  --chg-modified-word: var(--vscode-jwDiffer-diffModifiedWordBackground, #3e546e);
+  --chg-added: var(--vscode-jwDiffer-diffAddedBackground, #2f4337);
+  --chg-deleted: var(--vscode-jwDiffer-diffDeletedBackground, #484a4a);
   --divider: #323438;
   --gutter-text: #6f737a;
   --toolbar-height: 32px;

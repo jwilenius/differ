@@ -39,7 +39,7 @@ describe("discoverRepositoryRoots", () => {
 describe("findGitRepositoryRoot", () => {
   it("returns the canonical work-tree root for a nested directory and null outside a repository", async () => {
     const fixture = createHistoryRepository();
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "differ-outside-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-outside-"));
     try {
       const nested = path.join(fixture.root, "src", "deep");
       fs.mkdirSync(nested, { recursive: true });

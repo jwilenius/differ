@@ -16,8 +16,8 @@ import { candidateDirectories, discoverRepositoryRoots, findGitRepositoryRoot } 
 import type { RepositoryRootFinder } from "./historyRepositoryDiscovery";
 import { describeHistoryStatus } from "./historyStatusBar";
 
-export const HISTORY_VIEW_ID = "differ.history";
-export const OPEN_HISTORY_COMMAND = "differ.openHistory";
+export const HISTORY_VIEW_ID = "jwDiffer.history";
+export const OPEN_HISTORY_COMMAND = "jwDiffer.openHistory";
 /** Focus command VS Code derives from the contributed view ID. */
 export const FOCUS_HISTORY_VIEW_COMMAND = `${HISTORY_VIEW_ID}.focus`;
 /** Quiet period after a selection, base or merge-parent change before comparing. */
@@ -33,7 +33,7 @@ export interface ClosableHistoryRepository extends HistoryRepository {
   dispose(): Promise<void>;
 }
 
-/** Where technical details go; the `Differ History` OutputChannel in production. */
+/** Where technical details go; the `jw-differ History` OutputChannel in production. */
 export interface HistoryLog {
   appendLine(value: string): void;
 }
@@ -117,7 +117,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       ?? ((root, onCleanupError) => new GitComparisonRepository(root, { onCleanupError }));
     this.findRepositoryRoot = options.findRepositoryRoot ?? findGitRepositoryRoot;
     this.statusItem.command = OPEN_HISTORY_COMMAND;
-    this.statusItem.tooltip = "Open Differ history";
+    this.statusItem.tooltip = "Open jw-differ history";
     this.workspaceSubscription = vscode.workspace.onDidChangeWorkspaceFolders(() => {
       if (this.hasDiscovered) {
         void this.discoverRepositories();

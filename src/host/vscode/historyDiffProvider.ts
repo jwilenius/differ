@@ -11,13 +11,13 @@ import type {
 } from "../../model/historyTypes";
 import type { TwoWayDiffPanels } from "./twoWayDiffPanel";
 
-export const HISTORY_DOCUMENT_SCHEME = "differ-history";
+export const HISTORY_DOCUMENT_SCHEME = "jw-differ-history";
 
-/** Setting choosing how text changes open: `intellij` (Differ's side-by-side panel, default) or `native` (`vscode.diff`). */
+/** Setting choosing how text changes open: `intellij` (jw-differ's side-by-side panel, default) or `native` (`vscode.diff`). */
 export const DIFF_VIEWER_SETTING = "historyDiffViewer";
 
 /** Shown for a URI this provider never issued or has already forgotten; nothing is ever read from disk or Git. */
-export const UNAVAILABLE_DOCUMENT_TEXT = "This Differ history document is no longer available. Open the file again from the history panel.\n";
+export const UNAVAILABLE_DOCUMENT_TEXT = "This jw-differ history document is no longer available. Open the file again from the history panel.\n";
 
 /** Opens one changed file of a ready comparison; implemented by `HistoryDiffProvider`. */
 export interface HistoryFileOpener {
@@ -25,7 +25,7 @@ export interface HistoryFileOpener {
 }
 
 /**
- * Serves immutable `differ-history` documents and opens them in Differ's diff panel or VS Code's diff editor. Every
+ * Serves immutable `jw-differ-history` documents and opens them in jw-differ's diff panel or VS Code's diff editor. Every
  * opening reads both sides once, caches the text under fresh opaque document IDs and never reads again, so an open
  * editor keeps showing the comparison it was opened from after the snapshot is released or the selection changes.
  * URIs only address this cache; their paths are display data. Documents shown by an open panel stay cached until the
@@ -70,7 +70,7 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
       base: { uri: this.store(file, "base", base.text), text: base.text },
       result: { uri: this.store(file, "result", result.text), text: result.text },
     };
-    const viewer = vscode.workspace.getConfiguration("differ").get<string>(DIFF_VIEWER_SETTING, "intellij");
+    const viewer = vscode.workspace.getConfiguration("jwDiffer").get<string>(DIFF_VIEWER_SETTING, "intellij");
     try {
       if (viewer === "native") {
         await openNativeDiff(sides, title);
@@ -208,7 +208,7 @@ interface SideContents {
 
 function describeNonText(title: string, file: ComparisonFile, contents: SideContents): string {
   return [
-    "Differ does not show this change as text.",
+    "jw-differ does not show this change as text.",
     "",
     `Comparison: ${title}`,
     `Status: ${file.status}`,

@@ -11,11 +11,11 @@ import { MergeViewPanel } from "./mergeViewPanel";
 import { SyntaxHighlighting } from "./syntaxHighlighting";
 import { TwoWayDiffPanels } from "./twoWayDiffPanel";
 
-const CONTEXT_HAS_CONFLICTS = "differ.hasConflicts";
-const REFRESH_HISTORY_COMMAND = "differ.refreshHistory";
-const RESOLVE_CONFLICTS_COMMAND = "differ.resolveConflicts";
-const RESOLVE_CONFLICT_IN_FILE_COMMAND = "differ.resolveConflictInFile";
-const HISTORY_OUTPUT_CHANNEL = "Differ History";
+const CONTEXT_HAS_CONFLICTS = "jwDiffer.hasConflicts";
+const REFRESH_HISTORY_COMMAND = "jwDiffer.refreshHistory";
+const RESOLVE_CONFLICTS_COMMAND = "jwDiffer.resolveConflicts";
+const RESOLVE_CONFLICT_IN_FILE_COMMAND = "jwDiffer.resolveConflictInFile";
+const HISTORY_OUTPUT_CHANNEL = "jw-differ History";
 
 /** Open merge views by document URI, settled or still loading. */
 const openPanels = new Map<string, Promise<MergeViewPanel>>();
@@ -41,7 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
     highlighter,
     log,
     conflictedFiles,
-    vscode.commands.registerCommand("differ.openMergeView", () => openActiveMergeView(services)),
+    vscode.commands.registerCommand("jwDiffer.openMergeView", () => openActiveMergeView(services)),
     vscode.commands.registerCommand(RESOLVE_CONFLICTS_COMMAND, () => resolveConflicts(services)),
     vscode.commands.registerCommand(RESOLVE_CONFLICT_IN_FILE_COMMAND, (target?: ResolveTarget) => resolveConflictInFile(target, services)),
     vscode.window.onDidChangeActiveTextEditor(updateConflictContext),
@@ -69,7 +69,7 @@ function openActiveMergeView(services: Services): void {
     return;
   }
   if (!hasConflictMarkers(editor.document.getText())) {
-    void vscode.window.showInformationMessage("Differ found no conflict markers in this file.");
+    void vscode.window.showInformationMessage("jw-differ found no conflict markers in this file.");
     return;
   }
   void openMergeView(editor.document, services);
@@ -84,7 +84,7 @@ interface ConflictItem extends vscode.QuickPickItem {
 async function resolveConflicts(services: Services): Promise<void> {
   const files = await findConflictedFiles(services.log);
   if (files.length === 0) {
-    void vscode.window.showInformationMessage("Differ found no conflicted files.");
+    void vscode.window.showInformationMessage("jw-differ found no conflicted files.");
     return;
   }
   const picked = await vscode.window.showQuickPick(files.map(conflictItem), {
@@ -118,7 +118,7 @@ async function openFileMergeView(uri: vscode.Uri, services: Services): Promise<v
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     services.log.appendLine(`Opening ${uri.fsPath} failed. ${message}`);
-    void vscode.window.showErrorMessage(`Differ could not open ${path.basename(uri.fsPath)}. ${message}`);
+    void vscode.window.showErrorMessage(`jw-differ could not open ${path.basename(uri.fsPath)}. ${message}`);
     return;
   }
   await openMergeView(document, services);
@@ -190,7 +190,7 @@ async function openMergeView(document: vscode.TextDocument, services: Services):
     forgetMergeView(key, opening);
     const message = error instanceof Error ? error.message : String(error);
     services.log.appendLine(`Opening the merge view of ${document.uri.fsPath} failed. ${message}`);
-    void vscode.window.showErrorMessage(`Differ could not open the merge view. ${message}`);
+    void vscode.window.showErrorMessage(`jw-differ could not open the merge view. ${message}`);
   }
 }
 
@@ -223,7 +223,7 @@ function activateHistory(context: vscode.ExtensionContext, { mediaRoot, highligh
   );
 }
 
-/** Drives the `differ.hasConflicts` context key that shows the editor title button. */
+/** Drives the `jwDiffer.hasConflicts` context key that shows the editor title button. */
 function updateConflictContext(editor: vscode.TextEditor | undefined): void {
   const hasConflicts = editor !== undefined && hasConflictMarkers(editor.document.getText());
   void vscode.commands.executeCommand("setContext", CONTEXT_HAS_CONFLICTS, hasConflicts);

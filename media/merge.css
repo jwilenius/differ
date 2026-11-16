@@ -4,15 +4,15 @@
    on the gutters, ribbons and changed words. As in diff.css, they are themable
    colours with their dark defaults as fallbacks. */
 :root {
-  --chg-conflict: var(--vscode-differ-mergeConflictBackground, #241f1f);
-  --chg-conflict-strong: var(--vscode-differ-mergeConflictStrongBackground, #312623);
-  --chg-modified: var(--vscode-differ-mergeModifiedBackground, #222930);
-  --chg-modified-strong: var(--vscode-differ-mergeModifiedStrongBackground, #2f3d50);
+  --chg-conflict: var(--vscode-jwDiffer-mergeConflictBackground, #241f1f);
+  --chg-conflict-strong: var(--vscode-jwDiffer-mergeConflictStrongBackground, #312623);
+  --chg-modified: var(--vscode-jwDiffer-mergeModifiedBackground, #222930);
+  --chg-modified-strong: var(--vscode-jwDiffer-mergeModifiedStrongBackground, #2f3d50);
   --chg-modified-word: var(--chg-modified-strong);
-  --chg-added: var(--vscode-differ-mergeAddedBackground, #25322a);
-  --chg-added-strong: var(--vscode-differ-mergeAddedStrongBackground, #25322a);
-  --chg-deleted: var(--vscode-differ-mergeDeletedBackground, #363737);
-  --chg-deleted-strong: var(--vscode-differ-mergeDeletedStrongBackground, #363737);
+  --chg-added: var(--vscode-jwDiffer-mergeAddedBackground, #25322a);
+  --chg-added-strong: var(--vscode-jwDiffer-mergeAddedStrongBackground, #25322a);
+  --chg-deleted: var(--vscode-jwDiffer-mergeDeletedBackground, #363737);
+  --chg-deleted-strong: var(--vscode-jwDiffer-mergeDeletedStrongBackground, #363737);
   --act-color: #9da0a8;
   --footer-height: 44px;
 }

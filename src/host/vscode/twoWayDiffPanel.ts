@@ -5,7 +5,7 @@ import type { HighlightedText } from "../../model/syntaxTokens";
 import { buildTwoWayDiff } from "../../model/twoWayDiff";
 import { HtmlTwoWayDiffRenderer } from "../../render/html/twoWayDiffRenderer";
 
-const VIEW_TYPE = "differ.twoWayDiff";
+const VIEW_TYPE = "jwDiffer.twoWayDiff";
 const NONCE_BYTES = 16;
 /** How long a panel waits for highlighting, such as a theme file that never finishes reading, before showing plain text. */
 const HIGHLIGHT_TIMEOUT_MS = 3_000;
@@ -226,7 +226,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
 
   private render(webview: vscode.Webview, request: TwoWayDiffRequest, [baseHighlight, resultHighlight]: SideHighlights): string {
     const { base, result } = request;
-    const wordLevel = vscode.workspace.getConfiguration("differ").get<boolean>("wordLevelHighlighting", true);
+    const wordLevel = vscode.workspace.getConfiguration("jwDiffer").get<boolean>("wordLevelHighlighting", true);
     const diff = buildTwoWayDiff(base.text, result.text, { wordLevel });
 
     return new HtmlTwoWayDiffRenderer().render(
@@ -264,7 +264,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       await request.openNative();
     } catch (error) {
       this.options.log(`Opening the VS Code diff failed for ${request.title}. ${messageOf(error)}`);
-      void vscode.window.showErrorMessage("Differ could not open the VS Code diff editor.");
+      void vscode.window.showErrorMessage("jw-differ could not open the VS Code diff editor.");
     }
   }
 }

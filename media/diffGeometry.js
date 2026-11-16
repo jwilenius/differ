@@ -1,4 +1,4 @@
-// Geometry shared by Differ's diff and merge clients. Plain top-level
+// Geometry shared by jw-differ's diff and merge clients. Plain top-level
 // functions, so tests can load this file in a bare VM context and call them.
 //
 // Positions are measured in lines: every `.line` has the same height, so a

@@ -682,7 +682,7 @@ export class FakeWebviewView implements vscode.WebviewView {
   }
 }
 
-export function createFakeWebviewView(viewType = "differ.history"): FakeWebviewView {
+export function createFakeWebviewView(viewType = "jwDiffer.history"): FakeWebviewView {
   return new FakeWebviewView(viewType);
 }
 

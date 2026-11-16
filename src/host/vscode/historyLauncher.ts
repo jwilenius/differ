@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
-/** The view of Differ's Activity Bar container; an Activity Bar icon can only show a side-bar view, not the panel. */
-export const HISTORY_LAUNCHER_VIEW_ID = "differ.launcher";
+/** The view of jw-differ's Activity Bar container; an Activity Bar icon can only show a side-bar view, not the panel. */
+export const HISTORY_LAUNCHER_VIEW_ID = "jwDiffer.launcher";
 
 const SHOW_EXPLORER_COMMAND = "workbench.view.explorer";
 const CLOSE_SIDE_BAR_COMMAND = "workbench.action.closeSidebar";

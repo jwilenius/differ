@@ -88,7 +88,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
 
   beforeEach(() => {
     resetVscodeMock();
-    vscodeMock.configuration.set("differ.historyDiffViewer", "native");
+    vscodeMock.configuration.set("jwDiffer.historyDiffViewer", "native");
     panels = fakePanels();
     provider = new HistoryDiffProvider(panels);
   });

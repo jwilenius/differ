@@ -29,7 +29,7 @@ function declarations(css: string, pattern: RegExp): string[] {
 describe("themable change colours", () => {
   it("contributes ids the webview can expose as CSS variables", () => {
     for (const color of colors) {
-      expect(color.id).toMatch(/^differ\.[A-Za-z]+$/);
+      expect(color.id).toMatch(/^jwDiffer\.[A-Za-z]+$/);
       expect(color.description).not.toBe("");
     }
   });
@@ -44,7 +44,7 @@ describe("themable change colours", () => {
 
   it("references only contributed colours from the extension's namespace", () => {
     const contributed = colors.map((color) => cssVariable(color.id));
-    const referenced = stylesheets.flatMap((css) => declarations(css, /var\((--vscode-differ-[\w-]+)/g));
+    const referenced = stylesheets.flatMap((css) => declarations(css, /var\((--vscode-jwDiffer-[\w-]+)/g));
 
     expect(referenced.length).toBeGreaterThan(0);
     expect(contributed).toEqual(expect.arrayContaining(referenced));
@@ -55,7 +55,7 @@ describe("themable change colours", () => {
 
     expect(values.length).toBeGreaterThan(0);
     for (const value of values) {
-      expect(value).toMatch(/^var\(--(vscode-differ|chg)-/);
+      expect(value).toMatch(/^var\(--(vscode-jwDiffer|chg)-/);
     }
   });
 });

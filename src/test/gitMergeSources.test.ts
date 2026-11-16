@@ -22,7 +22,7 @@ const git = (...args: string[]): void => {
 
 /** Builds a real repository whose merge leaves f.txt conflicted. */
 beforeAll(() => {
-  repo = fs.mkdtempSync(path.join(os.tmpdir(), "differ-git-"));
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-git-"));
   file = path.join(repo, "f.txt");
 
   execFileSync("git", ["init", "-q", "-b", "trunk", repo], { stdio: "pipe" });
@@ -111,7 +111,7 @@ describe("readMergeSources", () => {
   });
 
   it("reports no mergeable conflict outside a git repository", async () => {
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "differ-nogit-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-nogit-"));
     const orphan = path.join(outside, "f.txt");
     fs.writeFileSync(orphan, "text");
 
@@ -233,7 +233,7 @@ describe("readMergeSources through a symbolic link to a directory", () => {
     linkedRepo = createConflictRepository();
     divergeBranches(linkedRepo, ["sub/f.txt"]);
     mergeFeature(linkedRepo);
-    links = fs.mkdtempSync(path.join(os.tmpdir(), "differ-links-"));
+    links = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-links-"));
     fs.symlinkSync(linkedRepo, path.join(links, "checkout"));
     fs.symlinkSync(path.join(linkedRepo, "sub"), path.join(links, "sub"));
   });

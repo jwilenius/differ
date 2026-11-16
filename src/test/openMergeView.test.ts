@@ -33,10 +33,10 @@ function queueStageRead(): StageRead {
   return settle;
 }
 
-/** Runs Differ: Open Merge View on the conflicted document, as its editor title button does. */
+/** Runs jw-differ: Open Merge View on the conflicted document, as its editor title button does. */
 function openActiveMergeView(): void {
   vscodeMock.activeTextEditor = { document: conflictedDocument } as vscode.TextEditor;
-  void vscode.commands.executeCommand("differ.openMergeView");
+  void vscode.commands.executeCommand("jwDiffer.openMergeView");
 }
 
 beforeEach(() => {
@@ -50,7 +50,7 @@ afterEach(async () => {
   await deactivate();
 });
 
-describe("Differ: Open Merge View", () => {
+describe("jw-differ: Open Merge View", () => {
   it("keeps a newer merge view when an earlier one, closed while loading, then fails", async () => {
     const firstRead = queueStageRead();
     openActiveMergeView();
@@ -83,7 +83,7 @@ describe("Differ: Open Merge View", () => {
     }
 
     expect(unhandledReasons).toEqual([]);
-    expect(vscodeMock.messages).toEqual([{ level: "error", text: "Differ could not open the merge view. git failed" }]);
+    expect(vscodeMock.messages).toEqual([{ level: "error", text: "jw-differ could not open the merge view. git failed" }]);
     expect(vscodeMock.webviewPanels).toHaveLength(1);
   });
 });

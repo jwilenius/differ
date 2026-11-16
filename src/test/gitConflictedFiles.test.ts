@@ -76,7 +76,7 @@ describe("markResolved", () => {
   it("stages a file opened through a symbolic link to its directory", async () => {
     divergeBranches(repo, ["sub/f.txt", "other.txt"]);
     mergeFeature(repo);
-    const links = fs.mkdtempSync(path.join(os.tmpdir(), "differ-links-"));
+    const links = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-links-"));
     try {
       fs.symlinkSync(path.join(repo, "sub"), path.join(links, "sub"));
 

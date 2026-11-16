@@ -1,4 +1,4 @@
-// Result-pane line rules for Differ's merge client. Plain top-level
+// Result-pane line rules for jw-differ's merge client. Plain top-level
 // functions, so tests can load this file in a bare VM context and call them.
 
 /**

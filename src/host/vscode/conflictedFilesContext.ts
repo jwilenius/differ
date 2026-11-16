@@ -2,8 +2,8 @@ import { realpath } from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-/** Paths of the conflicted files, read by the `resourcePath in differ.conflictedFiles` menu conditions. */
-const CONTEXT_CONFLICTED_FILES = "differ.conflictedFiles";
+/** Paths of the conflicted files, read by the `resourcePath in jwDiffer.conflictedFiles` menu conditions. */
+const CONTEXT_CONFLICTED_FILES = "jwDiffer.conflictedFiles";
 /** A Windows path's leading drive letter, as in `C:\repo`. */
 const DRIVE_LETTER_PATTERN = /^[A-Za-z]:/;
 
@@ -19,7 +19,7 @@ export interface ConflictedFilesScan {
 export type ConflictedFilesScanner = (onFailure: (failure: string) => void) => Promise<ConflictedFilesScan>;
 
 /**
- * Keeps the `differ.conflictedFiles` context key current, so the Explorer and editor tab menus offer the merge view on
+ * Keeps the `jwDiffer.conflictedFiles` context key current, so the Explorer and editor tab menus offer the merge view on
  * conflicted files. It refreshes on creation, when the window gains focus, when workspace folders change, when the index
  * of a repository the last refresh searched changes, and on `refresh()`. A failure is logged once while it lasts.
  */

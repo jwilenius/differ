@@ -32,7 +32,7 @@ describe("TextMateHighlighter without its regex engine", () => {
   });
 
   it("retries loading the engine on the next highlight after a failed load", async () => {
-    const wasmPath = path.join(await mkdtemp(path.join(os.tmpdir(), "differ-onig-")), "onig.wasm");
+    const wasmPath = path.join(await mkdtemp(path.join(os.tmpdir(), "jw-differ-onig-")), "onig.wasm");
     const highlighter = new TextMateHighlighter({
       wasmPath,
       grammars: [{ scopeName: "source.demo", path: path.join(FIXTURES, "demo.tmLanguage.json") }],

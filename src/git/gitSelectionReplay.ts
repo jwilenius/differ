@@ -5,7 +5,7 @@ import { runHistoryGit } from "./historyGitCommand";
 import type { HistoryGitResult } from "./historyGitCommand";
 import type { ReplayStep, ReplayTree, ResolvedHistoryComparison } from "./historyComparisonResolver";
 
-const TEMPORARY_PREFIX = "differ-replay-";
+const TEMPORARY_PREFIX = "jw-differ-replay-";
 const CLEANUP_RETRIES = 3;
 const STORAGE_FAILURE_MESSAGE = "Could not prepare a temporary repository for the comparison.";
 const QUOTE_BYTE = 0x22;

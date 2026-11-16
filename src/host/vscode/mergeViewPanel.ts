@@ -36,7 +36,7 @@ import { writeMergeResult } from "./mergeResultWriter";
 import { ShownMergeResult } from "./shownMergeResult";
 import type { TextHighlighter } from "./twoWayDiffPanel";
 
-const VIEW_TYPE = "differ.mergeView";
+const VIEW_TYPE = "jwDiffer.mergeView";
 const NONCE_BYTES = 16;
 /** How long a render waits for highlighting before showing plain text. */
 const HIGHLIGHT_TIMEOUT_MS = 3_000;
@@ -47,11 +47,11 @@ const NO_PAGE = 0;
 
 /** Why the merge view cannot merge a file, as its page says. */
 const UNMERGEABLE_EXPLANATIONS: Readonly<Record<UnmergeableReason, string>> = {
-  noMergeableConflict: `This file has no conflict Differ can merge: it is not conflicted, one side deleted it,
+  noMergeableConflict: `This file has no conflict jw-differ can merge: it is not conflicted, one side deleted it,
 or a side is a symbolic link or submodule.`,
-  binary: "A version of this file in the conflict is binary, so Differ cannot merge it as text.",
+  binary: "A version of this file in the conflict is binary, so jw-differ cannot merge it as text.",
   invalidEncoding: `A version of this file in the conflict is not UTF-8 text, as a Latin-1 or Windows-1252 file is.
-Differ merges UTF-8 text only; merging it would corrupt its other characters.`,
+jw-differ merges UTF-8 text only; merging it would corrupt its other characters.`,
 };
 
 export interface MergeViewPanelOptions {
@@ -332,7 +332,7 @@ export class MergeViewPanel {
       await this.dispatch(message, this.state);
     } catch (error) {
       this.options.log(`Merge action ${message.type} failed for ${this.title}. ${messageOf(error)}`);
-      void vscode.window.showErrorMessage(`Differ could not complete the merge action. ${messageOf(error)}`);
+      void vscode.window.showErrorMessage(`jw-differ could not complete the merge action. ${messageOf(error)}`);
     }
   }
 
@@ -437,7 +437,7 @@ export class MergeViewPanel {
       await markResolved(filePath);
     } catch (error) {
       this.options.log(`git add failed for ${filePath}: ${messageOf(error)}`);
-      void vscode.window.showWarningMessage(`Differ wrote ${path.basename(filePath)} but could not stage it.`);
+      void vscode.window.showWarningMessage(`jw-differ wrote ${path.basename(filePath)} but could not stage it.`);
     }
   }
 
@@ -485,7 +485,7 @@ function isLineEdit(message: MergeMessage): message is LineEdit & { readonly pag
 }
 
 function isWordLevel(): boolean {
-  return vscode.workspace.getConfiguration("differ").get<boolean>("wordLevelHighlighting", true);
+  return vscode.workspace.getConfiguration("jwDiffer").get<boolean>("wordLevelHighlighting", true);
 }
 
 /** Whether an edit names lines the result has; any other message fits. */
@@ -524,8 +524,8 @@ function renderUnavailable(fileName: string, reason: UnmergeableReason): string 
   return `<!DOCTYPE html><html><head>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 </head><body style="font-family: sans-serif; padding: 2rem;">
-<h3>Differ cannot merge ${escapeHtml(fileName)}</h3>
-<p>Differ reads both sides and their common ancestor from git's conflict stages.
+<h3>jw-differ cannot merge ${escapeHtml(fileName)}</h3>
+<p>jw-differ reads both sides and their common ancestor from git's conflict stages.
 ${UNMERGEABLE_EXPLANATIONS[reason]} Resolve it with git instead.</p>
 </body></html>`;
 }

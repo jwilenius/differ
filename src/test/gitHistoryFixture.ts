@@ -49,7 +49,7 @@ export interface RepositoryState {
 
 /** Creates a repository on branch `main` with a test identity, no signing, no hooks and no user configuration. */
 export function createHistoryRepository(): HistoryRepositoryFixture {
-  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "differ-history-")));
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-history-")));
   const root = path.join(directory, "repo");
 
   fs.mkdirSync(root);

@@ -24,7 +24,7 @@ export async function writeMergeResult(uri: vscode.Uri, text: string, hasByteOrd
   const isSymbolicLink = (await lstatOrNull(document.uri.fsPath))?.isSymbolicLink() ?? false;
   if (isSymbolicLink) {
     const reason = "it is a symbolic link, and saving would change the file it points to";
-    void vscode.window.showErrorMessage(`Differ will not write ${name}: ${reason}.`);
+    void vscode.window.showErrorMessage(`jw-differ will not write ${name}: ${reason}.`);
     return false;
   }
   // VS Code keeps a byte order mark out of the document, writing it back on save, only when the file started with one
@@ -37,7 +37,7 @@ export async function writeMergeResult(uri: vscode.Uri, text: string, hasByteOrd
   edit.replace(document.uri, wholeDocument, documentText);
   const isWritten = (await vscode.workspace.applyEdit(edit)) && (await document.save());
   if (!isWritten) {
-    void vscode.window.showErrorMessage(`Differ could not write ${name}.`);
+    void vscode.window.showErrorMessage(`jw-differ could not write ${name}.`);
   }
   return isWritten;
 }

@@ -30,7 +30,7 @@ interface Manifest {
   };
 }
 
-const COMMAND = "differ.resolveConflictInFile";
+const COMMAND = "jwDiffer.resolveConflictInFile";
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf8")) as Manifest;
 
 let repo: string;
@@ -52,18 +52,18 @@ function activateExtension(): void {
   activate({ subscriptions: [], extensionUri: vscode.Uri.file(folder), extensionPath: folder } as unknown as vscode.ExtensionContext);
 }
 
-/** Each setting of `differ.conflictedFiles`, one per refresh that finished current. */
+/** Each setting of `jwDiffer.conflictedFiles`, one per refresh that finished current. */
 function conflictedFilesSettings(): readonly ExecutedCommand[] {
-  return vscodeMock.executedCommands.filter(({ command, args }) => command === "setContext" && args[0] === "differ.conflictedFiles");
+  return vscodeMock.executedCommands.filter(({ command, args }) => command === "setContext" && args[0] === "jwDiffer.conflictedFiles");
 }
 
-/** The paths `differ.conflictedFiles` was last set to, sorted; undefined before it is set. */
+/** The paths `jwDiffer.conflictedFiles` was last set to, sorted; undefined before it is set. */
 function conflictedFilesContext(): readonly string[] | undefined {
   const paths = conflictedFilesSettings().at(-1)?.args[1] as readonly string[] | undefined;
   return paths && [...paths].sort();
 }
 
-/** Waits until the latest `differ.conflictedFiles` setting is `paths`, in any order. */
+/** Waits until the latest `jwDiffer.conflictedFiles` setting is `paths`, in any order. */
 async function expectConflictedFiles(paths: readonly string[]): Promise<void> {
   await vi.waitFor(() => expect(conflictedFilesContext()).toEqual([...paths].sort()));
 }
@@ -102,7 +102,7 @@ beforeEach(() => {
   resetVscodeMock();
   vscodeMock.openFileDocument = fileDocument;
   repo = createConflictRepository();
-  links = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "differ-links-")));
+  links = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-links-")));
 });
 
 afterEach(async () => {
@@ -345,7 +345,7 @@ describe("withDriveLetterCasings", () => {
   });
 });
 
-describe("Resolve Conflict in Differ", () => {
+describe("Resolve Conflict in jw-differ", () => {
   beforeEach(() => {
     divergeBranches(repo, ["a.txt"]);
     mergeFeature(repo);
@@ -387,18 +387,18 @@ describe("Resolve Conflict in Differ", () => {
     expect(vscodeMock.webviewPanels).toEqual([]);
     expect(vscodeMock.messages).toHaveLength(1);
     expect(vscodeMock.messages[0].level).toBe("error");
-    expect(vscodeMock.messages[0].text).toContain("Differ could not open gone.txt.");
+    expect(vscodeMock.messages[0].text).toContain("jw-differ could not open gone.txt.");
   });
 
   it("is offered on conflicted files in the Explorer, editor tabs and Git's merge changes, not in the palette", () => {
     const { commands, menus } = manifest.contributes;
     const entriesOf = (menu: string): readonly MenuEntry[] => menus[menu].filter((entry) => entry.command === COMMAND);
 
-    expect(commands.find((entry) => entry.command === COMMAND)).toEqual({ command: COMMAND, title: "Resolve Conflict in Differ", category: "Differ" });
+    expect(commands.find((entry) => entry.command === COMMAND)).toEqual({ command: COMMAND, title: "Resolve Conflict in jw-differ", category: "jw-differ" });
     expect(entriesOf("explorer/context")).toEqual([
-      { command: COMMAND, when: "!explorerResourceIsFolder && resourcePath in differ.conflictedFiles", group: "navigation" },
+      { command: COMMAND, when: "!explorerResourceIsFolder && resourcePath in jwDiffer.conflictedFiles", group: "navigation" },
     ]);
-    expect(entriesOf("editor/title/context")).toEqual([{ command: COMMAND, when: "resourcePath in differ.conflictedFiles", group: "navigation" }]);
+    expect(entriesOf("editor/title/context")).toEqual([{ command: COMMAND, when: "resourcePath in jwDiffer.conflictedFiles", group: "navigation" }]);
     // VS Code builds Source Control resource menus without the resource's context keys (checked in 1.90 and on main,
     // November 2026), so `resourcePath` there is not the clicked file's and cannot narrow the entry to mergeable files.
     expect(entriesOf("scm/resourceState/context")).toEqual([

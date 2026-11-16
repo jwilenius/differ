@@ -23,11 +23,13 @@ the diff shows only their changes, nothing from the commits between them._
 
 ### Opening it
 
-- Click the **jw-differ** icon in the Activity Bar, run **jw-differ: Open Git History**, or open the **jw-differ** tab
-  in the bottom panel. **jw-differ: Refresh Git History** (also the ↻ button in the view title) reloads commits and
-  refs.
-- The Activity Bar icon opens the bottom panel, not a side bar view: the side bar closes, and reopening it (Ctrl+B)
-  shows the Explorer.
+- Click the jw-differ button (two panes joined by a ribbon) in the Explorer's folder header or the Source Control
+  header (Git repositories), run **jw-differ: Open Git History**, or open the **jw-differ** tab in the bottom panel.
+  **jw-differ: Refresh Git History** (also the ↻ button in the view title) reloads commits and refs.
+- The header buttons open the bottom panel and leave the side bar alone: it keeps showing the Explorer or Source
+  Control. jw-differ adds no Activity Bar icon. Like other buttons in a section header (the Explorer's folder, or
+  Source Control's **Changes** on newer VS Code), they show while the pointer is over the side bar unless
+  `workbench.view.alwaysShowHeaderActions` is on.
 - The repository comes from the active editor and the workspace folders; the picker switches between them, and
   **Open…** adds any local repository folder. Each repository keeps its own selection and base for the session.
 - The status bar shows `<repository>: N selected · base …` and reopens the panel when it is hidden. Hiding and

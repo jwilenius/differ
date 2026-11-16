@@ -1,5 +1,5 @@
-<!-- Source of media/differ-icon.png, the extension icon: the Activity Bar glyph (differ-activitybar.svg) in white on a
-     teal tile. The Marketplace accepts only PNG icons; render at 256x256 with a transparent background. -->
+<!-- Source of media/differ-icon.png, the extension icon: the view header button glyph (differ-history-*.svg) in white
+     on a teal tile. The Marketplace accepts only PNG icons; render at 256x256 with a transparent background. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">

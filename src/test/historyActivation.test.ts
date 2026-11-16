@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import * as vscode from "vscode";
 import { activate, deactivate } from "../host/vscode/extension";
 import type { HistoryDiffProvider } from "../host/vscode/historyDiffProvider";
@@ -11,16 +11,17 @@ import { resetVscodeMock, vscodeMock } from "./vscodeMock";
 interface Manifest {
   readonly activationEvents: readonly string[];
   readonly contributes: {
-    readonly commands: readonly { readonly command: string }[];
-    readonly viewsContainers: Readonly<Record<"activitybar" | "panel", readonly { readonly id: string; readonly icon: string }[]>>;
+    readonly commands: readonly { readonly command: string; readonly icon?: string | { readonly light: string; readonly dark: string } }[];
+    readonly viewsContainers: Readonly<Record<string, readonly { readonly id: string; readonly icon: string }[]>>;
     readonly views: Readonly<Record<string, readonly { readonly id: string; readonly type?: string }[]>>;
-    readonly viewsWelcome: readonly { readonly view: string; readonly contents: string }[];
-    readonly menus: Readonly<Record<string, readonly { readonly command: string; readonly when?: string }[]>>;
+    readonly viewsWelcome?: readonly { readonly view: string; readonly contents: string }[];
+    readonly menus: Readonly<Record<string, readonly { readonly command: string; readonly when?: string; readonly group?: string }[]>>;
     readonly configuration: { readonly properties: Readonly<Record<string, { readonly enum?: readonly string[]; readonly default?: unknown }>> };
   };
 }
 
-const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf8")) as Manifest;
+const EXTENSION_ROOT = path.join(__dirname, "..", "..");
+const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_ROOT, "package.json"), "utf8")) as Manifest;
 
 /** An extension folder holding only the bundled regex engine, as the build lays it out. */
 function extensionFolder(): string {
@@ -47,7 +48,6 @@ describe("extension activation", () => {
     activateExtension();
 
     expect([...vscodeMock.webviewViewProviders.keys()]).toEqual(["jwDiffer.history"]);
-    expect(vscodeMock.treeViews.map((view) => view.viewId)).toEqual(["jwDiffer.launcher"]);
     expect([...vscodeMock.contentProviders.keys()]).toEqual(["jw-differ-history"]);
     expect([...vscodeMock.commands.keys()].sort()).toEqual([
       "jwDiffer.openHistory",
@@ -59,41 +59,15 @@ describe("extension activation", () => {
     expect(vscodeMock.outputChannels.map((channel) => channel.name)).toEqual(["jw-differ History"]);
   });
 
-  it("opens history through the contributed view's focus command", async () => {
+  it("opens history through the contributed view's focus command and leaves the side bar alone", async () => {
     activateExtension();
+    vscodeMock.executedCommands.length = 0;
 
     await vscode.commands.executeCommand("jwDiffer.openHistory");
 
-    expect(vscodeMock.executedCommands.map((executed) => executed.command)).toContain("jwDiffer.history.focus");
-  });
-
-  it("opens the history panel and closes the side bar on the Explorer when the Activity Bar icon shows the launcher", async () => {
-    activateExtension();
-    const [launcher] = vscodeMock.treeViews;
-    vscodeMock.executedCommands.length = 0;
-
-    // Context keys set meanwhile, such as the conflicted files found on activation, are not commands the launcher ran.
-    const launcherCommands = (): string[] =>
-      vscodeMock.executedCommands.map((executed) => executed.command).filter((command) => command !== "setContext");
-    launcher.fireDidChangeVisibility(true);
-    await vi.waitFor(() => expect(launcherCommands()).toHaveLength(3));
-
-    expect(launcherCommands()).toEqual([
-      "workbench.view.explorer",
-      "workbench.action.closeSidebar",
-      "jwDiffer.history.focus",
-    ]);
-  });
-
-  it("leaves the side bar alone on activation and when the launcher hides", async () => {
-    activateExtension();
-    const [launcher] = vscodeMock.treeViews;
-
-    launcher.fireDidChangeVisibility(false);
-
-    const commands = vscodeMock.executedCommands.map((executed) => executed.command);
-    expect(commands).not.toContain("workbench.view.explorer");
-    expect(commands).not.toContain("workbench.action.closeSidebar");
+    // Context keys set meanwhile, such as the conflicted files found on activation, are not commands opening ran.
+    const openingCommands = vscodeMock.executedCommands.map((executed) => executed.command).filter((command) => command !== "setContext");
+    expect(openingCommands).toEqual(["jwDiffer.openHistory", "jwDiffer.history.focus"]);
   });
 
   it("removes every registration and owned UI item on deactivation and disposal", async () => {
@@ -105,7 +79,6 @@ describe("extension activation", () => {
 
     expect(vscodeMock.commands.size).toBe(0);
     expect(vscodeMock.webviewViewProviders.size).toBe(0);
-    expect(vscodeMock.treeViews.every((view) => view.isDisposed)).toBe(true);
     expect(vscodeMock.contentProviders.size).toBe(0);
     expect(vscodeMock.outputChannels.every((channel) => channel.isDisposed)).toBe(true);
     expect(vscodeMock.statusBarItems.every((item) => item.isDisposed)).toBe(true);
@@ -113,17 +86,17 @@ describe("extension activation", () => {
 
   it("contributes exactly the registered view and commands", () => {
     activateExtension();
-    const { commands, viewsContainers, views, menus } = manifest.contributes;
+    const { commands, viewsContainers, views, viewsWelcome, menus } = manifest.contributes;
 
     expect(commands.map((entry) => entry.command).sort()).toEqual([...vscodeMock.commands.keys()].sort());
-    expect(viewsContainers.panel).toEqual([{ id: "jwDifferHistory", title: "jw-differ", icon: "$(git-commit)" }]);
-    expect(views.jwDifferHistory).toEqual([{ type: "webview", id: "jwDiffer.history", name: "Git History" }]);
-    expect(viewsContainers.activitybar).toEqual([{ id: "jwDifferLauncher", title: "jw-differ", icon: "media/differ-activitybar.svg" }]);
-    expect(views.jwDifferLauncher.map((view) => view.id)).toEqual(vscodeMock.treeViews.map((view) => view.viewId));
-    expect(fs.existsSync(path.join(__dirname, "..", "..", viewsContainers.activitybar[0].icon))).toBe(true);
+    expect(viewsContainers).toEqual({ panel: [{ id: "jwDifferHistory", title: "jw-differ", icon: "$(git-commit)" }] });
+    expect(views).toEqual({ jwDifferHistory: [{ type: "webview", id: "jwDiffer.history", name: "Git History" }] });
+    expect(viewsWelcome).toBeUndefined();
     expect(menus["view/title"]).toEqual([
       { command: "jwDiffer.refreshHistory", when: "view == jwDiffer.history", group: "navigation" },
+      { command: "jwDiffer.openHistory", when: "view == workbench.explorer.fileView", group: "navigation@50" },
     ]);
+    expect(menus["scm/title"]).toEqual([{ command: "jwDiffer.openHistory", when: "scmProvider == git", group: "navigation@50" }]);
     const paletteHistory = menus.commandPalette.filter((entry) => entry.command.endsWith("History"));
     expect(paletteHistory).toEqual([{ command: "jwDiffer.openHistory" }, { command: "jwDiffer.refreshHistory" }]);
     expect(menus["editor/title"]).toEqual([
@@ -132,12 +105,16 @@ describe("extension activation", () => {
     expect(manifest.activationEvents).toContain("onStartupFinished");
   });
 
-  it("offers an Open Git History link in the launcher in case it stays open", () => {
-    const [welcome] = manifest.contributes.viewsWelcome;
+  it("draws the header buttons with jw-differ's glyph in fixed light and dark theme colours", () => {
+    const openHistory = manifest.contributes.commands.find((entry) => entry.command === "jwDiffer.openHistory");
 
-    expect(manifest.contributes.viewsWelcome).toHaveLength(1);
-    expect(welcome.view).toBe("jwDiffer.launcher");
-    expect(welcome.contents).toContain("(command:jwDiffer.openHistory)");
+    const glyphPaths = { light: "media/differ-history-light.svg", dark: "media/differ-history-dark.svg" };
+
+    // Menus draw file icons as background images, where an SVG's currentColor does not follow the theme.
+    expect(openHistory?.icon).toEqual(glyphPaths);
+    for (const glyphPath of Object.values(glyphPaths)) {
+      expect(fs.readFileSync(path.join(EXTENSION_ROOT, glyphPath), "utf8")).not.toContain("currentColor");
+    }
   });
 
   it("contributes the history diff viewer setting with the IntelliJ view as default", () => {

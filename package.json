@@ -45,7 +45,10 @@
         "command": "jwDiffer.openHistory",
         "title": "Open Git History",
         "category": "jw-differ",
-        "icon": "$(history)"
+        "icon": {
+          "light": "media/differ-history-light.svg",
+          "dark": "media/differ-history-dark.svg"
+        }
       },
       {
         "command": "jwDiffer.refreshHistory",
@@ -55,13 +58,6 @@
       }
     ],
     "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "jwDifferLauncher",
-          "title": "jw-differ",
-          "icon": "media/differ-activitybar.svg"
-        }
-      ],
       "panel": [
         {
           "id": "jwDifferHistory",
@@ -77,20 +73,8 @@
           "id": "jwDiffer.history",
           "name": "Git History"
         }
-      ],
-      "jwDifferLauncher": [
-        {
-          "id": "jwDiffer.launcher",
-          "name": "Launcher"
-        }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "jwDiffer.launcher",
-        "contents": "jw-differ's Git History opens in the bottom panel.\n[Open Git History](command:jwDiffer.openHistory)"
-      }
-    ],
     "menus": {
       "editor/title": [
         {
@@ -120,11 +104,23 @@
           "group": "navigation"
         }
       ],
+      "scm/title": [
+        {
+          "command": "jwDiffer.openHistory",
+          "when": "scmProvider == git",
+          "group": "navigation@50"
+        }
+      ],
       "view/title": [
         {
           "command": "jwDiffer.refreshHistory",
           "when": "view == jwDiffer.history",
           "group": "navigation"
+        },
+        {
+          "command": "jwDiffer.openHistory",
+          "when": "view == workbench.explorer.fileView",
+          "group": "navigation@50"
         }
       ],
       "commandPalette": [

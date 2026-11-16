@@ -4,7 +4,6 @@ import { hasConflictMarkers } from "../../core/conflictParser";
 import { findIndexFile, listConflictedFiles } from "../../git/gitConflictedFiles";
 import { ConflictedFilesContext, type ConflictedFilesScan } from "./conflictedFilesContext";
 import { HISTORY_DOCUMENT_SCHEME, HistoryDiffProvider } from "./historyDiffProvider";
-import { registerHistoryLauncher } from "./historyLauncher";
 import { candidateDirectories, discoverRepositoryRoots, findGitRepositoryRoot } from "./historyRepositoryDiscovery";
 import { HISTORY_VIEW_ID, HistoryViewProvider, OPEN_HISTORY_COMMAND } from "./historyViewProvider";
 import { MergeViewPanel } from "./mergeViewPanel";
@@ -202,8 +201,8 @@ function forgetMergeView(key: string, opening: Promise<MergeViewPanel>): void {
 }
 
 /**
- * Registers the history panel, its Activity Bar launcher, its diff documents and panels, and commands. `deactivate` runs
- * before subscriptions are disposed, so history cleanup finishes while its log is still open.
+ * Registers the history panel, its diff documents and panels, and commands. `deactivate` runs before subscriptions are
+ * disposed, so history cleanup finishes while its log is still open.
  */
 function activateHistory(context: vscode.ExtensionContext, { mediaRoot, highlighter, log }: Services): void {
   const diffPanels = new TwoWayDiffPanels({ mediaRoot, highlighter, log: (message) => log.appendLine(message) });
@@ -217,7 +216,6 @@ function activateHistory(context: vscode.ExtensionContext, { mediaRoot, highligh
     diffProvider,
     vscode.workspace.registerTextDocumentContentProvider(HISTORY_DOCUMENT_SCHEME, diffProvider),
     vscode.window.registerWebviewViewProvider(HISTORY_VIEW_ID, view),
-    registerHistoryLauncher(() => view.reveal()),
     vscode.commands.registerCommand(OPEN_HISTORY_COMMAND, () => view.reveal()),
     vscode.commands.registerCommand(REFRESH_HISTORY_COMMAND, () => view.refresh()),
   );

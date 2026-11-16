@@ -245,8 +245,6 @@ export interface VscodeMockState {
   readonly executedCommands: ExecutedCommand[];
   readonly contentProviders: Map<string, vscode.TextDocumentContentProvider>;
   readonly webviewViewProviders: Map<string, vscode.WebviewViewProvider>;
-  /** Tree views made by `window.createTreeView`, in creation order. */
-  readonly treeViews: FakeTreeView[];
   readonly statusBarItems: FakeStatusBarItem[];
   readonly outputChannels: FakeOutputChannel[];
   readonly messages: ShownMessage[];
@@ -283,7 +281,6 @@ export const vscodeMock: VscodeMockState = {
   executedCommands: [],
   contentProviders: new Map(),
   webviewViewProviders: new Map(),
-  treeViews: [],
   statusBarItems: [],
   outputChannels: [],
   messages: [],
@@ -319,7 +316,6 @@ export function resetVscodeMock(): void {
   vscodeMock.executedCommands.length = 0;
   vscodeMock.contentProviders.clear();
   vscodeMock.webviewViewProviders.clear();
-  vscodeMock.treeViews.length = 0;
   vscodeMock.statusBarItems.length = 0;
   vscodeMock.outputChannels.length = 0;
   vscodeMock.messages.length = 0;
@@ -580,12 +576,6 @@ export const window = {
     return register(vscodeMock.webviewViewProviders, viewId, provider);
   },
 
-  createTreeView<T>(viewId: string, options: vscode.TreeViewOptions<T>): FakeTreeView {
-    const view = new FakeTreeView(viewId, options as vscode.TreeViewOptions<unknown>);
-    vscodeMock.treeViews.push(view);
-    return view;
-  },
-
   createStatusBarItem,
   createOutputChannel,
 
@@ -684,29 +674,6 @@ export class FakeWebviewView implements vscode.WebviewView {
 
 export function createFakeWebviewView(viewType = "jwDiffer.history"): FakeWebviewView {
   return new FakeWebviewView(viewType);
-}
-
-/** A tree view the host shows or hides through `fireDidChangeVisibility`; it starts hidden. */
-export class FakeTreeView {
-  visible = false;
-  isDisposed = false;
-  private readonly didChangeVisibility = new EventEmitter<vscode.TreeViewVisibilityChangeEvent>();
-  readonly onDidChangeVisibility = this.didChangeVisibility.event;
-
-  constructor(
-    readonly viewId: string,
-    readonly options: vscode.TreeViewOptions<unknown>,
-  ) {}
-
-  fireDidChangeVisibility(isVisible: boolean): void {
-    this.visible = isVisible;
-    this.didChangeVisibility.fire({ visible: isVisible });
-  }
-
-  dispose(): void {
-    this.isDisposed = true;
-    this.didChangeVisibility.dispose();
-  }
 }
 
 /** A watcher of `globPattern` whose changes tests report through `fireDidChange`. */

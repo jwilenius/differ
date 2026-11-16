@@ -17,6 +17,7 @@ interface Contributes {
 const root = path.join(__dirname, "..", "..");
 const contributes = (JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as { contributes: Contributes }).contributes;
 const mediaDirectory = path.join(root, "media");
+const sourceDirectory = path.join(root, "src");
 
 /** Every id the manifest contributes: commands, view containers, views, colours and settings. */
 function contributedIds(): string[] {
@@ -49,6 +50,20 @@ describe("extension namespace", () => {
     expect(stylesheets.length).toBeGreaterThan(0);
     for (const name of stylesheets) {
       expect(fs.readFileSync(path.join(mediaDirectory, name), "utf8")).not.toContain("--vscode-differ-");
+    }
+  });
+
+  it("names no id, setting section or scheme with the old differ prefix in the extension's code", () => {
+    const sources = [
+      ...fs.readdirSync(sourceDirectory, { recursive: true, encoding: "utf8" })
+        .filter((name) => name.endsWith(".ts") && !name.startsWith(`test${path.sep}`))
+        .map((name) => path.join(sourceDirectory, name)),
+      ...fs.readdirSync(mediaDirectory).filter((name) => name.endsWith(".js")).map((name) => path.join(mediaDirectory, name)),
+    ];
+
+    expect(sources.length).toBeGreaterThan(0);
+    for (const source of sources) {
+      expect(fs.readFileSync(source, "utf8"), source).not.toMatch(/["'`]differ[.\-"'`]/);
     }
   });
 });

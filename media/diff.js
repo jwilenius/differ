@@ -13,10 +13,16 @@
   const NAVIGATION_OFFSET = 0.25;
   const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
   const SIDES = ["base", "result"];
+  /** How long the hint at either end of a file shows and waits for the same key again. */
+  const FILE_STEP_WINDOW_MS = 2500;
 
   const vscode = acquireVsCodeApi();
-  const diffJson = document.getElementById("diff").dataset.diff;
+  const diffElement = document.getElementById("diff");
+  const diffJson = diffElement.dataset.diff;
   const data = JSON.parse(diffJson);
+  /** The neighbours in the comparison's file list, or null when this diff has no list and F7 stops at the ends. */
+  const fileList = diffElement.dataset.files ? JSON.parse(diffElement.dataset.files) : null;
+  const fileStepHint = document.getElementById("file-step");
   const anchors = buildAnchors(data.blocks, data.baseLineCount, data.resultLineCount);
   const scrollers = { base: document.getElementById("scroll-base"), result: document.getElementById("scroll-result") };
   const svg = document.getElementById("connectors");
@@ -29,6 +35,8 @@
   let isDrawScheduled = false;
   /** Block last navigated to, and the result offset that left it in view. */
   let navigation = { index: -1, top: -1 };
+  /** The file step a repeated F7 or Shift+F7 confirms while its hint shows: `direction` and the hint's timer. */
+  let pendingFileStep = null;
   /**
    * Webview state outlives a re-render, such as after a colour theme change, but the reused tab may now show another
    * file; the saved offsets apply only to the same comparison, told apart by its title and difference blocks.
@@ -111,7 +119,7 @@
     svg.replaceChildren(...paths);
   }
 
-  /** Steps past blocks that would not move the view, such as several in the last screenful. */
+  /** Steps past blocks that would not move the view, such as several in the last screenful; returns whether it moved. */
   function navigate(direction) {
     const scroller = scrollers.result;
     const offset = scroller.clientHeight * NAVIGATION_OFFSET;
@@ -121,9 +129,48 @@
       : neighbourBlock(data.blocks, "result", (scroller.scrollTop + offset) / lineHeight, direction);
     for (let index = first; index >= 0 && index < data.blocks.length; index += direction) {
       if (goTo(index)) {
-        return;
+        return true;
       }
     }
+    return false;
+  }
+
+  /**
+   * F7 and Shift+F7: the next or previous change, or at either end of a file in a list, a hint offering the
+   * neighbouring file, which the same key opens while the hint shows.
+   */
+  function navigateByKey(direction) {
+    const hasMoved = navigate(direction);
+    if (hasMoved || fileList === null) {
+      endFileStep();
+      return;
+    }
+    const hasFile = direction > 0 ? fileList.hasNext : fileList.hasPrevious;
+    const isConfirmed = pendingFileStep !== null && pendingFileStep.direction === direction;
+    if (isConfirmed && hasFile) {
+      endFileStep();
+      vscode.postMessage({ type: "openAdjacentFile", direction: direction > 0 ? "next" : "previous" });
+      return;
+    }
+    offerFileStep(direction, hasFile);
+  }
+
+  function offerFileStep(direction, hasFile) {
+    endFileStep();
+    const hints = direction > 0
+      ? ["Press F7 again to go to the next file", "No more files"]
+      : ["Press Shift+F7 again to go to the previous file", "No previous files"];
+    fileStepHint.textContent = hasFile ? hints[0] : hints[1];
+    pendingFileStep = { direction, timer: setTimeout(endFileStep, FILE_STEP_WINDOW_MS) };
+  }
+
+  function endFileStep() {
+    if (pendingFileStep === null) {
+      return;
+    }
+    clearTimeout(pendingFileStep.timer);
+    pendingFileStep = null;
+    fileStepHint.textContent = "";
   }
 
   /** Scrolls block `index` into view near the top; returns whether the view moved. */
@@ -160,7 +207,7 @@
       return;
     }
     event.preventDefault();
-    navigate(event.shiftKey ? -1 : 1);
+    navigateByKey(event.shiftKey ? -1 : 1);
   });
 
   for (const button of [document.getElementById("prev"), document.getElementById("next")]) {
@@ -170,7 +217,7 @@
   if (saved && saved.key === scrollStateKey) {
     restoreScroll(saved);
   } else if (data.blocks.length > 0) {
-    goTo(0);
+    goTo(diffElement.dataset.startAt === "last" ? data.blocks.length - 1 : 0);
   }
   scheduleDraw();
   vscode.postMessage({ type: "ready" });

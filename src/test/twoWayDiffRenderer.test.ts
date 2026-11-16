@@ -190,4 +190,22 @@ describe("HtmlTwoWayDiffRenderer", () => {
   it("says when there are no differences", () => {
     expect(render("same", "same")).toContain("No differences");
   });
+
+  it("publishes the neighbouring files and the change to start at when the diff belongs to a file list", () => {
+    const html = render("a", "b", { fileList: { hasPrevious: false, hasNext: true }, startAt: "last" });
+
+    expect(html).toContain(`data-files="{&quot;hasPrevious&quot;:false,&quot;hasNext&quot;:true}"`);
+    expect(html).toContain(`data-start-at="last"`);
+  });
+
+  it("leaves out the file list and starts at the first change by default", () => {
+    const html = render("a", "b");
+
+    expect(html).not.toContain("data-files");
+    expect(html).toContain(`data-start-at="first"`);
+  });
+
+  it("has a polite live region for the file-step hint", () => {
+    expect(render("a", "b")).toContain(`<div id="file-step" class="file-step" role="status" aria-live="polite"></div>`);
+  });
 });

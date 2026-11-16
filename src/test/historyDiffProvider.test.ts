@@ -339,3 +339,109 @@ describe("HistoryDiffProvider with the IntelliJ viewer", () => {
     expect(provider.provideTextDocumentContent(request.result.uri)).toBe(UNAVAILABLE_DOCUMENT_TEXT);
   });
 });
+
+describe("HistoryDiffProvider file steps", () => {
+  let provider: HistoryDiffProvider;
+  let panels: ReturnType<typeof fakePanels>;
+  const repository = fakeRepository({ base: text("old\n"), result: text("new\n") });
+
+  /** A text change at `filePath`; IDs sort opposite to the list so only list order can decide neighbours. */
+  function changed(id: string, filePath: string, changes: Partial<ComparisonFile> = {}): ComparisonFile {
+    return file({
+      id,
+      base: { path: filePath, blob: "b".repeat(40), mode: "100644" },
+      result: { path: filePath, blob: "c".repeat(40), mode: "100644" },
+      ...changes,
+    });
+  }
+
+  const zebra = changed("33333333-3333-4333-8333-333333333333", "zebra.ts");
+  const apple = changed("22222222-2222-4222-8222-222222222222", "apple.ts");
+  const mango = changed("11111111-1111-4111-8111-111111111111", "mango.ts");
+  const listed = comparison({ files: [zebra, apple, mango] });
+
+  beforeEach(() => {
+    resetVscodeMock();
+    panels = fakePanels();
+    provider = new HistoryDiffProvider(panels);
+  });
+
+  function lastRequest(): TwoWayDiffRequest {
+    return panels.requests[panels.requests.length - 1];
+  }
+
+  it("starts a file opened from the list at its first change", async () => {
+    await provider.openFile(repository, listed, apple);
+
+    expect(lastRequest().startAt).toBe("first");
+  });
+
+  it("opens the next listed file at its first change and the previous one at its last", async () => {
+    await provider.openFile(repository, listed, apple);
+    const { adjacentFiles } = lastRequest();
+
+    await adjacentFiles?.next?.();
+    expect(lastRequest().result.path).toBe("mango.ts");
+    expect(lastRequest().startAt).toBe("first");
+
+    await adjacentFiles?.previous?.();
+    expect(lastRequest().result.path).toBe("zebra.ts");
+    expect(lastRequest().startAt).toBe("last");
+  });
+
+  it("keeps stepping from a file it opened", async () => {
+    await provider.openFile(repository, listed, zebra);
+
+    await lastRequest().adjacentFiles?.next?.();
+    await lastRequest().adjacentFiles?.next?.();
+
+    expect(lastRequest().result.path).toBe("mango.ts");
+  });
+
+  it("has no previous file before the first listed file and no next one after the last", async () => {
+    await provider.openFile(repository, listed, zebra);
+    expect(lastRequest().adjacentFiles).toEqual({ next: expect.any(Function) });
+
+    await provider.openFile(repository, listed, mango);
+    expect(lastRequest().adjacentFiles).toEqual({ previous: expect.any(Function) });
+  });
+
+  it("still has a file list, with no neighbours, for a single changed file", async () => {
+    await provider.openFile(repository, comparison({ files: [apple] }), apple);
+
+    expect(lastRequest().adjacentFiles).toEqual({});
+  });
+
+  it("skips binary files and files whose content did not change", async () => {
+    const binary = changed("44444444-4444-4444-8444-444444444444", "logo.png", { contentKind: "binary" });
+    const renamedOnly = changed("55555555-5555-4555-8555-555555555555", "moved.ts", {
+      status: "renamed",
+      base: { path: "old.ts", blob: "f".repeat(40), mode: "100644" },
+      result: { path: "moved.ts", blob: "f".repeat(40), mode: "100644" },
+    });
+    const files = comparison({ files: [zebra, binary, renamedOnly, mango] });
+
+    await provider.openFile(repository, files, zebra);
+    await lastRequest().adjacentFiles?.next?.();
+    expect(lastRequest().result.path).toBe("mango.ts");
+
+    await lastRequest().adjacentFiles?.previous?.();
+    expect(lastRequest().result.path).toBe("zebra.ts");
+  });
+
+  it("steps into added and deleted files", async () => {
+    const added = changed("66666666-6666-4666-8666-666666666666", "new.ts", { status: "added", base: null });
+    const deleted = changed("77777777-7777-4777-8777-777777777777", "gone.ts", { status: "deleted", result: null });
+
+    await provider.openFile(repository, comparison({ files: [added, deleted] }), added);
+    await lastRequest().adjacentFiles?.next?.();
+
+    expect(lastRequest().base.path).toBe("gone.ts");
+  });
+
+  it("has no file list for a file missing from its comparison's list", async () => {
+    await provider.openFile(repository, listed, changed("88888888-8888-4888-8888-888888888888", "other.ts"));
+
+    expect(lastRequest().adjacentFiles).toBeUndefined();
+  });
+});

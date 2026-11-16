@@ -23,7 +23,20 @@ export interface TwoWayDiffRenderContext {
   readonly basePath: string;
   readonly resultPath: string;
   readonly title: string;
+  /** The comparison's neighbouring files; absent when the diff has no file list, so F7 stops at either end. */
+  readonly fileList?: FileListNeighbours;
+  /** Defaults to the first change. */
+  readonly startAt?: StartChange;
 }
+
+/** Published as JSON in `#diff[data-files]`: whether F7 past either end of the diff can open another file. */
+export interface FileListNeighbours {
+  readonly hasPrevious: boolean;
+  readonly hasNext: boolean;
+}
+
+/** Which change a newly shown diff scrolls to: the last one when reached by stepping back from the next file. */
+export type StartChange = "first" | "last";
 
 /** Published as JSON in `#diff[data-diff]`; ranges are `[start, end)` line pairs. */
 export interface TwoWayDiffClientData {
@@ -60,7 +73,9 @@ const LINE_SEPARATOR = "\n";
  * Client contract: `#diff[data-diff]` holds {@link TwoWayDiffClientData};
  * scrollers `#scroll-base` / `#scroll-result` contain one `.line` per text line
  * (all the same height); `svg#connectors` sits in `.strip`; buttons `#prev`,
- * `#next`, `#open-native`.
+ * `#next`, `#open-native`; `#diff[data-start-at]` is a {@link StartChange},
+ * `#diff[data-files]` the optional {@link FileListNeighbours}; `#file-step`
+ * is the live region showing the file-step hint.
  */
 export class HtmlTwoWayDiffRenderer {
   render(input: TwoWayDiffInput, context: TwoWayDiffRenderContext): string {
@@ -88,7 +103,7 @@ export class HtmlTwoWayDiffRenderer {
 </head>
 <body>
 ${renderToolbar(diff)}
-<main class="diff" id="diff" data-diff="${escapeHtml(JSON.stringify(clientData(diff)))}">
+<main class="diff" id="diff" data-diff="${escapeHtml(JSON.stringify(clientData(diff)))}"${renderNavigationData(context)}>
 ${renderHeader("base", context.baseLabel, context.basePath)}
 <div class="strip-header"></div>
 ${renderHeader("result", context.resultLabel, context.resultPath)}
@@ -96,6 +111,7 @@ ${renderPane(basePane)}
 <div class="strip"><svg id="connectors" aria-hidden="true"></svg></div>
 ${renderPane(resultPane)}
 </main>
+<div id="file-step" class="file-step" role="status" aria-live="polite"></div>
 <script nonce="${nonce}" src="${escapeHtml(context.geometryScriptUri)}"></script>
 <script nonce="${nonce}" src="${escapeHtml(assets.scriptUri)}"></script>
 </body>
@@ -113,6 +129,15 @@ function clientData(diff: TwoWayDiff): TwoWayDiffClientData {
     baseLineCount: diff.baseLineCount,
     resultLineCount: diff.resultLineCount,
   };
+}
+
+function renderNavigationData(context: TwoWayDiffRenderContext): string {
+  const startAt = ` data-start-at="${context.startAt ?? "first"}"`;
+  const neighbours = context.fileList;
+  const fileList = neighbours === undefined
+    ? ""
+    : ` data-files="${escapeHtml(JSON.stringify({ hasPrevious: neighbours.hasPrevious, hasNext: neighbours.hasNext }))}"`;
+  return `${startAt}${fileList}`;
 }
 
 function renderToolbar(diff: TwoWayDiff): string {

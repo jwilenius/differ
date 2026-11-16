@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vm from "node:vm";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const MEDIA_ROOT = path.join(__dirname, "..", "..", "media");
 const GEOMETRY_SOURCE = fs.readFileSync(path.join(MEDIA_ROOT, "diffGeometry.js"), "utf8");
@@ -158,6 +158,7 @@ class FakeElement {
   scrollHeight = 400;
   clientWidth = 40;
   disabled = false;
+  textContent = "";
   readonly dataset: Record<string, string> = {};
   children: unknown[] = [];
   private readonly listeners = new Map<string, Listener[]>();
@@ -204,12 +205,21 @@ interface ClientStart {
   readonly title?: string;
   /** Webview state left by an earlier render of the same panel. */
   readonly state?: unknown;
+  /** Published when the diff belongs to a list of changed files. */
+  readonly files?: { readonly hasPrevious: boolean; readonly hasNext: boolean };
+  readonly startAt?: "first" | "last";
 }
 
 function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart = {}): Harness {
-  const ids = ["diff", "scroll-base", "scroll-result", "connectors", "prev", "next", "open-native"];
+  const ids = ["diff", "scroll-base", "scroll-result", "connectors", "prev", "next", "open-native", "file-step"];
   const elements = Object.fromEntries(ids.map((id) => [id, new FakeElement()]));
   elements.diff.dataset.diff = JSON.stringify({ blocks, baseLineCount: BASE_LINES, resultLineCount: RESULT_LINES });
+  if (start.files) {
+    elements.diff.dataset.files = JSON.stringify(start.files);
+  }
+  if (start.startAt) {
+    elements.diff.dataset.startAt = start.startAt;
+  }
   const document = Object.assign(new FakeElement(), {
     title: start.title ?? "app.ts (a ↔ b)",
     getElementById: (id: string) => elements[id],
@@ -228,6 +238,9 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
       setState: (next: unknown) => (state = next),
     }),
     requestAnimationFrame: (callback: () => void) => frames.push(callback),
+    // Looked up on every call, so fake timers installed by a test apply.
+    setTimeout: (callback: () => void, delay: number) => setTimeout(callback, delay),
+    clearTimeout: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
   });
 
   return {
@@ -374,5 +387,135 @@ describe("diff client wiring", () => {
 
     expect(after.elements["scroll-base"].scrollTop).toBe(120);
     expect(after.elements["scroll-result"].scrollTop).toBe(80);
+  });
+});
+
+describe("diff client file steps", () => {
+  const BOTH_FILES = { hasPrevious: true, hasNext: true } as const;
+  const NEXT_HINT = "Press F7 again to go to the next file";
+  const PREVIOUS_HINT = "Press Shift+F7 again to go to the previous file";
+  /** How long a hint waits for the same key again. */
+  const STEP_WINDOW_MS = 2_500;
+
+  afterEach(() => vi.useRealTimers());
+
+  /** Steps to the last block of {@link BLOCKS}, which can still scroll. */
+  function startAtLastBlock(start: ClientStart = { files: BOTH_FILES }): Harness {
+    const harness = startClient(BLOCKS, start);
+    harness.document.fire("keydown", { key: "F7" });
+    harness.document.fire("keydown", { key: "F7" });
+    expect(harness.elements["scroll-result"].scrollTop).toBe(9 * 20 - 25);
+    return harness;
+  }
+
+  it("offers the next file on F7 at the last change without opening it", () => {
+    vi.useFakeTimers();
+    const { document, elements, messages } = startAtLastBlock();
+
+    document.fire("keydown", { key: "F7" });
+
+    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
+    expect(messages).toEqual([{ type: "ready" }]);
+    expect(elements["scroll-result"].scrollTop).toBe(9 * 20 - 25);
+  });
+
+  it("opens the next file when F7 is pressed again within the hint's time", () => {
+    vi.useFakeTimers();
+    const { document, elements, messages } = startAtLastBlock();
+
+    document.fire("keydown", { key: "F7" });
+    vi.advanceTimersByTime(STEP_WINDOW_MS - 1);
+    document.fire("keydown", { key: "F7" });
+
+    expect(messages).toEqual([{ type: "ready" }, { type: "openAdjacentFile", direction: "next" }]);
+    expect(elements["file-step"].textContent).toBe("");
+  });
+
+  it("hides the hint after its time and treats a later F7 as a first press", () => {
+    vi.useFakeTimers();
+    const { document, elements, messages } = startAtLastBlock();
+
+    document.fire("keydown", { key: "F7" });
+    vi.advanceTimersByTime(STEP_WINDOW_MS);
+    expect(elements["file-step"].textContent).toBe("");
+
+    document.fire("keydown", { key: "F7" });
+
+    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
+    expect(messages).toEqual([{ type: "ready" }]);
+  });
+
+  it("says there are no more files after the last file's last change", () => {
+    vi.useFakeTimers();
+    const { document, elements, messages } = startAtLastBlock({ files: { hasPrevious: true, hasNext: false } });
+
+    document.fire("keydown", { key: "F7" });
+    expect(elements["file-step"].textContent).toBe("No more files");
+    document.fire("keydown", { key: "F7" });
+
+    expect(elements["file-step"].textContent).toBe("No more files");
+    expect(messages).toEqual([{ type: "ready" }]);
+  });
+
+  it("offers and opens the previous file with Shift+F7 at the first change", () => {
+    vi.useFakeTimers();
+    const { document, elements, messages } = startClient(BLOCKS, { files: BOTH_FILES });
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    expect(elements["file-step"].textContent).toBe(PREVIOUS_HINT);
+    expect(messages).toEqual([{ type: "ready" }]);
+    document.fire("keydown", { key: "F7", shiftKey: true });
+
+    expect(messages).toEqual([{ type: "ready" }, { type: "openAdjacentFile", direction: "previous" }]);
+  });
+
+  it("says there are no previous files before the first file's first change", () => {
+    const { document, elements } = startClient(BLOCKS, { files: { hasPrevious: false, hasNext: true } });
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+
+    expect(elements["file-step"].textContent).toBe("No previous files");
+  });
+
+  it("does not confirm a step with the other key", () => {
+    vi.useFakeTimers();
+    const { document, elements, messages } = startClient([], { files: BOTH_FILES });
+
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+
+    expect(elements["file-step"].textContent).toBe(PREVIOUS_HINT);
+    expect(messages).toEqual([{ type: "ready" }]);
+  });
+
+  it("keeps stepping between changes in the middle of a file and clears the hint once it moves", () => {
+    vi.useFakeTimers();
+    const { document, elements, messages } = startClient(BLOCKS, { files: BOTH_FILES });
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    document.fire("keydown", { key: "F7" });
+
+    expect(elements["scroll-result"].scrollTop).toBe(4 * 20 - 25);
+    expect(elements["file-step"].textContent).toBe("");
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    expect(elements["file-step"].textContent).toBe("");
+    expect(messages).toEqual([{ type: "ready" }]);
+  });
+
+  it("keeps today's behaviour when the diff has no file list", () => {
+    vi.useFakeTimers();
+    const { document, elements, messages } = startAtLastBlock({});
+
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7" });
+
+    expect(elements["file-step"].textContent).toBe("");
+    expect(messages).toEqual([{ type: "ready" }]);
+  });
+
+  it("starts at the last change of a file reached with Shift+F7", () => {
+    const { elements } = startClient(BLOCKS, { files: BOTH_FILES, startAt: "last" });
+
+    expect(elements["scroll-result"].scrollTop).toBe(9 * 20 - 25);
   });
 });

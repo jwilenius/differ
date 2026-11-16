@@ -9,7 +9,8 @@ import type {
   HistoryRepository,
   ReadyResult,
 } from "../../model/historyTypes";
-import type { TwoWayDiffPanels } from "./twoWayDiffPanel";
+import type { StartChange } from "../../render/html/twoWayDiffRenderer";
+import type { AdjacentFiles, TwoWayDiffPanels } from "./twoWayDiffPanel";
 
 export const HISTORY_DOCUMENT_SCHEME = "jw-differ-history";
 
@@ -29,7 +30,8 @@ export interface HistoryFileOpener {
  * opening reads both sides once, caches the text under fresh opaque document IDs and never reads again, so an open
  * editor keeps showing the comparison it was opened from after the snapshot is released or the selection changes.
  * URIs only address this cache; their paths are display data. Documents shown by an open panel stay cached until the
- * panel closes, so its "Open in VS Code diff" keeps working after VS Code closes them.
+ * panel closes, so its "Open in VS Code diff" keeps working after VS Code closes them. A panel can step to the
+ * neighbouring files of the same comparison, in the order the history panel lists them.
  */
 export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, HistoryFileOpener {
   private readonly documents = new Map<string, string>();
@@ -51,7 +53,20 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
    * Starts both side reads in the same tick, so both take their snapshot leases before a selection change can release
    * the snapshot. Rejects, opening nothing, when the snapshot is already gone or a read fails.
    */
-  async openFile(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile): Promise<void> {
+  openFile(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile): Promise<void> {
+    return this.openFileAt(repository, comparison, file, "first");
+  }
+
+  /** Cancels pending reads and forgets every cached document. */
+  dispose(): void {
+    this.shutdown.abort();
+    this.closeSubscription.dispose();
+    this.documents.clear();
+    this.pinned.clear();
+  }
+
+  /** Like `openFile`; a panel showing the file starts at `startAt`. */
+  private async openFileAt(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile, startAt: StartChange): Promise<void> {
     const signal = this.shutdown.signal;
     const [base, result] = await Promise.all(
       (["base", "result"] as const).map((side) => repository.readFile(comparison.snapshotId, file.id, side, signal)),
@@ -75,21 +90,16 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
       if (viewer === "native") {
         await openNativeDiff(sides, title);
       } else {
-        await this.openPanel(comparison, file, title, sides);
+        await this.openPanel(comparison, file, title, sides, {
+          startAt,
+          adjacentFiles: this.adjacentFiles(repository, comparison, file),
+        });
       }
     } catch (error) {
       this.forget(sides.base.uri);
       this.forget(sides.result.uri);
       throw error;
     }
-  }
-
-  /** Cancels pending reads and forgets every cached document. */
-  dispose(): void {
-    this.shutdown.abort();
-    this.closeSubscription.dispose();
-    this.documents.clear();
-    this.pinned.clear();
   }
 
   private async openExplanation(uri: vscode.Uri): Promise<void> {
@@ -102,7 +112,7 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
   }
 
   /** The panel pins both documents; its language comes from the result document, or the base one for a deletion. */
-  private async openPanel(comparison: ReadyResult, file: ComparisonFile, title: string, sides: CachedSides): Promise<void> {
+  private async openPanel(comparison: ReadyResult, file: ComparisonFile, title: string, sides: CachedSides, navigation: PanelNavigation): Promise<void> {
     const { base, result } = sides;
     this.pin(base.uri);
     this.pin(result.uri);
@@ -117,7 +127,27 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
         this.release(base.uri);
         this.release(result.uri);
       },
+      startAt: navigation.startAt,
+      ...(navigation.adjacentFiles === undefined ? {} : { adjacentFiles: navigation.adjacentFiles }),
     });
+  }
+
+  /**
+   * Opens the nearest files before and after `file` in list order that have a text change to land on; undefined when
+   * `file` is not in the list.
+   */
+  private adjacentFiles(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile): AdjacentFiles | undefined {
+    const { files } = comparison;
+    const index = files.findIndex((candidate) => candidate.id === file.id);
+    if (index === -1) {
+      return undefined;
+    }
+    const previous = files.slice(0, index).reverse().find(hasTextChange);
+    const next = files.slice(index + 1).find(hasTextChange);
+    return {
+      ...(previous === undefined ? {} : { previous: () => this.openFileAt(repository, comparison, previous, "last") }),
+      ...(next === undefined ? {} : { next: () => this.openFileAt(repository, comparison, next, "first") }),
+    };
   }
 
   private store(file: ComparisonFile, side: FileSide, text: string, suffix = ""): vscode.Uri {
@@ -189,6 +219,20 @@ function diffTitle(comparison: ReadyResult, file: ComparisonFile): string {
 function describeSelection(comparison: ReadyResult): string {
   const count = comparison.orderedOids.length;
   return `${count} selected commit${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * Whether a file step can land on a change in `file`. Binary files open outside the diff panel, and a rename or mode
+ * change keeping the content has no change to show; both still open from the list.
+ */
+function hasTextChange(file: ComparisonFile): boolean {
+  const isContentChanged = file.base?.blob !== file.result?.blob;
+  return file.contentKind !== "binary" && isContentChanged;
+}
+
+interface PanelNavigation {
+  readonly startAt: StartChange;
+  readonly adjacentFiles: AdjacentFiles | undefined;
 }
 
 interface CachedDocument {

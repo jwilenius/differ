@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { TOKENIZE_TIME_BUDGET_MS, unstyledText, type HighlightOptions } from "../../highlight/textMateHighlighter";
 import type { HighlightedText } from "../../model/syntaxTokens";
 import { buildTwoWayDiff } from "../../model/twoWayDiff";
-import { HtmlTwoWayDiffRenderer } from "../../render/html/twoWayDiffRenderer";
+import { HtmlTwoWayDiffRenderer, type FileListNeighbours, type StartChange } from "../../render/html/twoWayDiffRenderer";
 
 const VIEW_TYPE = "jwDiffer.twoWayDiff";
 const NONCE_BYTES = 16;
@@ -29,6 +29,11 @@ export interface DiffSide {
   readonly path: string;
 }
 
+export type FileDirection = "previous" | "next";
+
+/** Opens the neighbouring files of a comparison's file list; a missing direction has no file to open. */
+export type AdjacentFiles = Readonly<Partial<Record<FileDirection, () => Promise<void>>>>;
+
 /** Everything a panel shows and the hooks back into the document cache that owns `base.uri` and `result.uri`. */
 export interface TwoWayDiffRequest {
   readonly title: string;
@@ -40,6 +45,13 @@ export interface TwoWayDiffRequest {
   openNative(): Thenable<unknown>;
   /** Called once when the panel closes; the cached documents may then be forgotten. */
   release(): void;
+  /**
+   * Set when the diff belongs to a file list: F7 past the last change, or Shift+F7 before the first, then offers the
+   * neighbouring file. Without it both keys stop at either end.
+   */
+  readonly adjacentFiles?: AdjacentFiles;
+  /** Defaults to the first change. */
+  readonly startAt?: StartChange;
 }
 
 export interface TwoWayDiffPanelsOptions {
@@ -245,6 +257,8 @@ export class TwoWayDiffPanels implements vscode.Disposable {
         basePath: base.path,
         resultPath: result.path,
         title: request.title,
+        ...(request.adjacentFiles === undefined ? {} : { fileList: neighboursOf(request.adjacentFiles) }),
+        ...(request.startAt === undefined ? {} : { startAt: request.startAt }),
       },
     );
   }
@@ -253,13 +267,18 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     return webview.asWebviewUri(vscode.Uri.joinPath(this.options.mediaRoot, fileName)).toString();
   }
 
-  /** The webview is untrusted input; only `openNative` needs an answer. */
-  private async handleMessage(message: unknown, request: TwoWayDiffRequest): Promise<void> {
-    const isOpenNative = typeof message === "object" && message !== null && (message as { type?: unknown }).type === "openNative";
-    if (!isOpenNative) {
-      return;
+  /** The webview is untrusted input; only `openNative` and `openAdjacentFile` need an answer. */
+  private async handleMessage(raw: unknown, request: TwoWayDiffRequest): Promise<void> {
+    const message = parsePanelMessage(raw);
+    switch (message?.type) {
+      case "openNative":
+        return this.openNative(request);
+      case "openAdjacentFile":
+        return this.openAdjacentFile(request, message.direction);
     }
+  }
 
+  private async openNative(request: TwoWayDiffRequest): Promise<void> {
     try {
       await request.openNative();
     } catch (error) {
@@ -267,6 +286,39 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       void vscode.window.showErrorMessage("jw-differ could not open the VS Code diff editor.");
     }
   }
+
+  private async openAdjacentFile(request: TwoWayDiffRequest, direction: FileDirection): Promise<void> {
+    const openFile = request.adjacentFiles?.[direction];
+    if (openFile === undefined) {
+      return;
+    }
+
+    try {
+      await openFile();
+    } catch (error) {
+      this.options.log(`Opening the ${direction} file after ${request.title} failed. ${messageOf(error)}`);
+      void vscode.window.showErrorMessage(`jw-differ could not open the ${direction} file. ${messageOf(error)}`);
+    }
+  }
+}
+
+/** Messages the diff webview sends; `ready` needs no answer. */
+type PanelMessage = { readonly type: "openNative" } | { readonly type: "openAdjacentFile"; readonly direction: FileDirection };
+
+function parsePanelMessage(raw: unknown): PanelMessage | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const { type, direction } = raw as { readonly type?: unknown; readonly direction?: unknown };
+  if (type === "openNative") {
+    return { type };
+  }
+  const isFileDirection = direction === "previous" || direction === "next";
+  return type === "openAdjacentFile" && isFileDirection ? { type, direction } : null;
+}
+
+function neighboursOf(adjacentFiles: AdjacentFiles): FileListNeighbours {
+  return { hasPrevious: adjacentFiles.previous !== undefined, hasNext: adjacentFiles.next !== undefined };
 }
 
 function messageOf(error: unknown): string {

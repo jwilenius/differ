@@ -161,6 +161,61 @@ describe("TwoWayDiffPanels", () => {
     expect(logged[0]).toContain("no editor");
   });
 
+  it("publishes the neighbouring files and the change to start at for a diff in a file list", async () => {
+    const opened = request({ adjacentFiles: { next: () => Promise.resolve() }, startAt: "last" });
+
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(opened);
+
+    const html = onlyPanel().webview.html;
+    expect(html).toContain(`data-files="{&quot;hasPrevious&quot;:false,&quot;hasNext&quot;:true}"`);
+    expect(html).toContain(`data-start-at="last"`);
+  });
+
+  it("publishes no file list for a diff without one", async () => {
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request());
+
+    expect(onlyPanel().webview.html).not.toContain("data-files");
+  });
+
+  it("opens the next or previous file when the webview asks", async () => {
+    const opened: string[] = [];
+    const record = (direction: string) => () => {
+      opened.push(direction);
+      return Promise.resolve();
+    };
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ adjacentFiles: { previous: record("previous"), next: record("next") } }));
+
+    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next" });
+    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "previous" });
+    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "sideways" });
+    await settle();
+
+    expect(opened).toEqual(["next", "previous"]);
+  });
+
+  it("ignores a file step the shown diff cannot take", async () => {
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request());
+
+    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next" });
+    await settle();
+
+    expect(vscodeMock.messages).toEqual([]);
+    expect(logged).toEqual([]);
+  });
+
+  it("reports a file that cannot be opened instead of rejecting", async () => {
+    const failing = () => Promise.reject(new Error("This comparison is no longer available."));
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ adjacentFiles: { next: failing } }));
+
+    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next" });
+    await settle();
+
+    expect(vscodeMock.messages).toEqual([
+      { level: "error", text: "jw-differ could not open the next file. This comparison is no longer available." },
+    ]);
+    expect(logged[0]).toContain("This comparison is no longer available.");
+  });
+
   it("releases its documents once when the panel closes", async () => {
     const opened = request();
     await panels(highlighter(() => Promise.resolve(BLUE))).open(opened);

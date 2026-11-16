@@ -108,6 +108,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private readonly statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
   private readonly workspaceSubscription: vscode.Disposable;
   private readonly configurationSubscription: vscode.Disposable;
+  private readonly openedFileSubscription: vscode.Disposable;
   private readonly createRepository: NonNullable<HistoryViewProviderOptions["createRepository"]>;
   private readonly findRepositoryRoot: RepositoryRootFinder;
   private view: vscode.WebviewView | undefined;
@@ -143,6 +144,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         this.reloadLoadedSessions();
       }
     });
+    this.openedFileSubscription = options.fileOpener.onDidChangeOpenedFile(() => this.publish());
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -187,6 +189,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     this.statusItem.dispose();
     this.workspaceSubscription.dispose();
     this.configurationSubscription.dispose();
+    this.openedFileSubscription.dispose();
     const repositories = this.sessions.map((session) => {
       clearTimeout(session.compareTimer);
       session.controller.dispose();
@@ -552,6 +555,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       visibleOids,
       hiddenSelectedCount: this.visibility.hiddenCount(state.history, presentation, state.selectedOids),
       wireRevision,
+      openedFile: this.options.fileOpener.openedFile,
     };
 
     if (!view.visible || this.document === null) {

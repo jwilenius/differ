@@ -21,8 +21,8 @@
 
   /**
    * Presentation kept by the iframe across publications of one repository:
-   * range anchor, last focused control, caret, pane scroll offsets and unsent
-   * text or focus.
+   * range anchor, last focused control, caret, pane scroll offsets, unsent
+   * text or focus, and the file last marked as open in the diff view.
    */
   let view = restoreView();
   /**
@@ -40,6 +40,7 @@
   syncSearch();
   restoreFocusDraft();
   restoreFocus();
+  showOpenFile();
 
   // --- commit selection ---
 
@@ -236,6 +237,50 @@
     post("openFile", { snapshotId: file.dataset.snapshotId, fileId: file.dataset.fileId });
   }
 
+  /**
+   * Marks the file the diff panel shows. When the panel moves on from a file or its tab closes, that file's row is
+   * deselected: it keeps no focus from the double-click that opened it. A newly shown file is scrolled into view.
+   * The file last marked is kept with the view, so a document recreated after the panel was hidden does the same.
+   */
+  function showOpenFile() {
+    const previousId = view.openFileId;
+    const openId = published.openFileId;
+    for (const file of fileRows()) {
+      const isOpen = file.dataset.fileId === openId;
+      file.classList.toggle("is-open", isOpen);
+      if (isOpen) {
+        file.setAttribute("aria-current", "true");
+      } else {
+        file.removeAttribute("aria-current");
+      }
+    }
+    if (previousId === openId) {
+      return;
+    }
+    saveView({ openFileId: openId });
+    const closed = fileRows().find((file) => file.dataset.fileId === previousId);
+    if (closed) {
+      deselectFile(closed);
+    }
+    const opened = fileRows().find((file) => file.dataset.fileId === openId);
+    if (opened) {
+      opened.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function deselectFile(file) {
+    if (document.activeElement === file) {
+      file.blur();
+    }
+    if (view.activeKey === `file:${file.dataset.fileId}`) {
+      saveView({ activeKey: null });
+    }
+  }
+
+  function fileRows() {
+    return [...document.querySelectorAll("button.file-row")];
+  }
+
   // --- toolbar, base and merge-parent controls ---
 
   const BUTTON_ACTIONS = {
@@ -393,6 +438,7 @@
     if (active && !active.isConnected) {
       restoreFocus();
     }
+    showOpenFile();
   }
 
   /** Nothing carries over to another repository but the focused control, caret and detail width. */
@@ -428,6 +474,7 @@
       repositoryId: published.repositoryId,
       anchorOid: null,
       activeKey: null,
+      openFileId: null,
       caret: null,
       scroll: {},
       detailWidth: null,

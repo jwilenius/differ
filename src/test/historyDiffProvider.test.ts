@@ -180,6 +180,12 @@ describe("HistoryDiffProvider with the native viewer", () => {
     expect(provider.provideTextDocumentContent(roundTripped)).toBe("a");
   });
 
+  it("reports no file shown in jw-differ's panel for a native diff", async () => {
+    await provider.openFile(fakeRepository({ base: text("old\n"), result: text("new\n") }), comparison(), file());
+
+    expect(provider.openedFile).toBeNull();
+  });
+
   it("serves nothing for URIs it did not issue", () => {
     const unknown = vscode.Uri.from({ scheme: HISTORY_DOCUMENT_SCHEME, path: "/etc/passwd" });
     const otherScheme = vscode.Uri.file("/etc/passwd");
@@ -326,6 +332,19 @@ describe("HistoryDiffProvider with the IntelliJ viewer", () => {
     expect(provider.provideTextDocumentContent(request.result.uri)).toBe(UNAVAILABLE_DOCUMENT_TEXT);
   });
 
+  it("reports the file its panel shows from when the tab shows it until the tab closes", async () => {
+    const reported: unknown[] = [];
+    provider.onDidChangeOpenedFile(() => reported.push(provider.openedFile));
+    const request = await openPanel();
+    expect(provider.openedFile).toBeNull();
+
+    request.shown?.();
+    request.release();
+
+    expect(reported).toEqual([{ snapshotId: SNAPSHOT_ID, fileId: file().id }, null]);
+    expect(provider.openedFile).toBeNull();
+  });
+
   it("forgets both documents when the panel cannot open", async () => {
     panels.open = (request) => {
       panels.requests.push(request);
@@ -396,6 +415,18 @@ describe("HistoryDiffProvider file steps", () => {
     await lastRequest().adjacentFiles?.next?.();
 
     expect(lastRequest().result.path).toBe("mango.ts");
+  });
+
+  it("keeps reporting the file a step showed when the tab releases the file it replaced", async () => {
+    await provider.openFile(repository, listed, apple);
+    const first = lastRequest();
+    first.shown?.();
+
+    await first.adjacentFiles?.next?.();
+    lastRequest().shown?.();
+    first.release();
+
+    expect(provider.openedFile).toEqual({ snapshotId: SNAPSHOT_ID, fileId: mango.id });
   });
 
   it("has no previous file before the first listed file and no next one after the last", async () => {

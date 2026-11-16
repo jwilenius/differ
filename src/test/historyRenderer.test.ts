@@ -57,6 +57,7 @@ function makeContext(overrides: Partial<HistoryRenderContext> = {}): HistoryRend
     visibleOids: history.commits.map((entry) => entry.oid),
     hiddenSelectedCount: 0,
     wireRevision: 7,
+    openedFile: null,
     ...overrides,
   };
 }
@@ -144,6 +145,7 @@ describe("HtmlHistoryRenderer", () => {
       branchOid: null,
       rowLimit: HISTORY_PAGE_SIZE,
       snapshotId: null,
+      openFileId: null,
     });
     expect(html).toContain("2 hidden by filters");
   });
@@ -270,6 +272,19 @@ describe("HtmlHistoryRenderer", () => {
     expect(publicState(html).snapshotId).toBe(SNAPSHOT_ID);
   });
 
+  it("publishes the file the diff panel shows only while its snapshot is the one listed", () => {
+    const listed: ComparisonFile = { id: "f-open", status: "added", base: null, result: { path: "a.txt", blob: oid(10), mode: "100644" }, contentKind: "text" };
+    const state = { selectedOids: [MIDDLE], comparison: ready([listed]) };
+
+    const shown = render(state, { openedFile: { snapshotId: SNAPSHOT_ID, fileId: "f-open" } });
+    const otherSnapshot = render(state, { openedFile: { snapshotId: "7f1c2a7e-1111-4222-8333-944455556666", fileId: "f-open" } });
+    const comparing = render({ selectedOids: [MIDDLE] }, { openedFile: { snapshotId: SNAPSHOT_ID, fileId: "f-open" } });
+
+    expect(publicState(shown).openFileId).toBe("f-open");
+    expect(publicState(otherSnapshot).openFileId).toBeNull();
+    expect(publicState(comparing).openFileId).toBeNull();
+  });
+
   it("renders one page of rows and a Load more action", () => {
     const many = Array.from({ length: HISTORY_PAGE_SIZE + 1 }, (_, index) => commit(oid(100 + index), `c${index}`, []));
     const state = makeState({ history: { commits: many, refs: [], isTruncated: false } });
@@ -334,6 +349,20 @@ describe("HtmlHistoryRenderer", () => {
       expect(update.state).toMatchObject({ revision: 8, selectedOids: [MIDDLE] });
       expect(update.regions).not.toHaveProperty("history-commits");
       expect(update.regions["history-selection"]).toContain("1 selected");
+      expect(update.appendedRows).toBe("");
+    });
+
+    it("sends a change of the file the diff panel shows as state alone", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const listed: ComparisonFile = { id: "f-open", status: "added", base: null, result: { path: "a.txt", blob: oid(10), mode: "100644" }, contentKind: "text" };
+      const state = makeState({ selectedOids: [MIDDLE], comparison: ready([listed]) });
+      const context = makeContext();
+      const { page } = renderer.render(state, context);
+
+      const { update } = renderer.update(state, { ...context, wireRevision: 8, openedFile: { snapshotId: SNAPSHOT_ID, fileId: "f-open" } }, page);
+
+      expect(update.state).toMatchObject({ revision: 8, openFileId: "f-open" });
+      expect(update.regions).toEqual({});
       expect(update.appendedRows).toBe("");
     });
 

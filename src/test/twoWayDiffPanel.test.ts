@@ -241,6 +241,32 @@ describe("TwoWayDiffPanels", () => {
     expect([first.releases, second.releases]).toEqual([1, 0]);
   });
 
+  it("tells each request when the tab shows it, before releasing the file it replaced", async () => {
+    const events: string[] = [];
+    const tracked = (name: string): TwoWayDiffRequest => request({
+      shown: () => void events.push(`${name} shown`),
+      release: () => void events.push(`${name} released`),
+    });
+    const diffPanels = panels(highlighter(() => Promise.resolve(BLUE)));
+    await diffPanels.open(tracked("first"));
+    await diffPanels.open(tracked("second"));
+
+    onlyPanel().dispose();
+
+    expect(events).toEqual(["first shown", "second shown", "first released", "second released"]);
+  });
+
+  it("never reports a file shown when rendering it fails", async () => {
+    const events: string[] = [];
+    const diffPanels = panels(highlighter(() => Promise.resolve(BLUE)));
+    await diffPanels.open(request());
+    const failing = request({ shown: () => void events.push("shown"), release: () => void events.push("released") });
+
+    await expect(diffPanels.open({ ...failing, base: unrenderable(failing.base) })).rejects.toThrow("render broke");
+
+    expect(events).toEqual(["released"]);
+  });
+
   it("sends the native-diff request for the file the reused tab currently shows", async () => {
     const first = request();
     const second = request();

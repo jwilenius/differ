@@ -15,6 +15,7 @@ import type {
   ComparisonResult,
   HistoryCommit,
   HistoryData,
+  OpenedFile,
   ReadyResult,
 } from "../model/historyTypes";
 import { HISTORY_PAGE_SIZE } from "../render/html/historyRenderer";
@@ -232,7 +233,8 @@ describe("HistoryViewProvider", () => {
   let initialLoadFailure: Error | null;
   /** History each repository the provider creates loads. */
   let initialHistory: HistoryData;
-  let fileOpener: HistoryFileOpener & { calls: unknown[][] };
+  let fileOpener: HistoryFileOpener & { calls: unknown[][]; openedFile: OpenedFile | null };
+  let openedFileChanges: vscode.EventEmitter<void>;
   let log: string[];
   let provider: HistoryViewProvider;
   let view: FakeWebviewView;
@@ -266,6 +268,12 @@ describe("HistoryViewProvider", () => {
     await settle();
   }
 
+  /** Plays the diff panel starting to show `openedFile`, or closing. */
+  function showInDiffPanel(openedFile: OpenedFile | null): void {
+    fileOpener.openedFile = openedFile;
+    openedFileChanges.fire();
+  }
+
   async function selectAndCompare(oids: readonly string[]): Promise<void> {
     await send({ type: "select", oids, focusedOid: oids[0] ?? null });
     await vi.advanceTimersByTimeAsync(COMPARE_DELAY_MS);
@@ -279,12 +287,15 @@ describe("HistoryViewProvider", () => {
     initialLoadFailure = null;
     initialHistory = HISTORY;
     log = [];
+    openedFileChanges = new vscode.EventEmitter<void>();
     fileOpener = {
       calls: [],
       openFile(...args) {
         this.calls.push(args);
         return Promise.resolve();
       },
+      openedFile: null,
+      onDidChangeOpenedFile: openedFileChanges.event,
     };
   });
 
@@ -329,6 +340,33 @@ describe("HistoryViewProvider", () => {
     expect(repository).toBe(repositories.get(ROOT_A));
     expect(comparison.snapshotId).toBe(SNAPSHOT_ID);
     expect(file.id).toBe(FILE_ID);
+  });
+
+  it("marks the file the diff panel shows with a state-only update until its tab closes", async () => {
+    await open();
+    await selectAndCompare([C3]);
+    const posted = updates(view).length;
+
+    showInDiffPanel({ snapshotId: SNAPSHOT_ID, fileId: FILE_ID });
+
+    expect(updates(view)).toHaveLength(posted + 1);
+    const update = updates(view).at(-1)!;
+    expect(update.state.openFileId).toBe(FILE_ID);
+    expect(update.regions).toEqual({});
+    expect(update.appendedRows).toBe("");
+    showInDiffPanel(null);
+    expect(publicState(view).openFileId).toBeNull();
+    expect(view.webview.htmlWrites).toBe(1);
+  });
+
+  it("unmarks the open file once the selection no longer lists it", async () => {
+    await open();
+    await selectAndCompare([C3]);
+    showInDiffPanel({ snapshotId: SNAPSHOT_ID, fileId: FILE_ID });
+
+    await send({ type: "select", oids: [C2], focusedOid: C2 });
+
+    expect(publicState(view).openFileId).toBeNull();
   });
 
   it("shows a concise error when the opener reports an expired snapshot", async () => {

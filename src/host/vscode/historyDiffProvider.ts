@@ -7,6 +7,7 @@ import type {
   FileContentResult,
   FileSide,
   HistoryRepository,
+  OpenedFile,
   ReadyResult,
 } from "../../model/historyTypes";
 import type { StartChange } from "../../render/html/twoWayDiffRenderer";
@@ -20,9 +21,15 @@ export const DIFF_VIEWER_SETTING = "historyDiffViewer";
 /** Shown for a URI this provider never issued or has already forgotten; nothing is ever read from disk or Git. */
 export const UNAVAILABLE_DOCUMENT_TEXT = "This jw-differ history document is no longer available. Open the file again from the history panel.\n";
 
-/** Opens one changed file of a ready comparison; implemented by `HistoryDiffProvider`. */
+/**
+ * Opens one changed file of a ready comparison and reports which one the diff panel shows; implemented by
+ * `HistoryDiffProvider`.
+ */
 export interface HistoryFileOpener {
   openFile(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile): Promise<void>;
+  /** The file jw-differ's diff panel shows; null while it shows none. A native diff is not tracked. */
+  readonly openedFile: OpenedFile | null;
+  readonly onDidChangeOpenedFile: vscode.Event<void>;
 }
 
 /**
@@ -39,6 +46,9 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
   private readonly pinned = new Set<string>();
   private readonly shutdown = new AbortController();
   private readonly closeSubscription: vscode.Disposable;
+  private readonly openedFileChanges = new vscode.EventEmitter<void>();
+  private opened: OpenedFile | null = null;
+  readonly onDidChangeOpenedFile = this.openedFileChanges.event;
 
   constructor(private readonly panels: Pick<TwoWayDiffPanels, "open">) {
     this.closeSubscription = vscode.workspace.onDidCloseTextDocument((document) => this.forgetUnpinned(document.uri));
@@ -57,10 +67,15 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
     return this.openFileAt(repository, comparison, file, "first");
   }
 
+  get openedFile(): OpenedFile | null {
+    return this.opened;
+  }
+
   /** Cancels pending reads and forgets every cached document. */
   dispose(): void {
     this.shutdown.abort();
     this.closeSubscription.dispose();
+    this.openedFileChanges.dispose();
     this.documents.clear();
     this.pinned.clear();
   }
@@ -144,9 +159,13 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
     }
   }
 
-  /** The panel pins both documents; its language comes from the result document, or the base one for a deletion. */
+  /**
+   * The panel pins both documents and reports `file` as opened while it shows them; its language comes from the
+   * result document, or the base one for a deletion.
+   */
   private async openPanel(comparison: ReadyResult, file: ComparisonFile, title: string, sides: CachedSides, navigation: PanelNavigation): Promise<void> {
     const { base, result } = sides;
+    const openedFile: OpenedFile = { snapshotId: comparison.snapshotId, fileId: file.id };
     this.pin(base.uri);
     this.pin(result.uri);
 
@@ -156,9 +175,13 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
       result: { ...result, label: describeSelection(comparison), path: file.result?.path ?? "" },
       languageUri: file.result === null ? base.uri : result.uri,
       openNative: () => openNativeDiff(sides, title),
+      shown: () => this.setOpenedFile(openedFile),
       release: () => {
         this.release(base.uri);
         this.release(result.uri);
+        if (this.opened === openedFile) {
+          this.setOpenedFile(null);
+        }
       },
       startAt: navigation.startAt,
       ...(navigation.adjacentFiles === undefined ? {} : { adjacentFiles: navigation.adjacentFiles }),
@@ -181,6 +204,11 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
       ...(previous.length === 0 ? {} : { previous: () => this.stepTo(repository, comparison, previous, "last") }),
       ...(next.length === 0 ? {} : { next: () => this.stepTo(repository, comparison, next, "first") }),
     };
+  }
+
+  private setOpenedFile(file: OpenedFile | null): void {
+    this.opened = file;
+    this.openedFileChanges.fire();
   }
 
   private store(file: ComparisonFile, side: FileSide, text: string, suffix = ""): vscode.Uri {

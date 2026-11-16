@@ -86,6 +86,9 @@ the left; changed files, replay order and commit details on the right.
   Git's topological order. The replay order is listed in the panel.
 - The file list shows the net change from base to result: additions, deletions, modifications, renames, mode changes,
   binary files and submodules. Changes that cancel out disappear; if everything cancels, the panel says so.
+- The file shown in the diff view is marked in the list with the selection colour and a bar on its left, and the mark
+  follows F7 / Shift+F7 to the next or previous file, scrolling it into view. Closing the diff tab, or a selection that
+  no longer lists the file, clears the mark and the row's focus.
 - If a selected commit depends on a commit you left out and cannot be applied, replay stops at that commit and lists
   the conflicting paths. No partial result is shown; change the selection or base and it retries.
 - Example: on `A ← B ← C ← D`, where B adds `b.txt`, C adds `c.txt` and D adds `d.txt`, selecting B and D compares

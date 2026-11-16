@@ -11,6 +11,7 @@ import type {
   HistoryRef,
   HistoryRefKind,
   HistoryState,
+  OpenedFile,
 } from "../../model/historyTypes";
 import { escapeHtml, type WebviewAssets } from "./webviewMarkup";
 
@@ -43,6 +44,8 @@ export interface HistoryPageContext {
   readonly hiddenSelectedCount: number;
   /** Publication counter every client intent must echo. */
   readonly wireRevision: number;
+  /** The file jw-differ's diff panel shows, of whichever comparison it was opened from. */
+  readonly openedFile: OpenedFile | null;
 }
 
 /** A page context plus what only a whole document needs. */
@@ -66,6 +69,8 @@ export interface HistoryPublicState {
   readonly rowLimit: number;
   /** Snapshot whose files are listed; null unless the comparison is ready. */
   readonly snapshotId: string | null;
+  /** Listed file the diff panel shows; the client marks it, so it never changes the rendered markup. */
+  readonly openFileId: string | null;
 }
 
 /** The rows a page shows: the first `count` of `visibleOids` in `history`, with graphs `graphColumns` wide. */
@@ -317,7 +322,8 @@ function rowLimit(context: HistoryPageContext): number {
 }
 
 function createPublicState(state: HistoryState, context: HistoryPageContext): HistoryPublicState {
-  const { presentation } = context;
+  const { presentation, openedFile } = context;
+  const snapshotId = state.comparison?.kind === "ready" ? state.comparison.snapshotId : null;
   return {
     revision: context.wireRevision,
     repositoryId: context.activeRepositoryId,
@@ -326,7 +332,8 @@ function createPublicState(state: HistoryState, context: HistoryPageContext): Hi
     search: presentation.search,
     branchOid: presentation.branchOid,
     rowLimit: rowLimit(context),
-    snapshotId: state.comparison?.kind === "ready" ? state.comparison.snapshotId : null,
+    snapshotId,
+    openFileId: openedFile !== null && openedFile.snapshotId === snapshotId ? openedFile.fileId : null,
   };
 }
 

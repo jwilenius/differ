@@ -88,6 +88,8 @@ class FakeElement extends FakeEventTarget {
   readonly children: FakeElement[] = [];
   parent: FakeElement | null = null;
   scrollTop = 0;
+  /** `scrollIntoView` calls, as their options. */
+  readonly scrolledIntoView: unknown[] = [];
   selectionStart = 0;
   selectionEnd = 0;
   readonly style = new FakeStyle();
@@ -217,6 +219,16 @@ class FakeElement extends FakeEventTarget {
   focus(): void {
     this.owner!.activeElement = this;
     this.dispatch(new FakeEvent("focusin", this));
+  }
+
+  blur(): void {
+    if (this.owner!.activeElement === this) {
+      this.owner!.activeElement = null;
+    }
+  }
+
+  scrollIntoView(options: unknown): void {
+    this.scrolledIntoView.push(options);
   }
 
   setSelectionRange(start: number, end: number): void {
@@ -436,6 +448,8 @@ interface Publication {
   readonly rowLimit?: number;
   readonly revision?: number;
   readonly repositoryId?: string;
+  /** File of the listed snapshot the diff panel shows. */
+  readonly openFileId?: string | null;
 }
 
 function publish(publication: Publication = {}): string {
@@ -472,6 +486,7 @@ function pageFor(publication: Publication): { readonly state: HistoryState; read
     visibleOids: publication.visibleOids ?? ALL_OIDS,
     hiddenSelectedCount: 0,
     wireRevision: publication.revision ?? 7,
+    openedFile: publication.openFileId ? { snapshotId: SNAPSHOT_ID, fileId: publication.openFileId } : null,
   };
   return { state, context };
 }
@@ -721,6 +736,7 @@ describe("history client", () => {
         visibleOids: many.commits.map((entry) => entry.oid),
         hiddenSelectedCount: 0,
         wireRevision: 3,
+        openedFile: null,
       },
     );
     const webview = new FakeWebview().load(html);
@@ -812,6 +828,51 @@ describe("history client", () => {
     second.load(publish({ selectedOids: [B], revision: 8 }));
 
     expect(second.document.activeElement?.dataset.fileId).toBe(OTHER_FILE_ID);
+  });
+
+  it("marks the file the diff panel shows apart from focus", () => {
+    const webview = open({ selectedOids: [B], openFileId: FILE_ID });
+    const [shown, other] = [FILE_ID, OTHER_FILE_ID].map((id) => webview.find("button.file-row", (element) => element.dataset.fileId === id));
+
+    expect(shown!.classList.contains("is-open")).toBe(true);
+    expect(shown!.getAttribute("aria-current")).toBe("true");
+    expect(other!.classList.contains("is-open")).toBe(false);
+    expect(other!.hasAttribute("aria-current")).toBe(false);
+    expect(webview.document.activeElement).toBeNull();
+  });
+
+  it("brings a file a step opened while the panel was hidden into view in the recreated document", () => {
+    const first = open({ selectedOids: [B], openFileId: FILE_ID });
+
+    const second = new FakeWebview();
+    second.state = first.state;
+    second.load(publish({ selectedOids: [B], openFileId: OTHER_FILE_ID, revision: 8 }));
+
+    const fileRow = (id: string): FakeElement => second.find("button.file-row", (element) => element.dataset.fileId === id);
+    expect(fileRow(OTHER_FILE_ID).classList.contains("is-open")).toBe(true);
+    expect(fileRow(OTHER_FILE_ID).scrolledIntoView).toEqual([{ block: "nearest" }]);
+  });
+
+  it("leaves the list where it was when the recreated document shows the same open file", () => {
+    const first = open({ selectedOids: [B], openFileId: FILE_ID });
+
+    const second = new FakeWebview();
+    second.state = first.state;
+    second.load(publish({ selectedOids: [B], openFileId: FILE_ID, revision: 8 }));
+
+    expect(second.find("button.file-row", (element) => element.dataset.fileId === FILE_ID).scrolledIntoView).toEqual([]);
+  });
+
+  it("deselects a file whose diff tab closed while the panel was hidden", () => {
+    const first = open({ selectedOids: [B], openFileId: FILE_ID });
+    first.find("button.file-row", (element) => element.dataset.fileId === FILE_ID).focus();
+
+    const second = new FakeWebview();
+    second.state = first.state;
+    second.load(publish({ selectedOids: [B], openFileId: null, revision: 8 }));
+
+    expect(second.document.activeElement).toBeNull();
+    expect(second.state).toMatchObject({ activeKey: null });
   });
 
   it("restores an unpinned base ref being typed", () => {
@@ -943,6 +1004,49 @@ describe("history client", () => {
       file.dispatch(new FakeEvent("dblclick", file));
 
       expect(webview.last()).toEqual({ type: "openFile", revision: 8, snapshotId: SNAPSHOT_ID, fileId: FILE_ID });
+    });
+
+    it("moves the open-file mark to the file a step opened and brings it into view", () => {
+      const host = new FakeHost();
+      const webview = host.open({ selectedOids: [B], openFileId: FILE_ID });
+      const fileRow = (id: string): FakeElement => webview.find("button.file-row", (element) => element.dataset.fileId === id);
+      expect(fileRow(FILE_ID).scrolledIntoView).toEqual([{ block: "nearest" }]);
+
+      webview.receive(host.update({ selectedOids: [B], openFileId: OTHER_FILE_ID, revision: 8 }));
+
+      expect(fileRow(FILE_ID).classList.contains("is-open")).toBe(false);
+      expect(fileRow(FILE_ID).hasAttribute("aria-current")).toBe(false);
+      expect(fileRow(OTHER_FILE_ID).classList.contains("is-open")).toBe(true);
+      expect(fileRow(OTHER_FILE_ID).scrolledIntoView).toEqual([{ block: "nearest" }]);
+      expect(fileRow(FILE_ID).scrolledIntoView).toHaveLength(1);
+    });
+
+    it("deselects the file whose diff tab closed, leaving it neither marked nor focused", () => {
+      const host = new FakeHost();
+      const webview = host.open({ selectedOids: [B] });
+      const opened = webview.find("button.file-row", (element) => element.dataset.fileId === FILE_ID);
+      webview.click(opened);
+      opened.dispatch(new FakeEvent("dblclick", opened));
+      webview.receive(host.update({ selectedOids: [B], openFileId: FILE_ID, revision: 8 }));
+
+      webview.receive(host.update({ selectedOids: [B], openFileId: null, revision: 9 }));
+
+      expect(opened.classList.contains("is-open")).toBe(false);
+      expect(opened.hasAttribute("aria-current")).toBe(false);
+      expect(webview.document.activeElement).toBeNull();
+      expect(webview.state).toMatchObject({ activeKey: null });
+    });
+
+    it("leaves the focus on another file when the open file's tab closes", () => {
+      const host = new FakeHost();
+      const webview = host.open({ selectedOids: [B], openFileId: FILE_ID });
+      const other = webview.find("button.file-row", (element) => element.dataset.fileId === OTHER_FILE_ID);
+      other.focus();
+
+      webview.receive(host.update({ selectedOids: [B], openFileId: null, revision: 8 }));
+
+      expect(webview.document.activeElement).toBe(other);
+      expect(webview.state).toMatchObject({ activeKey: `file:${OTHER_FILE_ID}` });
     });
 
     it("appends the rows Load more adds and moves through them with arrow keys", () => {

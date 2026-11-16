@@ -100,6 +100,12 @@ export interface BlockedResult {
   readonly explanation: string;
 }
 
+/** A listed file of one snapshot, as the diff panel shows it. */
+export interface OpenedFile {
+  readonly snapshotId: string;
+  readonly fileId: string;
+}
+
 /** A completed replay whose files can be opened until the snapshot is released. */
 export interface ReadyResult {
   readonly kind: "ready";

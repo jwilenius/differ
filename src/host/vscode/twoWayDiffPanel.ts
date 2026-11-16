@@ -43,6 +43,8 @@ export interface TwoWayDiffRequest {
   readonly languageUri: vscode.Uri;
   /** Shows the same comparison in VS Code's built-in diff editor. */
   openNative(): Thenable<unknown>;
+  /** Called once when the tab starts showing this comparison, before the comparison it replaced is released. */
+  shown?(): void;
   /** Called once when the panel closes; the cached documents may then be forgotten. */
   release(): void;
   /**
@@ -144,6 +146,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       throw error;
     }
     if (isNewPanel) {
+      request.shown?.();
       return;
     }
 
@@ -151,6 +154,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     open.request = request;
     open.panel.title = request.title;
     open.panel.reveal(undefined, false);
+    request.shown?.();
     previous.release();
   }
 

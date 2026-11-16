@@ -20,6 +20,7 @@ const HISTORY: HistoryData = {
     commit(C1, [], "Initial import"),
   ],
   refs: [],
+  isTruncated: false,
 };
 
 const ALL = { search: "", branchOid: null };

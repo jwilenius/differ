@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GitHistoryRepository, HistoryRevisionError } from "../git/gitHistoryRepository";
@@ -11,6 +12,8 @@ import {
 import type { HistoryRepositoryFixture } from "./gitHistoryFixture";
 
 const signal = new AbortController().signal;
+/** More commits than any fixture creates, so only the cap tests truncate. */
+const MAX_COMMITS = 1_000;
 /** `FIXTURE_DEFAULT_DATE` as `%aI` prints it: git 2.56+ writes UTC as `Z`, older versions as `+00:00`. */
 const fixtureAuthoredDate = expect.stringMatching(/^2026-01-01T00:00:00(?:Z|\+00:00)$/);
 
@@ -33,9 +36,9 @@ describe("GitHistoryRepository", () => {
   }
 
   it("returns an empty history for an unborn repository", async () => {
-    const history = await repository.loadHistory(signal);
+    const history = await repository.loadHistory(MAX_COMMITS, signal);
 
-    expect(history).toEqual({ commits: [], refs: [] });
+    expect(history).toEqual({ commits: [], refs: [], isTruncated: false });
   });
 
   it("labels branches, remote branches and tags, peeling annotated tags to their commit", async () => {
@@ -47,7 +50,7 @@ describe("GitHistoryRepository", () => {
     runFixtureGit(fixture.root, ["update-ref", "refs/remotes/origin/main", first]);
     runFixtureGit(fixture.root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
 
-    const history = await repository.loadHistory(signal);
+    const history = await repository.loadHistory(MAX_COMMITS, signal);
 
     expect(history.refs).toEqual(expect.arrayContaining([
       { kind: "localBranch", name: "main", oid: second },
@@ -63,10 +66,10 @@ describe("GitHistoryRepository", () => {
   it("includes a detached HEAD but not an attached one", async () => {
     const first = commit("First");
     commit("Second");
-    const attached = await repository.loadHistory(signal);
+    const attached = await repository.loadHistory(MAX_COMMITS, signal);
     runFixtureGit(fixture.root, ["checkout", "-q", "--detach", first]);
 
-    const detached = await repository.loadHistory(signal);
+    const detached = await repository.loadHistory(MAX_COMMITS, signal);
 
     expect(attached.refs.some((ref) => ref.kind === "head")).toBe(false);
     expect(detached.refs).toContainEqual({ kind: "head", name: "HEAD", oid: first });
@@ -77,7 +80,7 @@ describe("GitHistoryRepository", () => {
     runFixtureGit(fixture.root, ["checkout", "-q", "--detach"]);
     const detachedOnly = commit("Detached only");
 
-    const history = await repository.loadHistory(signal);
+    const history = await repository.loadHistory(MAX_COMMITS, signal);
 
     expect(history.commits[0]?.oid).toBe(detachedOnly);
   });
@@ -88,7 +91,7 @@ describe("GitHistoryRepository", () => {
     runFixtureGit(fixture.root, ["commit", "-q", "--amend", "--no-edit", `--author=${authorName} <ada@example.com>`]);
     const amended = runFixtureGit(fixture.root, ["rev-parse", "HEAD"]).trim();
 
-    const history = await repository.loadHistory(signal);
+    const history = await repository.loadHistory(MAX_COMMITS, signal);
 
     expect(amended).not.toBe(oid);
     expect(history.commits).toEqual([{
@@ -109,12 +112,50 @@ describe("GitHistoryRepository", () => {
     runFixtureGit(fixture.root, ["merge", "-q", "--no-ff", "-m", "Merge side", "side"]);
     const merge = runFixtureGit(fixture.root, ["rev-parse", "HEAD"]).trim();
 
-    const history = await repository.loadHistory(signal);
+    const history = await repository.loadHistory(MAX_COMMITS, signal);
     const oids = history.commits.map((entry) => entry.oid);
 
     expect(history.commits[0]).toMatchObject({ oid: merge, parents: [main, side], subject: "Merge side" });
     expect(oids.indexOf(base)).toBe(oids.length - 1);
     expect(oids).toHaveLength(4);
+  });
+
+  describe("commit cap", () => {
+    const cap = 3;
+
+    function commitChain(count: number): readonly string[] {
+      return Array.from({ length: count }, (_unused, index) => commit(`Commit ${index + 1}`));
+    }
+
+    it("loads every commit and reports no truncation when the history has exactly the cap", async () => {
+      const oids = commitChain(cap);
+
+      const history = await repository.loadHistory(cap, signal);
+
+      expect(history.commits.map((entry) => entry.oid)).toEqual([...oids].reverse());
+      expect(history.isTruncated).toBe(false);
+    });
+
+    it("keeps the newest commits and reports truncation when the history exceeds the cap", async () => {
+      const oids = commitChain(cap + 1);
+
+      const history = await repository.loadHistory(cap, signal);
+
+      expect(history.commits.map((entry) => entry.oid)).toEqual([...oids].reverse().slice(0, cap));
+      expect(history.isTruncated).toBe(true);
+    });
+
+    it("asks Git for one commit more than the cap instead of reading the whole history", async () => {
+      commitChain(cap + 2);
+      const tracePath = path.join(fixture.directory, "git-trace.log");
+      const tracedRepository = new GitHistoryRepository(fixture.root, { ...fixtureGitEnvironment(), GIT_TRACE: tracePath });
+
+      await tracedRepository.loadHistory(cap, signal);
+
+      const logCalls = fs.readFileSync(tracePath, "utf8").split("\n").filter((line) => / git log /.test(line));
+      expect(logCalls).toHaveLength(1);
+      expect(logCalls[0]).toContain(`--max-count=${cap + 1}`);
+    });
   });
 
   describe("resolveRef", () => {

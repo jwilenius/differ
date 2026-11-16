@@ -22,6 +22,11 @@ export const OPEN_HISTORY_COMMAND = "jwDiffer.openHistory";
 export const FOCUS_HISTORY_VIEW_COMMAND = `${HISTORY_VIEW_ID}.focus`;
 /** Quiet period after a selection, base or merge-parent change before comparing. */
 export const COMPARE_DELAY_MS = 150;
+/** `jwDiffer.*` setting capping the commits each history load reads; bounds extension-host memory on large repositories. */
+export const MAX_COMMITS_SETTING = "historyMaxCommits";
+export const DEFAULT_MAX_COMMITS = 20_000;
+/** Matches the manifest's `minimum`, which VS Code does not enforce on hand-edited settings. */
+export const MIN_MAX_COMMITS = 100;
 
 const NONCE_BYTES = 18;
 const NO_REPOSITORY_FOUND = "No Git repository found in this workspace. Use Open… to choose a repository folder.";
@@ -97,6 +102,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private readonly sessions: HistorySession[] = [];
   private readonly statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
   private readonly workspaceSubscription: vscode.Disposable;
+  private readonly configurationSubscription: vscode.Disposable;
   private readonly createRepository: NonNullable<HistoryViewProviderOptions["createRepository"]>;
   private readonly findRepositoryRoot: RepositoryRootFinder;
   private view: vscode.WebviewView | undefined;
@@ -121,6 +127,11 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     this.workspaceSubscription = vscode.workspace.onDidChangeWorkspaceFolders(() => {
       if (this.hasDiscovered) {
         void this.discoverRepositories();
+      }
+    });
+    this.configurationSubscription = vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration(`jwDiffer.${MAX_COMMITS_SETTING}`)) {
+        this.reloadLoadedSessions();
       }
     });
   }
@@ -161,6 +172,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     this.detachView();
     this.statusItem.dispose();
     this.workspaceSubscription.dispose();
+    this.configurationSubscription.dispose();
     const repositories = this.sessions.map((session) => {
       clearTimeout(session.compareTimer);
       session.controller.dispose();
@@ -259,8 +271,19 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
 
   /** Loads metadata, then drops selected commits that no longer exist and reports what changed. */
   private async load(session: HistorySession): Promise<void> {
-    await this.follow(session.controller.load());
+    await this.follow(session.controller.load(configuredMaxCommits()));
     this.revalidate(session);
+  }
+
+  /** Applies a changed commit cap to every session that has loaded or is loading; the others read it when activated. */
+  private reloadLoadedSessions(): void {
+    for (const session of this.sessions) {
+      const state = session.controller.getState();
+      const isLoadedOrLoading = state.history !== null || state.operations.isLoading;
+      if (isLoadedOrLoading) {
+        void this.load(session);
+      }
+    }
   }
 
   private revalidate(session: HistorySession): void {
@@ -276,7 +299,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       focusedOid: isKnown(focusedOid) ? focusedOid : null,
       branchOid: isKnown(branchOid) ? branchOid : null,
     };
-    const isPinnedBaseMissing = state.base.kind === "pinned" && !known.has(state.base.oid);
+    // A truncated history does not list a pinned base older than its cut, which still works for comparisons.
+    const isPinnedBaseMissing = state.base.kind === "pinned" && !known.has(state.base.oid) && !state.history.isTruncated;
     if (isPinnedBaseMissing) {
       this.report(`The pinned base ${shortHash(state.base.oid)} is not reachable from the loaded refs; it stays pinned.`);
     }
@@ -566,12 +590,19 @@ function withErrorLogging(repository: HistoryRepository, log: (error: unknown) =
       throw error;
     });
   return {
-    loadHistory: (signal) => logged(repository.loadHistory(signal)),
+    loadHistory: (maxCommits, signal) => logged(repository.loadHistory(maxCommits, signal)),
     resolveRef: (ref, signal) => logged(repository.resolveRef(ref, signal)),
     compare: (request, signal) => logged(repository.compare(request, signal)),
     readFile: (snapshotId, fileId, side, signal) => logged(repository.readFile(snapshotId, fileId, side, signal)),
     releaseSnapshot: (snapshotId) => repository.releaseSnapshot(snapshotId),
   };
+}
+
+/** The configured commit cap; values below the minimum are raised to it and non-numbers fall back to the default. */
+function configuredMaxCommits(): number {
+  const value = vscode.workspace.getConfiguration("jwDiffer").get<unknown>(MAX_COMMITS_SETTING, DEFAULT_MAX_COMMITS);
+  const isNumber = typeof value === "number" && Number.isFinite(value);
+  return isNumber ? Math.max(MIN_MAX_COMMITS, Math.floor(value)) : DEFAULT_MAX_COMMITS;
 }
 
 function isCancellation(error: unknown): boolean {

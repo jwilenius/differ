@@ -59,6 +59,10 @@ the left; changed files, replay order and commit details on the right.
 - **Search** filters by subject or hash (literal, case-insensitive); the branch filter shows commits reachable from
   that branch. Filtering never changes the selection — selected commits it hides are counted next to the selection.
 - The table shows 200 commits at a time; **Load more** adds 200.
+- The panel loads at most `jwDiffer.historyMaxCommits` commits (default 20,000, minimum 100): the newest ones in
+  topological order across local and remote branches, tags and a detached HEAD. When older history is left out, the
+  status line and the end of the table say "Showing the newest 20,000 commits". Changing the setting reloads the panel.
+  Very large values can make VS Code's extension host run out of memory on big repositories.
 
 ### Comparison base
 
@@ -109,7 +113,8 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
 - Local repositories only; no network fetches. Shallow clones load, but a comparison that needs history beyond the
   shallow boundary fails until you deepen the clone with Git.
 - Files that are binary, not valid UTF-8, or over 16 MiB open as an explanation (type, size, mode) rather than a text
-  diff. Very large histories fail to load rather than showing a truncated graph (64 MiB of Git output per command).
+  diff. History beyond `jwDiffer.historyMaxCommits` is not loaded, so it cannot be selected or searched; a history
+  whose commit list exceeds 64 MiB of Git output still fails to load.
 
 ## Merge conflict resolution
 

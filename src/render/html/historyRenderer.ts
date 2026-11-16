@@ -311,7 +311,10 @@ function describeStatus(view: HistoryView): StatusLine {
     return { text: "This repository has no commits", tone: "info" };
   }
   if (selectedOids.length === 0) {
-    return { text: "Select commits to see their changes", tone: "info" };
+    const text = history.isTruncated
+      ? `${describeLoadedCount(history)}; select commits to see their changes`
+      : "Select commits to see their changes";
+    return { text, tone: "info" };
   }
   return describeComparison(view, comparison);
 }
@@ -344,7 +347,11 @@ function renderCommitPane(view: HistoryView, rows: readonly VisibleGraphRow[], v
   const body = rows.map((entry) => renderCommitRow(view, entry, graphLanes, entry.row.oid === focusedOid)).join("\n");
   const remaining = visibleCount - rows.length;
   const loadMore = remaining > 0
-    ? `<button id="history-load-more" class="load-more" data-row-limit="${rows.length + HISTORY_PAGE_SIZE}">Load more (${remaining} more)</button>`
+    ? `<button id="history-load-more" class="load-more" data-row-limit="${rows.length + HISTORY_PAGE_SIZE}">Load more (${formatCount(remaining)} more)</button>`
+    : "";
+  const history = view.state.history;
+  const truncatedNote = history?.isTruncated
+    ? `<p id="history-truncated" class="truncated-note">${describeLoadedCount(history)}. Older history is not loaded; raise the <code>jwDiffer.historyMaxCommits</code> setting to load more.</p>`
     : "";
 
   return `<section class="commit-pane" aria-label="Commits">
@@ -356,6 +363,7 @@ ${body}
 </table>
 ${rows.length === 0 ? `<p class="empty">No commits match the filters</p>` : ""}
 ${loadMore}
+${truncatedNote}
 </section>`;
 }
 
@@ -551,6 +559,16 @@ function shortHash(oid: string): string {
 function formatDate(isoDate: string): string {
   const match = ISO_MINUTE_PATTERN.exec(isoDate);
   return match ? `${match[1]} ${match[2]}` : isoDate;
+}
+
+/** How much of a truncated history is shown; the commit cap is the number of loaded commits. */
+function describeLoadedCount(history: HistoryData): string {
+  return `Showing the newest ${formatCount(history.commits.length)} commits`;
+}
+
+/** Counts that can reach the thousands, with `,` grouping regardless of the host's locale. */
+function formatCount(count: number): string {
+  return count.toLocaleString("en-US");
 }
 
 function plural(count: number, noun: string): string {

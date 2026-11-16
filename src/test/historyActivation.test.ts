@@ -8,6 +8,15 @@ import type { HistoryDiffProvider } from "../host/vscode/historyDiffProvider";
 import type { ComparisonFile, HistoryRepository, ReadyResult } from "../model/historyTypes";
 import { resetVscodeMock, vscodeMock } from "./vscodeMock";
 
+interface ConfigurationProperty {
+  readonly type?: string;
+  readonly enum?: readonly string[];
+  readonly default?: unknown;
+  readonly minimum?: number;
+  readonly maximum?: number;
+  readonly description?: string;
+}
+
 interface Manifest {
   readonly activationEvents: readonly string[];
   readonly contributes: {
@@ -16,7 +25,7 @@ interface Manifest {
     readonly views: Readonly<Record<string, readonly { readonly id: string; readonly type?: string }[]>>;
     readonly viewsWelcome?: readonly { readonly view: string; readonly contents: string }[];
     readonly menus: Readonly<Record<string, readonly { readonly command: string; readonly when?: string; readonly group?: string }[]>>;
-    readonly configuration: { readonly properties: Readonly<Record<string, { readonly enum?: readonly string[]; readonly default?: unknown }>> };
+    readonly configuration: { readonly properties: Readonly<Record<string, ConfigurationProperty>> };
   };
 }
 
@@ -122,6 +131,14 @@ describe("extension activation", () => {
 
     expect(viewer.enum).toEqual(["intellij", "native"]);
     expect(viewer.default).toBe("intellij");
+  });
+
+  it("contributes the history commit cap setting: 20,000 by default, at least 100, no maximum", () => {
+    const cap = manifest.contributes.configuration.properties["jwDiffer.historyMaxCommits"];
+
+    expect(cap).toMatchObject({ type: "number", default: 20_000, minimum: 100 });
+    expect(cap?.maximum).toBeUndefined();
+    expect(cap?.description).toMatch(/run out of memory/);
   });
 
   it("opens history text files in a diff panel, unstyled without a grammar, and closes it on disposal", async () => {

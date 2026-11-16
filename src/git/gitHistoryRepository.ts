@@ -57,19 +57,23 @@ export class GitHistoryRepository {
   ) {}
 
   /**
-   * Labels and every commit reachable from them, children before parents. Tips are pinned before the log is read,
-   * so refs moving meanwhile cannot mix two snapshots. An unborn repository has an empty history.
+   * Labels and up to `maxCommits` commits reachable from them, children before parents: the first commits of the
+   * topological walk over every label, which are the newest ones. Tips are pinned before the log is read, so refs
+   * moving meanwhile cannot mix two snapshots. An unborn repository has an empty history.
    */
-  async loadHistory(signal: AbortSignal): Promise<HistoryData> {
+  async loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData> {
     const refs = [...await this.readRefs(signal), ...await this.readDetachedHead(signal)];
     const tips = [...new Set(refs.map((ref) => ref.oid))];
     if (tips.length === 0) {
-      return { commits: [], refs: [] };
+      return { commits: [], refs: [], isTruncated: false };
     }
 
-    const args = ["log", ...LOG_OUTPUT_OPTIONS, "--topo-order", "-z", COMMIT_FORMAT, "--stdin"];
+    // One commit beyond the cap tells a history of exactly `maxCommits` commits from a longer one.
+    const args = ["log", ...LOG_OUTPUT_OPTIONS, "--topo-order", `--max-count=${maxCommits + 1}`, "-z", COMMIT_FORMAT, "--stdin"];
     const result = await this.git(args, signal, revisionInput(tips));
-    return { commits: parseCommits(result.stdout), refs };
+    const commits = parseCommits(result.stdout);
+    const isTruncated = commits.length > maxCommits;
+    return { commits: isTruncated ? commits.slice(0, maxCommits) : commits, refs, isTruncated };
   }
 
   /** Resolves a branch, tag or (possibly abbreviated) hash to the commit it names now. */

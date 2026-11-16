@@ -34,13 +34,14 @@ interface PendingCall<Input, Output> {
 
 /** Records every port call and lets each test settle them in any order. */
 class FakeRepository implements HistoryRepository {
-  readonly loads: PendingCall<null, HistoryData>[] = [];
+  /** Input: the commit cap. */
+  readonly loads: PendingCall<number, HistoryData>[] = [];
   readonly resolves: PendingCall<string, HistoryCommit>[] = [];
   readonly compares: PendingCall<ComparisonRequest, ComparisonResult>[] = [];
   readonly released: string[] = [];
 
-  loadHistory(signal: AbortSignal): Promise<HistoryData> {
-    return this.record(this.loads, null, signal);
+  loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData> {
+    return this.record(this.loads, maxCommits, signal);
   }
 
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit> {
@@ -66,6 +67,7 @@ class FakeRepository implements HistoryRepository {
   }
 }
 
+const MAX_COMMITS = 500;
 const oid = (character: string): string => character.repeat(40);
 const A = oid("a");
 const B = oid("b");
@@ -79,6 +81,7 @@ function commit(commitOid: string, parents: readonly string[]): HistoryCommit {
 const HISTORY: HistoryData = {
   commits: [commit(M, [C, A]), commit(C, [B]), commit(B, [A]), commit(A, [])],
   refs: [{ kind: "localBranch", name: "main", oid: M }],
+  isTruncated: false,
 };
 
 function ready(snapshotId: string, base = A): ReadyResult {
@@ -100,7 +103,7 @@ function ready(snapshotId: string, base = A): ReadyResult {
 async function loadedController(): Promise<{ controller: HistoryController; repository: FakeRepository }> {
   const repository = new FakeRepository();
   const controller = new HistoryController(repository);
-  const loading = controller.load();
+  const loading = controller.load(MAX_COMMITS);
   repository.loads[0]!.reply.resolve(HISTORY);
   await loading;
   return { controller, repository };
@@ -127,10 +130,16 @@ describe("HistoryController loading", () => {
     expect(state.revision).toBeGreaterThan(0);
   });
 
+  it("asks the repository for at most the given number of commits", async () => {
+    const { repository } = await loadedController();
+
+    expect(repository.loads.map((call) => call.input)).toEqual([MAX_COMMITS]);
+  });
+
   it("keeps the last metadata and shows an error when a reload fails", async () => {
     const { controller, repository } = await loadedController();
 
-    const reloading = controller.load();
+    const reloading = controller.load(MAX_COMMITS);
     expect(controller.getState().operations.isLoading).toBe(true);
     repository.loads[1]!.reply.reject(new Error("git is missing"));
     await reloading;
@@ -145,11 +154,11 @@ describe("HistoryController loading", () => {
     const repository = new FakeRepository();
     const controller = new HistoryController(repository);
 
-    const first = controller.load();
-    const second = controller.load();
+    const first = controller.load(MAX_COMMITS);
+    const second = controller.load(MAX_COMMITS);
     expect(repository.loads[0]!.signal.aborted).toBe(true);
     repository.loads[1]!.reply.resolve(HISTORY);
-    repository.loads[0]!.reply.resolve({ commits: [], refs: [] });
+    repository.loads[0]!.reply.resolve({ commits: [], refs: [], isTruncated: false });
     await Promise.all([first, second]);
 
     expect(controller.getState().history).toBe(HISTORY);
@@ -440,14 +449,14 @@ describe("HistoryController mainlines", () => {
 describe("HistoryController lifecycle", () => {
   it("cancels pending work on dispose and releases late snapshots", async () => {
     const { controller, repository } = await loadedController();
-    const reloading = controller.load();
+    const reloading = controller.load(MAX_COMMITS);
     const resolving = controller.setBase("main");
     const pending = startCompare(controller, repository, [B]);
 
     controller.dispose();
     pending.call.reply.resolve(ready("late"));
     repository.resolves[0]!.reply.resolve(commit(A, []));
-    repository.loads[1]!.reply.resolve({ commits: [], refs: [] });
+    repository.loads[1]!.reply.resolve({ commits: [], refs: [], isTruncated: false });
     await Promise.all([reloading, resolving, pending.done]);
 
     expect(repository.loads[1]!.signal.aborted).toBe(true);

@@ -328,6 +328,11 @@ input::placeholder {
   margin: 6px 8px;
 }
 
+.truncated-note {
+  margin: 6px 8px;
+  color: var(--muted);
+}
+
 /* --- ref labels (IntelliJ-style badges) --- */
 
 .ref-label {

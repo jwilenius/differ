@@ -30,6 +30,7 @@ const history: HistoryData = {
     { kind: "localBranch", name: "main", oid: MERGE },
     { kind: "tag", name: "v1", oid: ROOT },
   ],
+  isTruncated: false,
 };
 
 function makeState(overrides: Partial<HistoryState> = {}): HistoryState {
@@ -219,7 +220,7 @@ describe("HtmlHistoryRenderer", () => {
 
   it("renders one page of rows and a Load more action", () => {
     const many = Array.from({ length: HISTORY_PAGE_SIZE + 1 }, (_, index) => commit(oid(100 + index), `c${index}`, []));
-    const state = makeState({ history: { commits: many, refs: [] } });
+    const state = makeState({ history: { commits: many, refs: [], isTruncated: false } });
     const html = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
 
     expect(html.match(/<tr class="commit-row/g)).toHaveLength(HISTORY_PAGE_SIZE);
@@ -227,11 +228,43 @@ describe("HtmlHistoryRenderer", () => {
     expect(publicState(html).renderedOids).toHaveLength(HISTORY_PAGE_SIZE);
   });
 
+  it("says how many of the newest commits a truncated history shows, with thousands separators", () => {
+    const many = Array.from({ length: 1_234 }, (_, index) => commit(oid(100 + index), `c${index}`, []));
+    const state = makeState({ history: { commits: many, refs: [], isTruncated: true } });
+
+    const html = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
+
+    expect(html).toContain('role="status" aria-live="polite">Showing the newest 1,234 commits; select commits to see their changes');
+    expect(html).toContain('<p id="history-truncated" class="truncated-note">Showing the newest 1,234 commits. Older history is not loaded; raise the <code>jwDiffer.historyMaxCommits</code> setting to load more.</p>');
+    expect(html).toContain("Load more (1,034 more)");
+  });
+
+  it("keeps the truncation note when filters hide every commit, and other statuses take precedence", () => {
+    const truncated: HistoryData = { ...history, isTruncated: true };
+
+    const filtered = render({ history: truncated }, { visibleOids: [] });
+    const comparing = render({ history: truncated, selectedOids: [MIDDLE], operations: { isLoading: false, isResolvingBase: false, isComparing: true } });
+
+    expect(filtered).toContain("No commits match the filters");
+    expect(filtered).toContain('id="history-truncated"');
+    expect(comparing).toContain("Comparing 1 selected commit…");
+    expect(comparing).toContain('id="history-truncated"');
+  });
+
+  it("shows no truncation note for a complete history", () => {
+    const html = render();
+
+    expect(html).toContain("Select commits to see their changes");
+    expect(html).not.toContain("Showing the newest");
+    expect(html).not.toContain("history-truncated");
+  });
+
   it("escapes hostile metadata everywhere", () => {
     const hostile = "<img src=x onerror=alert(1)> \"quoted\"";
     const hostileHistory: HistoryData = {
       commits: [{ ...commit(ROOT, hostile, []), author: hostile }],
       refs: [{ kind: "localBranch", name: hostile, oid: ROOT }],
+      isTruncated: false,
     };
     const html = render(
       { history: hostileHistory, selectedOids: [ROOT], error: { operation: "compare", message: hostile } },
@@ -271,7 +304,7 @@ describe("HtmlHistoryRenderer", () => {
   });
 
   it("reports an empty repository and a load error", () => {
-    expect(render({ history: { commits: [], refs: [] } }, { visibleOids: [] })).toContain("This repository has no commits");
+    expect(render({ history: { commits: [], refs: [], isTruncated: false } }, { visibleOids: [] })).toContain("This repository has no commits");
     expect(render({ error: { operation: "load", message: "git missing" } })).toContain("Could not load history: git missing");
   });
 });

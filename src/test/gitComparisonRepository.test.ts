@@ -32,6 +32,8 @@ vi.mock("../git/gitComparisonFiles", async (importOriginal) => {
 });
 
 const signal = new AbortController().signal;
+/** More commits than any fixture creates. */
+const MAX_COMMITS = 1_000;
 const AUTOMATIC: BaseSelection = { kind: "automatic" };
 
 describe("GitComparisonRepository", () => {
@@ -216,7 +218,7 @@ describe("GitComparisonRepository", () => {
     expect(await pending).toBeInstanceOf(Error);
     expect(privateDirectories()).toEqual([]);
     await expectSnapshotError(compare([b]), "disposed");
-    await expectSnapshotError(repository.loadHistory(signal), "disposed");
+    await expectSnapshotError(repository.loadHistory(MAX_COMMITS, signal), "disposed");
   });
 
   it("deletes a replay whose files are still being listed when disposed", async () => {
@@ -253,7 +255,7 @@ describe("GitComparisonRepository", () => {
   it("runs the history controller end to end and leaves no private files behind", async () => {
     const [, b, c, d] = linearHistory();
     const controller = new HistoryController(repository);
-    await controller.load();
+    await controller.load(MAX_COMMITS);
 
     controller.setSelection([b, d]);
     await controller.compare();

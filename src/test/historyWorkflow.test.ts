@@ -22,6 +22,8 @@ import {
 import type { FixtureFileChange, HistoryRepositoryFixture, RepositoryState } from "./gitHistoryFixture";
 
 const signal = new AbortController().signal;
+/** More commits than any fixture creates. */
+const MAX_COMMITS = 1_000;
 
 interface FileSides {
   readonly base: FileContentResult;
@@ -69,7 +71,7 @@ describe("history workflow", () => {
   /** Captures the source state, then loads history as the panel would. */
   async function openHistory(): Promise<void> {
     sourceBefore = captureRepositoryState(fixture.root);
-    await controller.load();
+    await controller.load(MAX_COMMITS);
     expect(controller.getState().error).toBeNull();
   }
 

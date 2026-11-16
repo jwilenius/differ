@@ -163,6 +163,12 @@
           ],
           "default": "intellij",
           "description": "Which diff viewer opens text files from the Git History panel."
+        },
+        "jwDiffer.historyMaxCommits": {
+          "type": "number",
+          "default": 20000,
+          "minimum": 100,
+          "description": "The most commits the Git History panel loads; it shows the newest ones across the listed branches and tags and notes when older history is left out. Very large values can make VS Code's extension host run out of memory on big repositories."
         }
       }
     },

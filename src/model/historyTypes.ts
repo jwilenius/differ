@@ -33,6 +33,8 @@ export interface HistoryRef {
 export interface HistoryData {
   readonly commits: readonly HistoryCommit[];
   readonly refs: readonly HistoryRef[];
+  /** Older commits exist beyond the commit cap; parents outside `commits` were not loaded rather than missing. */
+  readonly isTruncated: boolean;
 }
 
 /** Base derived from the selection's single earliest commit. */
@@ -156,7 +158,8 @@ export type FileContentResult = TextContent | NonTextContent;
  * I/O honours `signal` and rejects once it is aborted.
  */
 export interface HistoryRepository {
-  loadHistory(signal: AbortSignal): Promise<HistoryData>;
+  /** Labels and at most `maxCommits` of the newest commits reachable from them. */
+  loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData>;
   /** Resolves a branch, tag or hash to the commit it names right now. */
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit>;
   compare(request: ComparisonRequest, signal: AbortSignal): Promise<ComparisonResult>;

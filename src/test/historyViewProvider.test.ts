@@ -18,7 +18,7 @@ import type {
   ReadyResult,
 } from "../model/historyTypes";
 import type { HistoryPublicState } from "../render/html/historyRenderer";
-import { changeWorkspaceFolders, createFakeWebviewView, resetVscodeMock, vscodeMock } from "./vscodeMock";
+import { changeConfiguration, changeWorkspaceFolders, createFakeWebviewView, resetVscodeMock, vscodeMock } from "./vscodeMock";
 import type { FakeWebviewView } from "./vscodeMock";
 
 const ROOT_A = "/work/alpha";
@@ -46,6 +46,7 @@ const HISTORY: HistoryData = {
     { kind: "localBranch", name: "main", oid: C3 },
     { kind: "localBranch", name: "feature", oid: F1 },
   ],
+  isTruncated: false,
 };
 
 function readyResult(request: ComparisonRequest): ReadyResult {
@@ -67,6 +68,8 @@ function readyResult(request: ComparisonRequest): ReadyResult {
 /** Port fake recording calls; `compare` waits for `finishCompare` when `isCompareHeld`. */
 class FakeRepository implements ClosableHistoryRepository {
   loadCount = 0;
+  /** The commit cap of every load, in order. */
+  readonly loadCaps: number[] = [];
   readonly resolvedRefs: string[] = [];
   readonly compareRequests: ComparisonRequest[] = [];
   readonly compareSignals: AbortSignal[] = [];
@@ -81,8 +84,9 @@ class FakeRepository implements ClosableHistoryRepository {
     this.history = history;
   }
 
-  loadHistory(): Promise<HistoryData> {
+  loadHistory(maxCommits: number): Promise<HistoryData> {
     this.loadCount += 1;
+    this.loadCaps.push(maxCommits);
     return Promise.resolve(this.history);
   }
 
@@ -445,7 +449,7 @@ describe("HistoryViewProvider", () => {
     await open();
     await send({ type: "presentation", search: "", branchOid: F1, focusedOid: F1, rowLimit: 200 });
     const repository = repositories.get(ROOT_A)!;
-    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== F1), refs: HISTORY.refs.slice(0, 1) });
+    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== F1), refs: HISTORY.refs.slice(0, 1), isTruncated: false });
 
     await send({ type: "refresh" });
     expect(publicState(view)).toMatchObject({ focusedOid: null, branchOid: null });
@@ -533,7 +537,7 @@ describe("HistoryViewProvider", () => {
     await send({ type: "select", oids: [C3, F1], focusedOid: C3 });
     await send({ type: "base", ref: "main" });
     const repository = repositories.get(ROOT_A)!;
-    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== F1), refs: HISTORY.refs.slice(0, 1) });
+    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== F1), refs: HISTORY.refs.slice(0, 1), isTruncated: false });
 
     await send({ type: "refresh" });
 
@@ -544,6 +548,80 @@ describe("HistoryViewProvider", () => {
     expect(vscodeMock.messages.map((message) => message.text)).toEqual([
       "1 selected commit(s) are no longer in the history of alpha; they were deselected.",
     ]);
+  });
+
+  it("does not warn about a pinned base beyond the cut of a truncated history", async () => {
+    await open();
+    await send({ type: "base", ref: "main" });
+    const repository = repositories.get(ROOT_A)!;
+    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== C3), refs: HISTORY.refs, isTruncated: true });
+
+    await send({ type: "refresh" });
+
+    expect(view.webview.html).toContain("base-pinned\">main</span>");
+    expect(vscodeMock.messages).toEqual([]);
+  });
+
+  it("warns about a pinned base the complete history no longer reaches", async () => {
+    await open();
+    await send({ type: "base", ref: "main" });
+    const repository = repositories.get(ROOT_A)!;
+    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== C3), refs: HISTORY.refs, isTruncated: false });
+
+    await send({ type: "refresh" });
+
+    expect(vscodeMock.messages.map((message) => message.text)).toEqual([
+      "The pinned base 33333333 is not reachable from the loaded refs; it stays pinned.",
+    ]);
+  });
+
+  describe("commit cap setting", () => {
+    it("loads at most 20,000 commits by default", async () => {
+      await open();
+
+      expect(repositories.get(ROOT_A)?.loadCaps).toEqual([20_000]);
+    });
+
+    it("loads at most the configured number of commits, raising values below 100 to 100", async () => {
+      vscodeMock.configuration.set("jwDiffer.historyMaxCommits", 300_000);
+      await open();
+      vscodeMock.configuration.set("jwDiffer.historyMaxCommits", 5);
+
+      await send({ type: "refresh" });
+
+      expect(repositories.get(ROOT_A)?.loadCaps).toEqual([300_000, 100]);
+    });
+
+    it("falls back to the default for a value that is not a number", async () => {
+      vscodeMock.configuration.set("jwDiffer.historyMaxCommits", "lots");
+
+      await open();
+
+      expect(repositories.get(ROOT_A)?.loadCaps).toEqual([20_000]);
+    });
+
+    it("reloads loaded repositories with the new cap when the setting changes", async () => {
+      await open([ROOT_A, ROOT_B]);
+      const betaId = /<option value="([^"]+)">beta<\/option>/.exec(view.webview.html)![1];
+
+      changeConfiguration("jwDiffer.historyMaxCommits", 500);
+      await settle();
+
+      expect(repositories.get(ROOT_A)?.loadCaps).toEqual([20_000, 500]);
+      expect(repositories.get(ROOT_B)?.loadCaps).toEqual([]);
+      expect(view.webview.html).toContain("Third change");
+      await send({ type: "repository", repositoryId: betaId });
+      expect(repositories.get(ROOT_B)?.loadCaps).toEqual([500]);
+    });
+
+    it("does not reload for other settings", async () => {
+      await open();
+
+      changeConfiguration("jwDiffer.historyDiffViewer", "native");
+      await settle();
+
+      expect(repositories.get(ROOT_A)?.loadCaps).toEqual([20_000]);
+    });
   });
 
   it("keeps a status-bar entry that reopens the history", async () => {

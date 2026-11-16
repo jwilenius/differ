@@ -61,8 +61,8 @@ export class GitComparisonRepository implements HistoryRepository {
     this.history = new GitHistoryRepository(root, options.env);
   }
 
-  loadHistory(signal: AbortSignal): Promise<HistoryData> {
-    return this.run(signal, (linked) => this.history.loadHistory(linked));
+  loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData> {
+    return this.run(signal, (linked) => this.history.loadHistory(maxCommits, linked));
   }
 
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit> {

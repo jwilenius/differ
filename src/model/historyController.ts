@@ -79,14 +79,14 @@ export class HistoryController {
     return this.state;
   }
 
-  /** Reads metadata; on failure the previous metadata stays with a visible error. */
-  async load(): Promise<void> {
+  /** Reads metadata of at most `maxCommits` commits; on failure the previous metadata stays with a visible error. */
+  async load(maxCommits: number): Promise<void> {
     this.assertActive();
     const signal = this.loading.begin();
     this.update({ error: this.errorExcept("load") });
 
     try {
-      const history = await this.repository.loadHistory(signal);
+      const history = await this.repository.loadHistory(maxCommits, signal);
       if (!this.loading.complete(signal)) {
         return;
       }

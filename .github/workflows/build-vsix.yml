@@ -44,7 +44,52 @@ jobs:
       # Check the lockfile and registry signatures before any dependency install script runs.
       - run: npm run check:deps
       - run: npm ci --ignore-scripts
-      - run: npm run check:signatures
+      - id: signatures
+        run: npm run check:signatures
+      # Records what this runner sees when the signature check fails; the failed check still fails the job.
+      - name: Show signature check diagnostics
+        if: failure() && steps.signatures.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          set +e
+          registry=$(npm config get registry)
+          registry=${registry%/}
+          cache=${npm_config_cache:-$HOME/.npm}
+          echo "node $(node --version), npm $(npm --version), registry $registry, cache $cache"
+          # The failing package from the check's log, e.g. "error postcss@8.5.32 has attestations but no ...".
+          package=$(sed -nE 's/.* error (@?[^@ ]+@[^ ]+) has .*/\1/p' "$cache"/_logs/*.log | head -n 1)
+          fetch() {
+            echo "::group::$1"
+            curl -sS -D - -o "$RUNNER_TEMP/response.json" "$registry$1"
+            jq -c "$2" "$RUNNER_TEMP/response.json"
+            echo "::endgroup::"
+          }
+          fetch /-/npm/v1/keys '.keys[] | {keyid, expires}'
+          if [ -n "$package" ]; then
+            fetch "/-/npm/v1/attestations/${package/\//%2f}" \
+              '.attestations[] | {predicateType, keyids: [.bundle.dsseEnvelope.signatures[].keyid]}'
+          fi
+          # npm prefers the registry keys from the Sigstore TUF repository cached here over /-/npm/v1/keys.
+          echo "::group::TUF cache"
+          find "$cache/_tuf" -type f -printf '%TY-%Tm-%Td %TH:%TM %p\n'
+          for metadata in "$cache"/_tuf/*/*.json; do
+            echo "$metadata $(jq -c '{version: .signed.version, expires: .signed.expires}' "$metadata")"
+          done
+          for keys in "$cache"/_tuf/*/targets/*keys.json; do
+            jq -c '.keys[] | {keyId, keyUsage, validFor: .publicKey.validFor}' "$keys"
+          done
+          echo "::endgroup::"
+          echo "::group::npm audit signatures --loglevel silly"
+          npm audit signatures --loglevel silly
+          echo "::endgroup::"
+      - name: Upload npm logs
+        if: failure() && steps.signatures.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: npm-signature-check-logs
+          path: ~/.npm/_logs/*.log
+          retention-days: 7
       - run: npm rebuild
       - run: npm run typecheck
       - run: npm test

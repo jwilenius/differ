@@ -208,8 +208,11 @@ change ignored, result line 26 edited; 5 changes, 3 conflicts left._
 Undo and redo redraw the page with the caret where the step changed the result; a step that left the result as
 it was, such as undoing an ignore, leaves no caret.
 
-Undo and Redo from the Edit menu or Command Palette run the webview's own undo; each drawn page gives it one hidden step
-of each, so they reach the merge's history on a freshly drawn page too.
+`Ctrl+Z` / `Ctrl+Shift+Z` (`Cmd` on macOS) and Undo and Redo from the Command Palette always work in the merge view.
+Edit → Undo and Redo from the menu bar work only with the native title bar (`"window.titleBarStyle": "native"`); each
+drawn page gives the webview one hidden step of each, so they reach the merge's history on a freshly drawn page too.
+With the custom title bar, VS Code moves focus to the menu bar before running the command, so it never reaches the merge
+view; no stable extension API can route it (verified in VS Code 1.90 and 1.146).
 
 Scrolling is synchronised across the three panes, aligned on the blocks.
 

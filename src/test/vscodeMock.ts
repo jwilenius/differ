@@ -616,6 +616,9 @@ export class FakeWebview implements vscode.Webview {
   private content = "";
   readonly cspSource = "vscode-webview://fake";
   readonly postedMessages: unknown[] = [];
+  /** How often `html` was assigned; each assignment reloads a real webview's document. */
+  htmlWrites = 0;
+  private documentMessageStart = 0;
   private readonly didReceiveMessage = new EventEmitter<unknown>();
   readonly onDidReceiveMessage = this.didReceiveMessage.event;
 
@@ -628,6 +631,13 @@ export class FakeWebview implements vscode.Webview {
       throw new Error("Webview is disposed");
     }
     this.content = value;
+    this.htmlWrites += 1;
+    this.documentMessageStart = this.postedMessages.length;
+  }
+
+  /** Messages posted since `html` was last assigned: the only ones its document can receive. */
+  get postedSinceHtml(): readonly unknown[] {
+    return this.postedMessages.slice(this.documentMessageStart);
   }
 
   postMessage(message: unknown): Promise<boolean> {

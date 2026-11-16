@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../render/html/historyRenderer";
-import type { HistoryPublicState, HistoryRenderContext } from "../render/html/historyRenderer";
+import type { HistoryPublicState, HistoryRenderContext, HistoryUpdate } from "../render/html/historyRenderer";
 import type { ComparisonFile, ComparisonResult, HistoryCommit, HistoryData, HistoryState } from "../model/historyTypes";
 
 const NONCE = "abcdefghijklmnopqrstuvwxyz012345";
@@ -66,7 +66,7 @@ function ready(files: readonly ComparisonFile[]): ComparisonResult {
 }
 
 function render(state: Partial<HistoryState> = {}, context: Partial<HistoryRenderContext> = {}): string {
-  return new HtmlHistoryRenderer().render(makeState(state), makeContext(context));
+  return new HtmlHistoryRenderer().render(makeState(state), makeContext(context)).html;
 }
 
 function decodeAttribute(value: string): string {
@@ -132,14 +132,13 @@ describe("HtmlHistoryRenderer", () => {
     expect(html).toContain(`<code>${ROOT}</code>`);
   });
 
-  it("publishes the full selection, rendered rows and wire revision", () => {
+  it("publishes the full selection and wire revision", () => {
     const html = render({ selectedOids: [SIDE, ROOT] }, { visibleOids: [MERGE, MIDDLE], hiddenSelectedCount: 2 });
 
     expect(publicState(html)).toEqual({
       revision: 7,
       repositoryId: "repo-1",
       selectedOids: [SIDE, ROOT],
-      renderedOids: [MERGE, MIDDLE],
       focusedOid: null,
       search: "",
       branchOid: null,
@@ -274,14 +273,13 @@ describe("HtmlHistoryRenderer", () => {
   it("renders one page of rows and a Load more action", () => {
     const many = Array.from({ length: HISTORY_PAGE_SIZE + 1 }, (_, index) => commit(oid(100 + index), `c${index}`, []));
     const state = makeState({ history: { commits: many, refs: [], isTruncated: false } });
-    const html = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
+    const { html } = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
 
     expect(html.match(/<tr class="commit-row/g)).toHaveLength(HISTORY_PAGE_SIZE);
     expect(html).toContain(`id="history-load-more" class="load-more" data-row-limit="${HISTORY_PAGE_SIZE * 2}">Load more (1 more)`);
-    expect(publicState(html).renderedOids).toHaveLength(HISTORY_PAGE_SIZE);
   });
 
-  it("lays out the graph only through the last rendered row on publish, selection change and Load more", () => {
+  it("lays out the graph only through the last rendered row on render and Load more, and not on selection change", () => {
     const parentReads = new Map<number, number>();
     const chain = Array.from({ length: 1_000 }, (_, index) => {
       const { parents, ...fields } = commit(oid(100 + index), `c${index}`, index === 999 ? [] : [oid(101 + index)]);
@@ -303,23 +301,115 @@ describe("HtmlHistoryRenderer", () => {
     const deepestRead = (): number => Math.max(...parentReads.keys());
     const totalReads = (): number => [...parentReads.values()].reduce((sum, count) => sum + count, 0);
 
-    renderer.render(state, contextFor(HISTORY_PAGE_SIZE));
+    const firstPage = contextFor(HISTORY_PAGE_SIZE);
+    const { page } = renderer.render(state, firstPage);
     expect(deepestRead()).toBe(HISTORY_PAGE_SIZE - 1);
 
     const readsBefore = totalReads();
-    renderer.render({ ...state, selectedOids: [oid(150)] }, contextFor(HISTORY_PAGE_SIZE));
-    expect(deepestRead()).toBe(HISTORY_PAGE_SIZE - 1);
-    expect(totalReads() - readsBefore).toBeLessThanOrEqual(HISTORY_PAGE_SIZE + 5);
+    const selected = renderer.update({ ...state, selectedOids: [oid(150)] }, firstPage, page);
+    expect(totalReads() - readsBefore).toBeLessThanOrEqual(5);
 
-    renderer.render(state, contextFor(HISTORY_PAGE_SIZE * 2));
+    renderer.update(state, { ...firstPage, presentation: { ...firstPage.presentation, rowLimit: HISTORY_PAGE_SIZE * 2 } }, selected.page);
     expect(deepestRead()).toBe(HISTORY_PAGE_SIZE * 2 - 1);
+  });
+
+  describe("update", () => {
+    function chain(count: number): HistoryData {
+      const commits = Array.from({ length: count }, (_, index) => commit(oid(100 + index), `c${index}`, index === count - 1 ? [] : [oid(101 + index)]));
+      return { commits, refs: [], isTruncated: false };
+    }
+
+    function rowsIn(markup: string): string[] {
+      return [...markup.matchAll(/<tr class="commit-row[^"]*" role="row" data-oid="([0-9a-f]+)"/g)].map((match) => match[1]!);
+    }
+
+    it("sends only the regions a selection changes, with the new state and no rows", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const context = makeContext();
+      const { page } = renderer.render(makeState(), context);
+
+      const { update } = renderer.update(makeState({ selectedOids: [MIDDLE] }), { ...context, wireRevision: 8 }, page);
+
+      expect(update.type).toBe("update");
+      expect(update.state).toMatchObject({ revision: 8, selectedOids: [MIDDLE] });
+      expect(update.regions).not.toHaveProperty("history-commits");
+      expect(update.regions["history-selection"]).toContain("1 selected");
+      expect(update.appendedRows).toBe("");
+    });
+
+    it("sends no regions when only the focus moves without changing the details", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const context = makeContext();
+      const { page } = renderer.render(makeState(), context);
+
+      const { update } = renderer.update(makeState(), { ...context, presentation: { ...context.presentation, focusedOid: null } }, page);
+
+      expect(update.regions).toEqual({});
+    });
+
+    it("appends only the rows a larger limit adds, without moving the tab stop", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const data = chain(HISTORY_PAGE_SIZE * 2 + 50);
+      const context = makeContext({ visibleOids: data.commits.map((entry) => entry.oid) });
+      const { page } = renderer.render(makeState({ history: data }), context);
+
+      const { update, page: next } = renderer.update(
+        makeState({ history: data }),
+        { ...context, presentation: { ...context.presentation, rowLimit: HISTORY_PAGE_SIZE * 2 } },
+        page,
+      );
+
+      expect(update.regions).not.toHaveProperty("history-commits");
+      expect(rowsIn(update.appendedRows)).toEqual(data.commits.slice(HISTORY_PAGE_SIZE, HISTORY_PAGE_SIZE * 2).map((entry) => entry.oid));
+      expect(update.appendedRows).not.toContain('tabindex="0"');
+      expect(update.regions["history-commit-footer"]).toContain("Load more (50 more)");
+      expect(next.rows.count).toBe(HISTORY_PAGE_SIZE * 2);
+    });
+
+    it("replaces the table when the added rows widen the graph", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const data = wideHistory(3);
+      const context = makeContext({ visibleOids: data.commits.map((entry) => entry.oid), presentation: { search: "", branchOid: null, focusedOid: null, rowLimit: 1 } });
+      const { page } = renderer.render(makeState({ history: data }), context);
+
+      const { update } = renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, rowLimit: 3 } }, page);
+
+      expect(rowsIn(update.regions["history-commits"] ?? "")).toEqual(data.commits.slice(0, 3).map((entry) => entry.oid));
+      expect(update.appendedRows).toBe("");
+    });
+
+    it("replaces the table, escaped, when the filters change", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const data: HistoryData = { ...history, commits: history.commits.map((entry) => entry.oid === SIDE ? { ...entry, subject: "<b>side</b>" } : entry) };
+      const context = makeContext();
+      const { page } = renderer.render(makeState({ history: data }), context);
+
+      const { update } = renderer.update(makeState({ history: data }), { ...context, visibleOids: [SIDE, ROOT] }, page);
+      const table = update.regions["history-commits"] ?? "";
+
+      expect(table.startsWith('<table id="history-commits"')).toBe(true);
+      expect(rowsIn(table)).toEqual([SIDE, ROOT]);
+      expect(table).toContain("&lt;b&gt;side&lt;/b&gt;");
+      expect(table).not.toContain("<b>");
+    });
+
+    it("sends every region whose markup changed when the history is reloaded", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const context = makeContext();
+      const { page } = renderer.render(makeState({ history: null, operations: { isLoading: true, isResolvingBase: false, isComparing: false } }), { ...context, visibleOids: [] });
+
+      const { update }: { update: HistoryUpdate } = renderer.update(makeState(), context, page);
+
+      expect(rowsIn(update.regions["history-commits"] ?? "")).toEqual(history.commits.map((entry) => entry.oid));
+      expect(Object.keys(update.regions)).toEqual(expect.arrayContaining(["history-commits", "history-branch", "history-status", "history-commit-footer"]));
+    });
   });
 
   it("says how many of the newest commits a truncated history shows, with thousands separators", () => {
     const many = Array.from({ length: 1_234 }, (_, index) => commit(oid(100 + index), `c${index}`, []));
     const state = makeState({ history: { commits: many, refs: [], isTruncated: true } });
 
-    const html = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
+    const { html } = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
 
     expect(html).toContain('role="status" aria-live="polite">Showing the newest 1,234 commits; select commits to see their changes');
     expect(html).toContain('<p id="history-truncated" class="truncated-note">Showing the newest 1,234 commits. Older history is not loaded; raise the <code>jwDiffer.historyMaxCommits</code> setting to load more.</p>');

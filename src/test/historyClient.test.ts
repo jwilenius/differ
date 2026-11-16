@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as vm from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../render/html/historyRenderer";
-import type { HistoryRenderContext } from "../render/html/historyRenderer";
+import type { HistoryPage, HistoryRenderContext, HistoryUpdate } from "../render/html/historyRenderer";
 import type { ComparisonFile, HistoryCommit, HistoryData, HistoryState } from "../model/historyTypes";
 
 const CLIENT_SOURCE = fs.readFileSync(path.join(__dirname, "..", "..", "media", "history.js"), "utf8");
@@ -25,6 +25,7 @@ interface EventInit {
   readonly ctrlKey?: boolean;
   readonly metaKey?: boolean;
   readonly shiftKey?: boolean;
+  readonly data?: unknown;
 }
 
 class FakeEvent {
@@ -33,12 +34,14 @@ class FakeEvent {
   readonly ctrlKey: boolean;
   readonly metaKey: boolean;
   readonly shiftKey: boolean;
+  readonly data: unknown;
 
   constructor(readonly type: string, readonly target: FakeElement, init: EventInit = {}) {
     this.key = init.key ?? "";
     this.ctrlKey = init.ctrlKey ?? false;
     this.metaKey = init.metaKey ?? false;
     this.shiftKey = init.shiftKey ?? false;
+    this.data = init.data;
   }
 
   preventDefault(): void {
@@ -133,6 +136,41 @@ class FakeElement extends FakeEventTarget {
     this.attributes.delete(name);
   }
 
+  hasAttribute(name: string): boolean {
+    return this.attributes.has(name);
+  }
+
+  get isConnected(): boolean {
+    let element: FakeElement = this;
+    while (element.parent) {
+      element = element.parent;
+    }
+    return element.tagName === "#document";
+  }
+
+  /** Replaces this element with the parsed markup, as assigning `outerHTML` does. */
+  set outerHTML(markup: string) {
+    const parent = this.parent!;
+    const index = parent.children.indexOf(this);
+    const replacements = parseInto(new FakeElement(this.owner, "#fragment", new Map()), markup).children;
+    replacements.forEach((element) => {
+      element.parent = parent;
+    });
+    parent.children.splice(index, 1, ...replacements);
+    this.parent = null;
+  }
+
+  insertAdjacentHTML(position: string, markup: string): void {
+    if (position !== "beforeend") {
+      throw new Error(`Unsupported position in fixture: ${position}`);
+    }
+    const added = parseInto(new FakeElement(this.owner, "#fragment", new Map()), markup).children;
+    added.forEach((element) => {
+      element.parent = this;
+    });
+    this.children.push(...added);
+  }
+
   get classList(): { toggle(name: string, force: boolean): void; contains(name: string): boolean } {
     const classes = (): string[] => (this.attributes.get("class") ?? "").split(/\s+/).filter(Boolean);
     return {
@@ -212,8 +250,15 @@ function decodeEntities(text: string): string {
 
 /** Parses the renderer's well-formed output: elements and double-quoted attributes only. */
 function parseDocument(html: string): FakeDocument {
-  const document = new FakeDocument();
-  const stack: FakeElement[] = [document];
+  const document = parseInto(new FakeDocument(), html);
+  document.body = document.querySelector("body")!;
+  return document;
+}
+
+/** Appends the elements of `html` to `root`, owned by `root`'s document. */
+function parseInto<T extends FakeElement>(root: T, html: string): T {
+  const document = root instanceof FakeDocument ? root : root.owner!;
+  const stack: FakeElement[] = [root];
   for (const token of html.matchAll(TOKEN_PATTERN)) {
     const [, closingTag, openingTag, attributeText, selfClosing] = token;
     if (closingTag) {
@@ -232,8 +277,7 @@ function parseDocument(html: string): FakeDocument {
       stack.push(element);
     }
   }
-  document.body = document.querySelector("body")!;
-  return document;
+  return root;
 }
 
 // ---------------------------------------------------------- client harness
@@ -330,6 +374,11 @@ class FakeWebview {
     select.dispatch(new FakeEvent("change", select));
   }
 
+  /** Delivers a host message, as `webview.postMessage` does. */
+  receive(data: unknown): void {
+    this.window.notify(new FakeEvent("message", this.document, { data }));
+  }
+
   /** The most recent message. */
   last(): PostedMessage | undefined {
     return this.posted[this.posted.length - 1];
@@ -376,6 +425,9 @@ const files: readonly ComparisonFile[] = [
   { id: OTHER_FILE_ID, status: "added", base: null, result: { path: "b.txt", blob: oid(12), mode: "100644" }, contentKind: "text" },
 ];
 
+/** One array for every publication, as the host's cache returns for unchanged filters. */
+const ALL_OIDS = history.commits.map((entry) => entry.oid);
+
 interface Publication {
   readonly selectedOids?: readonly string[];
   readonly visibleOids?: readonly string[];
@@ -387,6 +439,11 @@ interface Publication {
 }
 
 function publish(publication: Publication = {}): string {
+  const { state, context } = pageFor(publication);
+  return new HtmlHistoryRenderer().render(state, context).html;
+}
+
+function pageFor(publication: Publication): { readonly state: HistoryState; readonly context: HistoryRenderContext } {
   const selectedOids = publication.selectedOids ?? [];
   const state: HistoryState = {
     revision: 1,
@@ -412,11 +469,31 @@ function publish(publication: Publication = {}): string {
       focusedOid: publication.focusedOid ?? null,
       rowLimit: publication.rowLimit ?? HISTORY_PAGE_SIZE,
     },
-    visibleOids: publication.visibleOids ?? history.commits.map((entry) => entry.oid),
+    visibleOids: publication.visibleOids ?? ALL_OIDS,
     hiddenSelectedCount: 0,
     wireRevision: publication.revision ?? 7,
   };
-  return new HtmlHistoryRenderer().render(state, context);
+  return { state, context };
+}
+
+/** Plays the provider: loads one document, then sends updates against what it shows. */
+class FakeHost {
+  private readonly renderer = new HtmlHistoryRenderer();
+  private page: HistoryPage | null = null;
+
+  open(publication: Publication = {}): FakeWebview {
+    const { state, context } = pageFor(publication);
+    const document = this.renderer.render(state, context);
+    this.page = document.page;
+    return new FakeWebview().load(document.html);
+  }
+
+  update(publication: Publication): HistoryUpdate {
+    const { state, context } = pageFor(publication);
+    const patch = this.renderer.update(state, context, this.page!);
+    this.page = patch.page;
+    return patch.update;
+  }
 }
 
 function open(publication: Publication = {}): FakeWebview {
@@ -633,7 +710,7 @@ describe("history client", () => {
 
   it("changes only presentation for branch filters and Load more", () => {
     const many: HistoryData = { commits: Array.from({ length: HISTORY_PAGE_SIZE + 1 }, (_, index) => commit(oid(100 + index), `c${index}`, [])), refs: history.refs, isTruncated: false };
-    const html = new HtmlHistoryRenderer().render(
+    const { html } = new HtmlHistoryRenderer().render(
       { revision: 1, history: many, selectedOids: [], base: { kind: "automatic" }, mainlines: [], comparison: null, operations: { isLoading: false, isResolvingBase: false, isComparing: false }, error: null },
       {
         assets: { styleUri: "s", scriptUri: "j", cspSource: "res:" },
@@ -824,5 +901,186 @@ describe("history client", () => {
 
     expect(second.document.activeElement).toBeNull();
     expect(second.intents()).toEqual([]);
+  });
+
+  describe("updates", () => {
+    it("marks the new selection on the rows it already shows and echoes the new revision", () => {
+      const host = new FakeHost();
+      const webview = host.open({ focusedOid: A });
+      const rowB = webview.row(B);
+
+      webview.receive(host.update({ selectedOids: [B], focusedOid: B, revision: 8 }));
+
+      expect(webview.row(B)).toBe(rowB);
+      expect(rowB.classList.contains("is-selected")).toBe(true);
+      expect(rowB.getAttribute("aria-selected")).toBe("true");
+      expect(rowB.classList.contains("is-focused")).toBe(true);
+      expect(rowB.getAttribute("tabindex")).toBe("0");
+      expect(webview.row(A).classList.contains("is-focused")).toBe(false);
+      expect(webview.row(A).getAttribute("tabindex")).toBe("-1");
+      expect(webview.element("history-clear-selection").hasAttribute("disabled")).toBe(false);
+      webview.click(webview.row(D), { ctrlKey: true });
+      expect(webview.last()).toEqual({ type: "select", revision: 8, oids: [B, D], focusedOid: D });
+    });
+
+    it("clears the marks of commits the host deselected", () => {
+      const host = new FakeHost();
+      const webview = host.open({ selectedOids: [B, C], focusedOid: C });
+
+      webview.receive(host.update({ selectedOids: [C], focusedOid: C, revision: 8 }));
+
+      expect(webview.row(B).classList.contains("is-selected")).toBe(false);
+      expect(webview.row(B).getAttribute("aria-selected")).toBe("false");
+      expect(webview.row(C).classList.contains("is-selected")).toBe(true);
+    });
+
+    it("shows the changed files of a new comparison and opens them", () => {
+      const host = new FakeHost();
+      const webview = host.open();
+
+      webview.receive(host.update({ selectedOids: [B], focusedOid: B, revision: 8 }));
+      const file = webview.find("button.file-row", (element) => element.dataset.fileId === FILE_ID);
+      file.dispatch(new FakeEvent("dblclick", file));
+
+      expect(webview.last()).toEqual({ type: "openFile", revision: 8, snapshotId: SNAPSHOT_ID, fileId: FILE_ID });
+    });
+
+    it("appends the rows Load more adds and moves through them with arrow keys", () => {
+      const host = new FakeHost();
+      const webview = host.open({ rowLimit: 2, focusedOid: B });
+      const rowA = webview.row(A);
+      webview.row(B).focus();
+
+      const update = host.update({ rowLimit: 4, focusedOid: B, revision: 8 });
+      webview.receive(update);
+      webview.key(webview.row(B), "ArrowDown");
+      webview.key(webview.row(C), "ArrowDown");
+
+      expect(update.appendedRows).not.toBe("");
+      expect(webview.row(A)).toBe(rowA);
+      expect(webview.document.querySelectorAll("tr.commit-row").map((row) => row.dataset.oid)).toEqual([A, B, C, D]);
+      expect(webview.document.activeElement).toBe(webview.row(D));
+      expect(webview.element("history-load-more").dataset.rowLimit).toBe(String(4 + HISTORY_PAGE_SIZE));
+    });
+
+    it("replaces the rows when the filters change and selects ranges over the new ones", () => {
+      const host = new FakeHost();
+      const webview = host.open({ focusedOid: B });
+      const rowB = webview.row(B);
+      webview.click(rowB);
+
+      webview.receive(host.update({ visibleOids: [B, D, E], selectedOids: [B], focusedOid: B, revision: 8 }));
+      webview.click(webview.row(E), { shiftKey: true });
+
+      expect(rowB.isConnected).toBe(false);
+      expect(webview.document.querySelectorAll("tr.commit-row").map((row) => row.dataset.oid)).toEqual([B, D, E]);
+      expect(webview.last()).toEqual({ type: "select", revision: 8, oids: [B, D, E], focusedOid: E });
+    });
+
+    it("moves keyboard focus to the replacement of a control it replaces", () => {
+      const host = new FakeHost();
+      const webview = host.open({ selectedOids: [B], focusedOid: B });
+      const clear = webview.element("history-clear-selection");
+      clear.focus();
+
+      webview.receive(host.update({ selectedOids: [B, C], focusedOid: B, revision: 8 }));
+
+      expect(clear.isConnected).toBe(false);
+      expect(webview.document.activeElement).toBe(webview.element("history-clear-selection"));
+    });
+
+    it("keeps keyboard focus on the row when the rows are replaced", () => {
+      const host = new FakeHost();
+      const webview = host.open({ focusedOid: B });
+      webview.row(B).focus();
+
+      webview.receive(host.update({ visibleOids: [B, D], focusedOid: B, revision: 8 }));
+
+      expect(webview.document.activeElement).toBe(webview.row(B));
+    });
+
+    it("keeps search text being typed and sends it with the new revision", () => {
+      const host = new FakeHost();
+      const webview = host.open();
+      const search = webview.element("history-search");
+      search.focus();
+      webview.type(search, "bra");
+
+      webview.receive(host.update({ selectedOids: [B], focusedOid: B, revision: 8 }));
+      vi.advanceTimersByTime(150);
+
+      expect(webview.element("history-search")).toBe(search);
+      expect(search.value).toBe("bra");
+      expect(webview.document.activeElement).toBe(search);
+      expect(webview.last()).toEqual({ type: "presentation", revision: 8, search: "bra", branchOid: null, focusedOid: B, rowLimit: HISTORY_PAGE_SIZE });
+    });
+
+    it("resends a search an update overtook, and drops it once the host shows it", () => {
+      const host = new FakeHost();
+      const webview = host.open();
+      webview.type(webview.element("history-search"), "bra");
+      vi.advanceTimersByTime(150);
+
+      webview.receive(host.update({ selectedOids: [B], focusedOid: B, revision: 8 }));
+      vi.advanceTimersByTime(150);
+      webview.receive(host.update({ selectedOids: [B], focusedOid: B, search: "bra", visibleOids: [B], revision: 9 }));
+      vi.advanceTimersByTime(500);
+
+      expect(webview.intents().map((message) => [message.revision, message.search])).toEqual([[7, "bra"], [8, "bra"]]);
+      expect(webview.state).toMatchObject({ searchDraft: null });
+    });
+
+    it("keeps an unsent arrow focus across an update", () => {
+      const host = new FakeHost();
+      const webview = host.open({ focusedOid: B });
+      webview.key(webview.row(B), "ArrowDown");
+
+      webview.receive(host.update({ selectedOids: [A], focusedOid: B, revision: 8 }));
+      vi.advanceTimersByTime(FOCUS_DEBOUNCE_MS);
+
+      expect(webview.row(C).classList.contains("is-focused")).toBe(true);
+      expect(webview.row(B).classList.contains("is-focused")).toBe(false);
+      expect(webview.intents()).toEqual([
+        { type: "presentation", revision: 8, search: "", branchOid: null, focusedOid: C, rowLimit: HISTORY_PAGE_SIZE },
+      ]);
+    });
+
+    it("shows the host's choice again in a select whose change it did not take", () => {
+      const host = new FakeHost();
+      const webview = host.open();
+      webview.change(webview.element("history-branch"), A);
+
+      webview.receive(host.update({ selectedOids: [B], focusedOid: B, revision: 8 }));
+
+      expect(webview.element("history-branch").value).toBe("");
+    });
+
+    it("forgets anchor, scroll and drafts when the update shows another repository", () => {
+      const host = new FakeHost();
+      const webview = host.open({ focusedOid: B });
+      const pane = webview.document.querySelector(".commit-pane")!;
+      pane.scrollTop = 80;
+      webview.click(webview.row(B));
+      webview.type(webview.element("history-search"), "x");
+
+      webview.receive(host.update({ repositoryId: OTHER_REPOSITORY_ID, revision: 8 }));
+      vi.advanceTimersByTime(500);
+
+      expect(pane.scrollTop).toBe(0);
+      expect(webview.element("history-search").value).toBe("");
+      expect(webview.state).toMatchObject({ repositoryId: OTHER_REPOSITORY_ID, anchorOid: null, searchDraft: null });
+      expect(webview.intents().filter((message) => message.type === "presentation")).toEqual([]);
+    });
+
+    it("ignores an update no newer than the shown page", () => {
+      const host = new FakeHost();
+      const webview = host.open({ revision: 7 });
+
+      webview.receive(host.update({ selectedOids: [B], revision: 7 }));
+      webview.click(webview.row(C), { ctrlKey: true });
+
+      expect(webview.row(B).classList.contains("is-selected")).toBe(false);
+      expect(webview.last()).toEqual({ type: "select", revision: 7, oids: [C], focusedOid: C });
+    });
   });
 });

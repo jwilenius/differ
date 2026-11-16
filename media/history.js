@@ -1,8 +1,9 @@
-// History panel client. The host replaces the whole document on every
-// publication, so this script runs once per published state: it reads that
-// state from `body[data-history]`, restores focus/scroll/drafts saved with
-// `setState`, and posts typed intents. Selection is computed by full OID,
-// starting from the published state; the client never touches Git.
+// History panel client. It reads the published state from `body[data-history]`,
+// restores focus/scroll/drafts saved with `setState` (VS Code recreates the
+// document when the panel is shown again), and posts typed intents. Later
+// publications arrive as `update` messages that patch this document in place.
+// Selection is computed by full OID, starting from the published state; the
+// client never touches Git.
 (function () {
   "use strict";
 
@@ -15,7 +16,7 @@
   const PIXEL_WIDTH_PATTERN = /^\d+(\.\d+)?px$/;
 
   const vscode = acquireVsCodeApi();
-  const published = JSON.parse(document.body.dataset.history);
+  let published = JSON.parse(document.body.dataset.history);
   const searchInput = document.getElementById(SEARCH_ID);
 
   /**
@@ -26,7 +27,7 @@
   let view = restoreView();
   /**
    * Selection and focus as last sent: several gestures can be made before the
-   * document showing the first one arrives, and each must build on the last.
+   * update showing the first one arrives, and each must build on the last.
    */
   let selection = published.selectedOids;
   let focusedOid = published.focusedOid;
@@ -36,7 +37,7 @@
   post("ready", {});
   restoreScroll();
   restoreDetailWidth();
-  restoreSearchDraft();
+  syncSearch();
   restoreFocusDraft();
   restoreFocus();
 
@@ -79,7 +80,7 @@
   });
 
   function moveFocus(oid, step, event) {
-    const rendered = published.renderedOids;
+    const rendered = renderedOids();
     const nextOid = rendered[rendered.indexOf(oid) + step];
     if (nextOid === undefined) {
       return;
@@ -120,20 +121,20 @@
 
   /** First rendered of: last clicked/toggled row, current focus, `fallbackOid`. */
   function rangeAnchor(fallbackOid) {
-    const rendered = published.renderedOids;
+    const rendered = renderedOids();
     const candidates = [view.anchorOid, focusedOid, fallbackOid];
     return candidates.find((oid) => oid && rendered.includes(oid)) || fallbackOid;
   }
 
   function renderedRange(fromOid, toOid) {
-    const rendered = published.renderedOids;
+    const rendered = renderedOids();
     const from = rendered.indexOf(fromOid);
     const to = rendered.indexOf(toOid);
     return rendered.slice(Math.min(from, to), Math.max(from, to) + 1);
   }
 
   function unrenderedSelection() {
-    const rendered = new Set(published.renderedOids);
+    const rendered = new Set(renderedOids());
     return selection.filter((oid) => !rendered.has(oid));
   }
 
@@ -154,22 +155,36 @@
     return [...document.querySelectorAll("tr.commit-row")];
   }
 
-  /** Marks `oid`'s row as focused and gives it the tab stop, as the renderer would; unrendered focus changes no row. */
+  /** Rows present in the table, in display order. */
+  function renderedOids() {
+    return commitRows().map((row) => row.dataset.oid);
+  }
+
+  /** Marks `oid`'s row as focused and gives it the tab stop, as the renderer would; unrendered focus keeps the tab stop. */
   function showFocus(oid) {
     focusedOid = oid;
     const rows = commitRows();
-    if (!rows.some((row) => row.dataset.oid === oid)) {
-      return;
-    }
+    const isRendered = rows.some((row) => row.dataset.oid === oid);
     for (const row of rows) {
       const isFocused = row.dataset.oid === oid;
       row.classList.toggle("is-focused", isFocused);
-      row.setAttribute("tabindex", isFocused ? "0" : "-1");
+      if (isRendered) {
+        row.setAttribute("tabindex", isFocused ? "0" : "-1");
+      }
       if (isFocused) {
         row.setAttribute("aria-current", "true");
       } else {
         row.removeAttribute("aria-current");
       }
+    }
+  }
+
+  function showSelection() {
+    const selected = new Set(selection);
+    for (const row of commitRows()) {
+      const isSelected = selected.has(row.dataset.oid);
+      row.classList.toggle("is-selected", isSelected);
+      row.setAttribute("aria-selected", String(isSelected));
     }
   }
 
@@ -183,19 +198,21 @@
     focusTimer = null;
   }
 
-  /** A focus not yet sent when this document replaced the last one is shown again and resent. */
+  /** A focus not yet sent when a publication arrived is shown again and sent, unless it is already waiting to be. */
   function restoreFocusDraft() {
     const draft = view.focusDraft;
     if (!draft) {
       return;
     }
-    const isSettled = draft === published.focusedOid || !published.renderedOids.includes(draft);
+    const isSettled = draft === published.focusedOid || !renderedOids().includes(draft);
     if (isSettled) {
       saveView({ focusDraft: null });
       return;
     }
     showFocus(draft);
-    scheduleFocus();
+    if (focusTimer === null) {
+      scheduleFocus();
+    }
   }
 
   // --- changed files: single click only focuses; double-click or Enter opens ---
@@ -299,17 +316,24 @@
     searchTimer = setTimeout(() => sendPresentation({}), SEARCH_DEBOUNCE_MS);
   });
 
-  function restoreSearchDraft() {
-    const draft = view.searchDraft;
-    if (draft === null || draft === undefined) {
-      return;
-    }
-    if (draft === published.search) {
+  /**
+   * Shows the unsent search text, or else the published one. The text is sent
+   * again, unless already waiting to be, until the host publishes it: the host
+   * takes only focus from an intent sent before its latest publication.
+   */
+  function syncSearch() {
+    if (view.searchDraft === published.search) {
       saveView({ searchDraft: null });
-      return;
     }
-    searchInput.value = draft;
-    searchTimer = setTimeout(() => sendPresentation({}), SEARCH_DEBOUNCE_MS);
+    const draft = view.searchDraft;
+    const hasDraft = typeof draft === "string";
+    const text = hasDraft ? draft : published.search;
+    if (searchInput.value !== text) {
+      searchInput.value = text;
+    }
+    if (hasDraft && searchTimer === null) {
+      searchTimer = setTimeout(() => sendPresentation({}), SEARCH_DEBOUNCE_MS);
+    }
   }
 
   function cancelSearch() {
@@ -332,13 +356,67 @@
     });
   }
 
-  /**
-   * A pending search timer is left running: if this intent causes a
-   * publication, the timer dies with this document and the next one resends
-   * the saved draft; if the host rejects the late search as stale, likewise.
-   */
+  /** A pending search timer is left running; the draft is resent until the host publishes it. */
   function post(type, fields) {
     vscode.postMessage({ type, revision: published.revision, ...fields });
+  }
+
+  // --- updates: changed elements by ID, appended rows and the new published state ---
+
+  window.addEventListener("message", (event) => {
+    const message = event.data;
+    const isNewer = message && message.type === "update" && message.state.revision > published.revision;
+    if (isNewer) {
+      applyUpdate(message);
+    }
+  });
+
+  function applyUpdate(update) {
+    const active = document.activeElement;
+    for (const [id, markup] of Object.entries(update.regions)) {
+      document.getElementById(id).outerHTML = markup;
+    }
+    if (update.appendedRows) {
+      document.getElementById("history-commits").querySelector("tbody").insertAdjacentHTML("beforeend", update.appendedRows);
+    }
+    const isSameRepository = update.state.repositoryId === published.repositoryId;
+    published = update.state;
+    selection = published.selectedOids;
+    if (!isSameRepository) {
+      forgetRepository();
+    }
+    showSelection();
+    showFocus(published.focusedOid);
+    resetSelects();
+    syncSearch();
+    restoreFocusDraft();
+    if (active && !active.isConnected) {
+      restoreFocus();
+    }
+  }
+
+  /** Nothing carries over to another repository but the focused control, caret and detail width. */
+  function forgetRepository() {
+    cancelSearch();
+    cancelFocus();
+    saveView({ repositoryId: published.repositoryId, anchorOid: null, scroll: {}, searchDraft: null, baseDraft: null, focusDraft: null });
+    for (const paneClass of SCROLL_PANES) {
+      const pane = document.querySelector(`.${paneClass}`);
+      if (pane) {
+        pane.scrollTop = 0;
+      }
+    }
+  }
+
+  /** Selects show the host's choice, so a change it did not take is undone. */
+  function resetSelects() {
+    for (const select of document.querySelectorAll("select")) {
+      const options = [...select.querySelectorAll("option")];
+      const chosen = options.find((option) => option.hasAttribute("selected")) || options[0];
+      if (chosen) {
+        select.value = chosen.value;
+      }
+    }
   }
 
   // --- presentation persistence ---

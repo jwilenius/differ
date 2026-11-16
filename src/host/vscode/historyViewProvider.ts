@@ -8,7 +8,7 @@ import { shortHash } from "../../model/historyLabels";
 import type { HistoryRepository, HistoryState } from "../../model/historyTypes";
 import { VisibleCommitCache } from "../../model/historyVisibility";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../../render/html/historyRenderer";
-import type { HistoryPresentation } from "../../render/html/historyRenderer";
+import type { HistoryPage, HistoryPageContext, HistoryPresentation } from "../../render/html/historyRenderer";
 import type { HistoryFileOpener } from "./historyDiffProvider";
 import { parseHistoryMessage } from "./historyMessages";
 import type { HistoryMessage } from "./historyMessages";
@@ -93,8 +93,13 @@ const EMPTY_STATE: HistoryState = {
 
 /**
  * Hosts the history panel: owns one controller and adapter per repository root, the active repository, presentation
- * state and the status-bar item. The webview only ever sees the active repository; every publication replaces its
- * document and carries a new wire revision that intents must echo before they may change anything.
+ * state and the status-bar item. The webview only ever sees the active repository; every publication carries a new
+ * wire revision that intents must echo before they may change anything.
+ *
+ * The webview loads a whole document only when it has none or is hidden; reloading a shown one would flash it
+ * unstyled until the stylesheet arrives, which is slow over a remote connection. Once the document reports ready,
+ * publications post it updates that patch it in place. A hidden view gets each publication as a new document instead,
+ * because VS Code recreates a hidden webview from its last assigned HTML and updates posted to it may be lost.
  */
 export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private readonly renderer = new HtmlHistoryRenderer();
@@ -116,6 +121,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   /** Explains an empty repository list, such as Git missing. */
   private discoveryProblem: string | null = null;
   private published: Publication = { wireRevision: 0, sessionId: null, sessionWireRevision: 0 };
+  /** The last document assigned to the view, which VS Code loads whenever it creates the webview. */
+  private document: { readonly revision: number; readonly page: HistoryPage } | null = null;
+  /** What the loaded document shows once it reported ready; null while a document is loading. */
+  private shownPage: HistoryPage | null = null;
   private isDisposed = false;
 
   constructor(private readonly options: HistoryViewProviderOptions) {
@@ -143,6 +152,11 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     this.viewSubscriptions = [
       view.webview.onDidReceiveMessage((message: unknown) => void this.handleMessage(message)),
       view.onDidDispose(() => this.detachView()),
+      view.onDidChangeVisibility(() => {
+        if (!view.visible) {
+          this.publish();
+        }
+      }),
     ];
     this.publish();
     void this.discoverRepositories();
@@ -329,8 +343,9 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     }
     const { wireRevision, sessionWireRevision } = this.published;
     if (message.type === "ready") {
-      // An older revision means a newer document is already loading; republishing then could chain reloads.
-      if (message.revision > wireRevision) {
+      // Any other revision is a replaced document whose updates would be lost.
+      if (this.document !== null && message.revision === this.document.revision) {
+        this.shownPage = this.document.page;
         this.publish();
       }
       return;
@@ -527,21 +542,36 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const isSameSession = sessionId === this.published.sessionId;
     const sessionWireRevision = isSameSession ? this.published.sessionWireRevision : wireRevision;
     this.published = { wireRevision, sessionId, sessionWireRevision };
-
-    view.webview.html = this.renderer.render(state, {
-      assets: {
-        styleUri: this.mediaUri(view, "history.css"),
-        scriptUri: this.mediaUri(view, "history.js"),
-        cspSource: view.webview.cspSource,
-      },
-      nonce: randomBytes(NONCE_BYTES).toString("base64"),
+    const context: HistoryPageContext = {
       repositories: this.sessions.map((candidate) => ({ id: candidate.id, name: candidate.name })),
-      activeRepositoryId: session?.id ?? null,
+      activeRepositoryId: sessionId,
       presentation,
       visibleOids,
       hiddenSelectedCount: this.visibility.hiddenCount(state.history, presentation, state.selectedOids),
       wireRevision,
-    });
+    };
+
+    if (!view.visible || this.document === null) {
+      const document = this.renderer.render(state, {
+        ...context,
+        assets: {
+          styleUri: this.mediaUri(view, "history.css"),
+          scriptUri: this.mediaUri(view, "history.js"),
+          cspSource: view.webview.cspSource,
+        },
+        nonce: randomBytes(NONCE_BYTES).toString("base64"),
+      });
+      view.webview.html = document.html;
+      this.document = { revision: wireRevision, page: document.page };
+      this.shownPage = null;
+      return;
+    }
+    // A loading document announces itself with `ready`, which publishes again.
+    if (this.shownPage !== null) {
+      const patch = this.renderer.update(state, context, this.shownPage);
+      void view.webview.postMessage(patch.update);
+      this.shownPage = patch.page;
+    }
   }
 
   /** Placeholder state that explains why no repository is shown. */
@@ -568,6 +598,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     this.viewSubscriptions.forEach((subscription) => subscription.dispose());
     this.viewSubscriptions = [];
     this.view = undefined;
+    this.document = null;
+    this.shownPage = null;
   }
 
   private report(message: string): void {

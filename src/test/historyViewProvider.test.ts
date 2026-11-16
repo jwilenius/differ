@@ -17,7 +17,8 @@ import type {
   HistoryData,
   ReadyResult,
 } from "../model/historyTypes";
-import type { HistoryPublicState } from "../render/html/historyRenderer";
+import { HISTORY_PAGE_SIZE } from "../render/html/historyRenderer";
+import type { HistoryPublicState, HistoryUpdate } from "../render/html/historyRenderer";
 import { changeConfiguration, changeWorkspaceFolders, createFakeWebviewView, resetVscodeMock, vscodeMock } from "./vscodeMock";
 import type { FakeWebviewView } from "./vscodeMock";
 
@@ -48,6 +49,16 @@ const HISTORY: HistoryData = {
   ],
   isTruncated: false,
 };
+
+function linearOid(index: number): string {
+  return (index + 1).toString(16).padStart(40, "a");
+}
+
+/** `count` commits in one line, newest first. */
+function linearHistory(count: number): HistoryData {
+  const commits = Array.from({ length: count }, (_, index) => commit(linearOid(index), index + 1 < count ? [linearOid(index + 1)] : [], `Change ${index}`));
+  return { commits, refs: [{ kind: "localBranch", name: "main", oid: linearOid(0) }], isTruncated: false };
+}
 
 function readyResult(request: ComparisonRequest): ReadyResult {
   return {
@@ -142,9 +153,73 @@ function decodeHtml(value: string): string {
     .replace(/&amp;/g, "&");
 }
 
-function publicState(view: FakeWebviewView): HistoryPublicState {
+/** State of the last assigned document, before any update. */
+function documentState(view: FakeWebviewView): HistoryPublicState {
   const match = /data-history="([^"]*)"/.exec(view.webview.html);
   return JSON.parse(decodeHtml(match![1])) as HistoryPublicState;
+}
+
+/** Updates posted to the current document. */
+function updates(view: FakeWebviewView): readonly HistoryUpdate[] {
+  return view.webview.postedSinceHtml as readonly HistoryUpdate[];
+}
+
+/** What the panel shows: the last assigned document patched by every update posted to it, as the client applies them. */
+function page(view: FakeWebviewView): { readonly html: string; readonly state: HistoryPublicState } {
+  let html = view.webview.html;
+  let state = documentState(view);
+  for (const update of updates(view)) {
+    html = Object.entries(update.regions).reduce((patched, [id, markup]) => replaceElement(patched, id, markup), html);
+    const tableEnd = html.indexOf("</tbody>", html.indexOf(` id="history-commits"`));
+    html = html.slice(0, tableEnd) + update.appendedRows + html.slice(tableEnd);
+    state = update.state;
+  }
+  return { html, state };
+}
+
+function publicState(view: FakeWebviewView): HistoryPublicState {
+  return page(view).state;
+}
+
+function shownHtml(view: FakeWebviewView): string {
+  return page(view).html;
+}
+
+/** Rows shown in the commit table, in order. */
+function shownRows(view: FakeWebviewView): readonly string[] {
+  return [...shownHtml(view).matchAll(/<tr class="commit-row[^"]*" role="row" data-oid="([0-9a-f]+)"/g)].map((match) => match[1]!);
+}
+
+/** Replaces the element with `id` in the renderer's well-formed markup, as setting its `outerHTML` would. */
+function replaceElement(html: string, id: string, replacement: string): string {
+  const idAt = html.indexOf(` id="${id}"`);
+  if (idAt < 0) {
+    throw new Error(`no #${id}`);
+  }
+  const start = html.lastIndexOf("<", idAt);
+  const tag = /^<([a-z0-9]+)/.exec(html.slice(start))![1]!;
+  return html.slice(0, start) + replacement + html.slice(elementEnd(html, start, tag));
+}
+
+function elementEnd(html: string, start: number, tag: string): number {
+  if (tag === "input") {
+    return html.indexOf(">", start) + 1;
+  }
+  const pattern = new RegExp(`<(/?)${tag}\\b[^>]*>`, "g");
+  pattern.lastIndex = start;
+  let depth = 0;
+  for (let match = pattern.exec(html); match; match = pattern.exec(html)) {
+    depth += match[1] ? -1 : 1;
+    if (depth === 0) {
+      return match.index + match[0].length;
+    }
+  }
+  throw new Error(`unclosed <${tag}>`);
+}
+
+/** Reports the current document loaded, as its script does. */
+function loadDocument(view: FakeWebviewView): void {
+  view.webview.fireDidReceiveMessage({ type: "ready", revision: documentState(view).revision });
 }
 
 function folder(fsPath: string): vscode.WorkspaceFolder {
@@ -155,6 +230,8 @@ describe("HistoryViewProvider", () => {
   let repositories: Map<string, FakeRepository>;
   /** `loadFailure` of each repository the provider creates, so its first load can fail. */
   let initialLoadFailure: Error | null;
+  /** History each repository the provider creates loads. */
+  let initialHistory: HistoryData;
   let fileOpener: HistoryFileOpener & { calls: unknown[][] };
   let log: string[];
   let provider: HistoryViewProvider;
@@ -167,7 +244,7 @@ describe("HistoryViewProvider", () => {
       fileOpener,
       log: { appendLine: (line) => void log.push(line) },
       createRepository: (root) => {
-        const repository = new FakeRepository();
+        const repository = new FakeRepository(initialHistory);
         repository.loadFailure = initialLoadFailure;
         repositories.set(root, repository);
         return repository;
@@ -180,6 +257,7 @@ describe("HistoryViewProvider", () => {
     provider = createProvider(roots);
     view = createFakeWebviewView();
     provider.resolveWebviewView(view);
+    loadDocument(view);
     await settle();
   }
 
@@ -199,6 +277,7 @@ describe("HistoryViewProvider", () => {
     resetVscodeMock();
     repositories = new Map();
     initialLoadFailure = null;
+    initialHistory = HISTORY;
     log = [];
     fileOpener = {
       calls: [],
@@ -218,8 +297,8 @@ describe("HistoryViewProvider", () => {
     await open();
 
     expect(view.webview.options).toEqual({ enableScripts: true, localResourceRoots: [vscode.Uri.file("/extension/media")] });
-    expect(view.webview.html).toContain("Third change");
-    expect(view.webview.html).toContain("history.js");
+    expect(shownHtml(view)).toContain("Third change");
+    expect(shownHtml(view)).toContain("history.js");
     expect(publicState(view).repositoryId).toMatch(/^[0-9a-f-]{36}$/);
     expect(repositories.get(ROOT_A)?.loadCount).toBe(1);
   });
@@ -277,7 +356,7 @@ describe("HistoryViewProvider", () => {
   it("rejects intents sent from a page of another repository", async () => {
     await open([ROOT_A, ROOT_B]);
     const alphaRevision = publicState(view).revision;
-    const betaId = /<option value="([^"]+)">beta<\/option>/.exec(view.webview.html)![1];
+    const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1];
     await send({ type: "repository", repositoryId: betaId });
 
     view.webview.fireDidReceiveMessage({ type: "select", revision: alphaRevision, oids: [C3], focusedOid: C3 });
@@ -309,7 +388,7 @@ describe("HistoryViewProvider", () => {
   it("ignores a stale presentation from another repository's page", async () => {
     await open([ROOT_A, ROOT_B]);
     const alphaRevision = publicState(view).revision;
-    const betaId = /<option value="([^"]+)">beta<\/option>/.exec(view.webview.html)![1];
+    const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1];
     await send({ type: "repository", repositoryId: betaId });
 
     view.webview.fireDidReceiveMessage({ type: "presentation", revision: alphaRevision, search: "", branchOid: null, focusedOid: C3, rowLimit: 200 });
@@ -357,7 +436,7 @@ describe("HistoryViewProvider", () => {
     changeWorkspaceFolders([folder(ROOT_A), folder(ROOT_B)]);
     await settle();
 
-    expect(view.webview.html).toContain(">beta</option>");
+    expect(shownHtml(view)).toContain(">beta</option>");
     expect(publicState(view)).toMatchObject({ repositoryId: alphaId, selectedOids: [C2] });
     expect(repositories.get(ROOT_A)?.loadCount).toBe(1);
   });
@@ -368,7 +447,7 @@ describe("HistoryViewProvider", () => {
 
     await send({ type: "refresh" });
 
-    expect(view.webview.html).toContain(">beta</option>");
+    expect(shownHtml(view)).toContain(">beta</option>");
     expect(repositories.get(ROOT_B)?.loadCount).toBe(1);
   });
 
@@ -397,13 +476,14 @@ describe("HistoryViewProvider", () => {
     });
     view = createFakeWebviewView();
     provider.resolveWebviewView(view);
+    loadDocument(view);
 
     changeWorkspaceFolders([folder(ROOT_A), folder(ROOT_B)]);
     releaseFirst();
     await settle();
 
     expect(lookups).toEqual([ROOT_A, ROOT_A, ROOT_B]);
-    expect(view.webview.html).toContain(">beta</option>");
+    expect(shownHtml(view)).toContain(">beta</option>");
     expect(repositories.get(ROOT_A)?.loadCount).toBe(1);
   });
 
@@ -418,16 +498,126 @@ describe("HistoryViewProvider", () => {
     expect(log).toHaveLength(2);
   });
 
-  it("republishes on ready only for a revision it has not published", async () => {
+  it("posts nothing until the document reports ready, then brings it up to date", async () => {
+    provider = createProvider();
+    view = createFakeWebviewView();
+    provider.resolveWebviewView(view);
+    await settle();
+    expect(view.webview.postedMessages).toEqual([]);
+
+    loadDocument(view);
+
+    expect(view.webview.htmlWrites).toBe(1);
+    expect(updates(view)).toHaveLength(1);
+    expect(shownRows(view)).toEqual([F1, C3, C2, C1]);
+  });
+
+  it("brings a document that loads again from its markup up to date, ignoring other documents' ready", async () => {
     await open();
-    const revision = publicState(view).revision;
+    await send({ type: "select", oids: [C2], focusedOid: C2 });
+    const posted = updates(view).length;
 
-    view.webview.fireDidReceiveMessage({ type: "ready", revision });
-    view.webview.fireDidReceiveMessage({ type: "ready", revision: revision - 1 });
-    expect(publicState(view).revision).toBe(revision);
+    view.webview.fireDidReceiveMessage({ type: "ready", revision: publicState(view).revision });
+    expect(updates(view)).toHaveLength(posted);
 
-    view.webview.fireDidReceiveMessage({ type: "ready", revision: revision + 5 });
-    expect(publicState(view).revision).toBe(revision + 1);
+    loadDocument(view);
+    const resync = updates(view).at(-1)!;
+    expect(updates(view)).toHaveLength(posted + 1);
+    expect(resync.state.selectedOids).toEqual([C2]);
+    expect(resync.regions["history-commits"]).toBeDefined();
+    expect(resync.regions["history-selection"]).toContain("1 selected");
+    expect(view.webview.htmlWrites).toBe(1);
+  });
+
+  it("updates the panel in place, sending only what a selection changed", async () => {
+    await open();
+    const posted = updates(view).length;
+
+    await send({ type: "select", oids: [C2], focusedOid: C2 });
+
+    expect(view.webview.htmlWrites).toBe(1);
+    expect(updates(view)).toHaveLength(posted + 1);
+    const update = updates(view).at(-1)!;
+    expect(update.state).toMatchObject({ selectedOids: [C2], focusedOid: C2 });
+    expect(update.regions["history-commits"]).toBeUndefined();
+    expect(update.appendedRows).toBe("");
+    expect(update.regions["history-selection"]).toContain("1 selected");
+  });
+
+  it("sends only the details for a focus change", async () => {
+    await open();
+    await send({ type: "select", oids: [C2, C3], focusedOid: C3 });
+
+    await send({ type: "select", oids: [C2, C3], focusedOid: C2 });
+
+    const update = updates(view).at(-1)!;
+    expect(Object.keys(update.regions)).toEqual(["history-details"]);
+    expect(update.regions["history-details"]).toContain("Second change");
+    expect(view.webview.htmlWrites).toBe(1);
+  });
+
+  it("appends only the new rows on Load more", async () => {
+    initialHistory = linearHistory(HISTORY_PAGE_SIZE * 2 + 50);
+    await open();
+    expect(shownRows(view)).toHaveLength(HISTORY_PAGE_SIZE);
+
+    await send({ type: "presentation", search: "", branchOid: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE * 2 });
+
+    const update = updates(view).at(-1)!;
+    expect(update.regions["history-commits"]).toBeUndefined();
+    expect(update.appendedRows.match(/<tr /g)).toHaveLength(HISTORY_PAGE_SIZE);
+    expect(update.appendedRows).toContain(`data-oid="${linearOid(HISTORY_PAGE_SIZE)}"`);
+    expect(update.regions["history-commit-footer"]).toContain("Load more (50 more)");
+    expect(shownRows(view)).toEqual(initialHistory.commits.slice(0, HISTORY_PAGE_SIZE * 2).map((entry) => entry.oid));
+    expect(view.webview.htmlWrites).toBe(1);
+  });
+
+  it("replaces the rows when a search or branch filter changes them", async () => {
+    await open();
+
+    await send({ type: "presentation", search: "second", branchOid: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
+    const searched = updates(view).at(-1)!;
+    await send({ type: "presentation", search: "", branchOid: F1, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
+    const filtered = updates(view).at(-1)!;
+
+    expect(searched.regions["history-commits"]).toContain(`data-oid="${C2}"`);
+    expect(searched.regions["history-commits"]).not.toContain(`data-oid="${C3}"`);
+    expect(filtered.regions["history-commits"]).toContain(`data-oid="${F1}"`);
+    expect(filtered.appendedRows).toBe("");
+    expect(view.webview.htmlWrites).toBe(1);
+  });
+
+  it("updates the changed files and replay order when a comparison finishes", async () => {
+    await open();
+
+    await selectAndCompare([C3]);
+
+    const finished = updates(view).at(-1)!;
+    expect(finished.state.snapshotId).toBe(SNAPSHOT_ID);
+    expect(finished.regions["history-files"]).toContain(`data-file-id="${FILE_ID}"`);
+    expect(finished.regions["history-replay"]).toContain("Replay order");
+    expect(finished.regions["history-commits"]).toBeUndefined();
+    expect(view.webview.htmlWrites).toBe(1);
+  });
+
+  it("keeps the document of a hidden view current, so showing it loads the current state", async () => {
+    await open();
+    await send({ type: "select", oids: [C2], focusedOid: C2 });
+
+    view.fireDidChangeVisibility(false);
+    expect(view.webview.htmlWrites).toBe(2);
+    expect(documentState(view).selectedOids).toEqual([C2]);
+    await send({ type: "refresh" });
+    expect(view.webview.htmlWrites).toBeGreaterThan(2);
+    expect(view.webview.postedSinceHtml).toEqual([]);
+    const writes = view.webview.htmlWrites;
+
+    view.fireDidChangeVisibility(true);
+    loadDocument(view);
+    await send({ type: "select", oids: [C3], focusedOid: C3 });
+
+    expect(view.webview.htmlWrites).toBe(writes);
+    expect(publicState(view).selectedOids).toEqual([C3]);
   });
 
   it("accepts a selection from a document older only by presentation changes", async () => {
@@ -461,7 +651,7 @@ describe("HistoryViewProvider", () => {
     expect(publicState(view)).toMatchObject({ focusedOid: null, branchOid: null });
     await send({ type: "presentation", search: "second", branchOid: null, focusedOid: null, rowLimit: 200 });
 
-    expect(publicState(view).renderedOids).toEqual([C2]);
+    expect(shownRows(view)).toEqual([C2]);
   });
 
   it("retries a failed comparison on refresh", async () => {
@@ -500,6 +690,7 @@ describe("HistoryViewProvider", () => {
     const recreated = createFakeWebviewView();
     provider.resolveWebviewView(recreated);
     await settle();
+    expect(recreated.webview.htmlWrites).toBe(1);
 
     expect(publicState(recreated)).toMatchObject({ selectedOids: [C2, C3], search: "change", focusedOid: C3, snapshotId: SNAPSHOT_ID });
     expect(repositories.get(ROOT_A)?.loadCount).toBe(1);
@@ -509,7 +700,7 @@ describe("HistoryViewProvider", () => {
     await open([ROOT_A, ROOT_B]);
     await send({ type: "select", oids: [C2], focusedOid: C2 });
     const alphaId = publicState(view).repositoryId;
-    const betaId = /<option value="([^"]+)">beta<\/option>/.exec(view.webview.html)![1];
+    const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1];
 
     await send({ type: "repository", repositoryId: betaId });
     expect(publicState(view)).toMatchObject({ repositoryId: betaId, selectedOids: [] });
@@ -528,14 +719,16 @@ describe("HistoryViewProvider", () => {
     await send({ type: "select", oids: [C2], focusedOid: C2 });
 
     await send({ type: "presentation", search: "THIRD", branchOid: null, focusedOid: C2, rowLimit: 200 });
-    expect(publicState(view)).toMatchObject({ renderedOids: [C3], selectedOids: [C2], search: "THIRD" });
-    expect(view.webview.html).toContain("1 hidden by filters");
+    expect(shownRows(view)).toEqual([C3]);
+    expect(publicState(view)).toMatchObject({ selectedOids: [C2], search: "THIRD" });
+    expect(shownHtml(view)).toContain("1 hidden by filters");
 
     await send({ type: "presentation", search: "", branchOid: F1, focusedOid: C2, rowLimit: 200 });
-    expect(publicState(view)).toMatchObject({ renderedOids: [F1, C1], selectedOids: [C2], branchOid: F1 });
+    expect(shownRows(view)).toEqual([F1, C1]);
+    expect(publicState(view)).toMatchObject({ selectedOids: [C2], branchOid: F1 });
 
     await send({ type: "presentation", search: "333", branchOid: null, focusedOid: C2, rowLimit: 200 });
-    expect(publicState(view).renderedOids).toEqual([C3]);
+    expect(shownRows(view)).toEqual([C3]);
   });
 
   it("keeps a pinned base on refresh and deselects commits that disappeared", async () => {
@@ -550,7 +743,7 @@ describe("HistoryViewProvider", () => {
     expect(repository.loadCount).toBe(2);
     expect(repository.resolvedRefs).toEqual(["main"]);
     expect(publicState(view).selectedOids).toEqual([C3]);
-    expect(view.webview.html).toContain("base-pinned\">main</span>");
+    expect(shownHtml(view)).toContain("base-pinned\">main</span>");
     expect(vscodeMock.messages.map((message) => message.text)).toEqual([
       "1 selected commit(s) are no longer in the history of alpha; they were deselected.",
     ]);
@@ -564,7 +757,7 @@ describe("HistoryViewProvider", () => {
 
     await send({ type: "refresh" });
 
-    expect(view.webview.html).toContain("base-pinned\">main</span>");
+    expect(shownHtml(view)).toContain("base-pinned\">main</span>");
     expect(vscodeMock.messages).toEqual([]);
   });
 
@@ -608,14 +801,14 @@ describe("HistoryViewProvider", () => {
 
     it("reloads loaded repositories with the new cap when the setting changes", async () => {
       await open([ROOT_A, ROOT_B]);
-      const betaId = /<option value="([^"]+)">beta<\/option>/.exec(view.webview.html)![1];
+      const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1];
 
       changeConfiguration("jwDiffer.historyMaxCommits", 500);
       await settle();
 
       expect(repositories.get(ROOT_A)?.loadCaps).toEqual([20_000, 500]);
       expect(repositories.get(ROOT_B)?.loadCaps).toEqual([]);
-      expect(view.webview.html).toContain("Third change");
+      expect(shownHtml(view)).toContain("Third change");
       await send({ type: "repository", repositoryId: betaId });
       expect(repositories.get(ROOT_B)?.loadCaps).toEqual([500]);
     });
@@ -623,15 +816,15 @@ describe("HistoryViewProvider", () => {
     it("retries a repository whose load failed when the setting changes", async () => {
       initialLoadFailure = new Error("Git output exceeded 64 MiB");
       await open();
-      expect(view.webview.html).toContain("Could not load history");
+      expect(shownHtml(view)).toContain("Could not load history");
       repositories.get(ROOT_A)!.loadFailure = null;
 
       changeConfiguration("jwDiffer.historyMaxCommits", 500);
       await settle();
 
       expect(repositories.get(ROOT_A)?.loadCaps).toEqual([20_000, 500]);
-      expect(view.webview.html).not.toContain("Could not load history");
-      expect(view.webview.html).toContain("Third change");
+      expect(shownHtml(view)).not.toContain("Could not load history");
+      expect(shownHtml(view)).toContain("Third change");
     });
 
     it("does not reload for other settings", async () => {
@@ -665,9 +858,10 @@ describe("HistoryViewProvider", () => {
     provider = createProvider([]);
     view = createFakeWebviewView();
     provider.resolveWebviewView(view);
+    loadDocument(view);
     await settle();
 
-    expect(view.webview.html).toContain("No Git repository found in this workspace");
+    expect(shownHtml(view)).toContain("No Git repository found in this workspace");
     expect(vscodeMock.statusBarItems[0].isVisible).toBe(false);
   });
 
@@ -681,9 +875,10 @@ describe("HistoryViewProvider", () => {
     });
     view = createFakeWebviewView();
     provider.resolveWebviewView(view);
+    loadDocument(view);
     await settle();
 
-    expect(view.webview.html).toContain("Git executable was not found.");
+    expect(shownHtml(view)).toContain("Git executable was not found.");
   });
 
   it("adds a repository chosen from the folder picker", async () => {
@@ -693,7 +888,7 @@ describe("HistoryViewProvider", () => {
     await send({ type: "chooseRepository" });
 
     expect(vscodeMock.openDialogRequests[0]).toMatchObject({ canSelectFolders: true, canSelectFiles: false });
-    expect(view.webview.html).toContain(">beta</option>");
+    expect(shownHtml(view)).toContain(">beta</option>");
     expect(repositories.get(ROOT_B)?.loadCount).toBe(1);
   });
 

@@ -32,10 +32,8 @@ export interface HistoryPresentation {
   readonly rowLimit: number;
 }
 
-/** Everything besides the domain state that one render needs; computed by the host. */
-export interface HistoryRenderContext {
-  readonly assets: WebviewAssets;
-  readonly nonce: string;
+/** Everything besides the domain state that one page needs; computed by the host. */
+export interface HistoryPageContext {
   readonly repositories: readonly HistoryRepositoryOption[];
   readonly activeRepositoryId: string | null;
   readonly presentation: HistoryPresentation;
@@ -47,20 +45,63 @@ export interface HistoryRenderContext {
   readonly wireRevision: number;
 }
 
-/** Published as JSON in `body[data-history]` for the client script. */
+/** A page context plus what only a whole document needs. */
+export interface HistoryRenderContext extends HistoryPageContext {
+  readonly assets: WebviewAssets;
+  readonly nonce: string;
+}
+
+/**
+ * Published as JSON in `body[data-history]` and in every update, for the client script. The client reads the
+ * rendered rows from the table itself.
+ */
 export interface HistoryPublicState {
   readonly revision: number;
   readonly repositoryId: string | null;
   /** Full selection, including commits hidden by filters or paging. */
   readonly selectedOids: readonly string[];
-  /** Rows present in the table, in display order. */
-  readonly renderedOids: readonly string[];
   readonly focusedOid: string | null;
   readonly search: string;
   readonly branchOid: string | null;
   readonly rowLimit: number;
   /** Snapshot whose files are listed; null unless the comparison is ready. */
   readonly snapshotId: string | null;
+}
+
+/** The rows a page shows: the first `count` of `visibleOids` in `history`, with graphs `graphColumns` wide. */
+export interface HistoryRowSet {
+  readonly history: HistoryData | null;
+  readonly visibleOids: readonly string[];
+  readonly count: number;
+  readonly graphColumns: number;
+}
+
+/** What one page shows, so that an update can carry only the differences. */
+export interface HistoryPage {
+  /** Markup of each replaceable element besides the commit table, by element ID. */
+  readonly regions: Readonly<Record<string, string>>;
+  readonly rows: HistoryRowSet;
+}
+
+export interface HistoryDocument {
+  readonly html: string;
+  readonly page: HistoryPage;
+}
+
+/** Host-to-webview message that changes the shown page in place. */
+export interface HistoryUpdate {
+  readonly type: "update";
+  readonly state: HistoryPublicState;
+  /** Replacement markup (`outerHTML`) of each changed element, by ID; `history-commits` when the rows changed. */
+  readonly regions: Readonly<Record<string, string>>;
+  /** Rows to add at the end of the commit table; empty when there are none. */
+  readonly appendedRows: string;
+}
+
+export interface HistoryPatch {
+  readonly update: HistoryUpdate;
+  /** The page once the update is applied. */
+  readonly page: HistoryPage;
 }
 
 /**
@@ -76,7 +117,7 @@ interface HistoryIndex {
 /** Lookups shared by the markup functions of one render. */
 interface HistoryView {
   readonly state: HistoryState;
-  readonly context: HistoryRenderContext;
+  readonly context: HistoryPageContext;
   readonly commitOf: (oid: string) => HistoryCommit | undefined;
   readonly refs: ReadonlyMap<string, readonly HistoryRef[]>;
   readonly selected: ReadonlySet<string>;
@@ -104,6 +145,7 @@ const CUT_STUB_END_Y = ROW_HEIGHT - 2;
 const CUT_STUB_SPREAD = LANE_WIDTH / 2 - 1;
 const LANE_COLOR_COUNT = 8;
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
+const COMMIT_TABLE_ID = "history-commits";
 const ISO_MINUTE_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
 
 const REF_CLASSES: Readonly<Record<HistoryRefKind, string>> = {
@@ -133,6 +175,9 @@ const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string;
  * order and the focused commit's details. Every Git string is escaped; the
  * client reads its state only from `data-history`.
  *
+ * The document is rendered once; `update` then patches it in place by
+ * element ID (see `HistoryUpdate`), sending rows only when they change.
+ *
  * Client contract: controls `#history-repository` (select, root IDs),
  * `#history-choose-repository`, `#history-refresh`, `#history-search`,
  * `#history-branch` (select, `""` = all), `#history-base-automatic`,
@@ -144,14 +189,14 @@ const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string;
 export class HtmlHistoryRenderer {
   private index: HistoryIndex | null = null;
 
-  render(state: HistoryState, context: HistoryRenderContext): string {
+  render(state: HistoryState, context: HistoryRenderContext): HistoryDocument {
     if (!NONCE_PATTERN.test(context.nonce)) {
       throw new Error("History renderer needs a base64-style nonce of at least 16 characters");
     }
-    const index = this.indexFor(state.history);
-    const view = createView(state, context, index);
-    const renderedRows = index ? visibleGraphRows(index.layout, context.visibleOids, rowLimit(context)) : [];
-    const publicState = createPublicState(state, context, renderedRows);
+    const view = this.viewOf(state, context);
+    const entries = this.rowsOf(view);
+    const rows = rowSetOf(view, entries);
+    const regions = renderRegions(view, rows);
     const { assets, nonce } = context;
     const csp = [
       "default-src 'none'",
@@ -159,7 +204,7 @@ export class HtmlHistoryRenderer {
       `script-src 'nonce-${nonce}'`,
     ].join("; ");
 
-    return `<!DOCTYPE html>
+    const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -167,20 +212,64 @@ export class HtmlHistoryRenderer {
 <link href="${escapeHtml(assets.styleUri)}" rel="stylesheet">
 <title>Git History</title>
 </head>
-<body data-history="${escapeHtml(JSON.stringify(publicState))}">
-${renderToolbar(view)}
-${renderStatus(view)}
+<body data-history="${escapeHtml(JSON.stringify(createPublicState(state, context)))}">
+${renderToolbar(view.context.presentation, regions)}
+${regions["history-status"]}
 <main class="history-layout">
-${renderCommitPane(view, renderedRows, context.visibleOids.length)}
+<section class="commit-pane" aria-label="Commits">
+${renderCommitTable(view, entries, rows.graphColumns)}
+${regions["history-commit-footer"]}
+</section>
 <aside class="detail-pane">
-${renderFiles(view)}
-${renderReplay(view)}
-${renderDetails(view)}
+${regions["history-files"]}
+${regions["history-replay"]}
+${regions["history-details"]}
 </aside>
 </main>
 <script nonce="${nonce}" src="${escapeHtml(assets.scriptUri)}"></script>
 </body>
 </html>`;
+    return { html, page: { regions, rows } };
+  }
+
+  /**
+   * Changes `shown` into the page for `state`: regions whose markup changed, plus the rows only when the history,
+   * filters or row limit changed. A larger limit over the same rows appends the new rows, unless they widen the graph.
+   */
+  update(state: HistoryState, context: HistoryPageContext, shown: HistoryPage): HistoryPatch {
+    const view = this.viewOf(state, context);
+    const count = state.history ? Math.min(rowLimit(context), context.visibleOids.length) : 0;
+    const isSameFilter = state.history === shown.rows.history && context.visibleOids === shown.rows.visibleOids;
+    const changed: Record<string, string> = {};
+    let rows = shown.rows;
+    let appendedRows = "";
+    if (!isSameFilter || count !== shown.rows.count) {
+      const entries = this.rowsOf(view);
+      rows = rowSetOf(view, entries);
+      const isAppend = isSameFilter && rows.count > shown.rows.count && rows.graphColumns === shown.rows.graphColumns;
+      if (isAppend) {
+        appendedRows = entries.slice(shown.rows.count).map((entry) => renderCommitRow(view, entry, rows.graphColumns, false)).join("\n");
+      } else {
+        changed[COMMIT_TABLE_ID] = renderCommitTable(view, entries, rows.graphColumns);
+      }
+    }
+    const regions = renderRegions(view, rows);
+    for (const [id, markup] of Object.entries(regions)) {
+      if (shown.regions[id] !== markup) {
+        changed[id] = markup;
+      }
+    }
+    const update: HistoryUpdate = { type: "update", state: createPublicState(state, context), regions: changed, appendedRows };
+    return { update, page: { regions, rows } };
+  }
+
+  private viewOf(state: HistoryState, context: HistoryPageContext): HistoryView {
+    return createView(state, context, this.indexFor(state.history));
+  }
+
+  private rowsOf(view: HistoryView): readonly VisibleGraphRow[] {
+    const index = this.index;
+    return index && view.state.history ? visibleGraphRows(index.layout, view.context.visibleOids, rowLimit(view.context)) : [];
   }
 
   /** Reused until metadata is reloaded, so the graph layout keeps the rows it has laid out. */
@@ -200,7 +289,7 @@ function indexHistory(history: HistoryData): HistoryIndex {
   return { history, layout: new HistoryGraphLayout(history.commits), refs };
 }
 
-function createView(state: HistoryState, context: HistoryRenderContext, index: HistoryIndex | null): HistoryView {
+function createView(state: HistoryState, context: HistoryPageContext, index: HistoryIndex | null): HistoryView {
   const commitOf = (oid: string): HistoryCommit | undefined => {
     const position = index?.layout.indexOf(oid);
     return position === undefined ? undefined : index?.history.commits[position];
@@ -208,18 +297,17 @@ function createView(state: HistoryState, context: HistoryRenderContext, index: H
   return { state, context, commitOf, refs: index?.refs ?? new Map(), selected: new Set(state.selectedOids) };
 }
 
-function rowLimit(context: HistoryRenderContext): number {
+function rowLimit(context: HistoryPageContext): number {
   const limit = context.presentation.rowLimit;
   return Number.isInteger(limit) && limit > 0 ? limit : HISTORY_PAGE_SIZE;
 }
 
-function createPublicState(state: HistoryState, context: HistoryRenderContext, rows: readonly VisibleGraphRow[]): HistoryPublicState {
+function createPublicState(state: HistoryState, context: HistoryPageContext): HistoryPublicState {
   const { presentation } = context;
   return {
     revision: context.wireRevision,
     repositoryId: context.activeRepositoryId,
     selectedOids: state.selectedOids,
-    renderedOids: rows.map((entry) => entry.row.oid),
     focusedOid: presentation.focusedOid,
     search: presentation.search,
     branchOid: presentation.branchOid,
@@ -228,27 +316,67 @@ function createPublicState(state: HistoryState, context: HistoryRenderContext, r
   };
 }
 
+function rowSetOf(view: HistoryView, entries: readonly VisibleGraphRow[]): HistoryRowSet {
+  const { history } = view.state;
+  return { history, visibleOids: view.context.visibleOids, count: entries.length, graphColumns: graphColumnsOf(entries) };
+}
+
+/** Every element an update may replace, by ID, except the commit table. */
+type RegionId =
+  | "history-repository"
+  | "history-branch"
+  | "history-base-automatic"
+  | "history-base-input"
+  | "history-base-current"
+  | "history-selection"
+  | "history-status"
+  | "history-commit-footer"
+  | "history-files"
+  | "history-replay"
+  | "history-details";
+
+type Regions = Readonly<Record<RegionId, string>>;
+
+function renderRegions(view: HistoryView, rows: HistoryRowSet): Regions {
+  return {
+    "history-repository": renderRepositorySelect(view.context),
+    "history-branch": renderBranchFilter(view),
+    ...renderBaseControls(view),
+    "history-selection": renderSelectionSummary(view),
+    "history-status": renderStatus(view),
+    "history-commit-footer": renderCommitFooter(view, rows.count),
+    "history-files": renderFiles(view),
+    "history-replay": renderReplay(view),
+    "history-details": renderDetails(view),
+  };
+}
+
 // ---------------------------------------------------------------- toolbar
 
-function renderToolbar(view: HistoryView): string {
+/** The search box is never replaced, so text typed while an update arrives stays. */
+function renderToolbar(presentation: HistoryPresentation, regions: Regions): string {
   return `<header class="history-toolbar" role="toolbar" aria-label="History controls">
-${renderRepositoryPicker(view.context)}
-<input id="history-search" class="search" type="search" placeholder="Search subject or hash" aria-label="Search commits by subject or hash" value="${escapeHtml(view.context.presentation.search)}">
-${renderBranchFilter(view)}
-${renderBaseControls(view)}
-${renderSelectionSummary(view)}
+<span class="toolbar-group">${regions["history-repository"]}<button id="history-choose-repository" class="tool" title="Open another repository folder">Open…</button><button id="history-refresh" class="tool" title="Reload history" aria-label="Refresh history">⟳</button></span>
+<input id="history-search" class="search" type="search" placeholder="Search subject or hash" aria-label="Search commits by subject or hash" value="${escapeHtml(presentation.search)}">
+${regions["history-branch"]}
+<span class="toolbar-group base-control" role="group" aria-label="Comparison base">
+<span class="label">Base:</span>
+${regions["history-base-automatic"]}
+${regions["history-base-input"]}
+<button id="history-base-pin" class="tool">Pin</button>
+${regions["history-base-current"]}
+</span>
+${regions["history-selection"]}
 </header>`;
 }
 
-function renderRepositoryPicker(context: HistoryRenderContext): string {
+function renderRepositorySelect(context: HistoryPageContext): string {
   const options = context.repositories
     .map((repository) => option(repository.id, repository.name, repository.id === context.activeRepositoryId))
     .join("");
-  const isEmpty = context.repositories.length === 0;
-  const select = isEmpty
+  return context.repositories.length === 0
     ? `<select id="history-repository" aria-label="Repository" disabled><option value="">No repository</option></select>`
     : `<select id="history-repository" aria-label="Repository">${options}</select>`;
-  return `<span class="toolbar-group">${select}<button id="history-choose-repository" class="tool" title="Open another repository folder">Open…</button><button id="history-refresh" class="tool" title="Reload history" aria-label="Refresh history">⟳</button></span>`;
 }
 
 function renderBranchFilter(view: HistoryView): string {
@@ -262,17 +390,15 @@ function renderBranchFilter(view: HistoryView): string {
   return `<select id="history-branch" aria-label="Branch filter">${option("", "All branches", branchOid === null)}${fallback}${options.join("")}</select>`;
 }
 
-function renderBaseControls(view: HistoryView): string {
+function renderBaseControls(view: HistoryView): Pick<Regions, "history-base-automatic" | "history-base-input" | "history-base-current"> {
   const base = view.state.base;
   const isAutomatic = base.kind === "automatic";
   const typed = isAutomatic ? "" : base.label;
-  return `<span class="toolbar-group base-control" role="group" aria-label="Comparison base">
-<span class="label">Base:</span>
-<button id="history-base-automatic" class="tool" aria-pressed="${isAutomatic}">Automatic</button>
-<input id="history-base-input" type="text" placeholder="Commit, branch or tag" aria-label="Pin base to a commit, branch or tag" value="${escapeHtml(typed)}">
-<button id="history-base-pin" class="tool">Pin</button>
-<span id="history-base-current" class="base-current">${describeBase(view)}</span>
-</span>`;
+  return {
+    "history-base-automatic": `<button id="history-base-automatic" class="tool" aria-pressed="${isAutomatic}">Automatic</button>`,
+    "history-base-input": `<input id="history-base-input" type="text" placeholder="Commit, branch or tag" aria-label="Pin base to a commit, branch or tag" value="${escapeHtml(typed)}">`,
+    "history-base-current": `<span id="history-base-current" class="base-current">${describeBase(view)}</span>`,
+  };
 }
 
 /** Pinned label + hash, or what Automatic resolved to for the current comparison. */
@@ -302,7 +428,7 @@ function renderSelectionSummary(view: HistoryView): string {
   const hiddenText = hidden > 0
     ? ` <span id="history-hidden-selected" class="hidden-selected">${hidden} hidden by filters</span>`
     : "";
-  return `<span class="toolbar-group selection-summary">
+  return `<span id="history-selection" class="toolbar-group selection-summary">
 <span id="history-selection-count" aria-live="polite">${count} selected${hiddenText}</span>
 <button id="history-clear-selection" class="tool"${count === 0 ? " disabled" : ""}>Clear</button>
 </span>`;
@@ -365,32 +491,39 @@ function describeComparison(view: HistoryView, comparison: ComparisonResult | nu
 
 // ---------------------------------------------------------- commit table
 
-function renderCommitPane(view: HistoryView, rows: readonly VisibleGraphRow[], visibleCount: number): string {
-  const graphColumns = Math.min(OVERFLOW_COLUMN + 1, Math.max(1, ...rows.map((entry) => entry.row.width)));
+/** Every graph in the table is as wide as its widest row, up to the overflow column. */
+function graphColumnsOf(rows: readonly VisibleGraphRow[]): number {
+  return Math.min(OVERFLOW_COLUMN + 1, Math.max(1, ...rows.map((entry) => entry.row.width)));
+}
+
+function renderCommitTable(view: HistoryView, rows: readonly VisibleGraphRow[], graphColumns: number): string {
   const focusedOid = rows.some((entry) => entry.row.oid === view.context.presentation.focusedOid)
     ? view.context.presentation.focusedOid
     : rows[0]?.row.oid ?? null;
   const body = rows.map((entry) => renderCommitRow(view, entry, graphColumns, entry.row.oid === focusedOid)).join("\n");
-  const remaining = visibleCount - rows.length;
+  return `<table id="${COMMIT_TABLE_ID}" class="commit-table" role="grid" aria-label="Commits" aria-multiselectable="true" aria-rowcount="${view.context.visibleOids.length + 1}">
+<thead><tr role="row"><th class="graph-cell" scope="col"><span class="sr-only">Graph</span></th><th scope="col">Subject</th><th scope="col">Author</th><th scope="col">Date</th><th scope="col">Hash</th></tr></thead>
+<tbody>
+${body}
+</tbody>
+</table>`;
+}
+
+/** What follows the rows: why there are none, Load more and the truncation note. */
+function renderCommitFooter(view: HistoryView, rowCount: number): string {
+  const remaining = view.context.visibleOids.length - rowCount;
   const loadMore = remaining > 0
-    ? `<button id="history-load-more" class="load-more" data-row-limit="${rows.length + HISTORY_PAGE_SIZE}">Load more (${formatCount(remaining)} more)</button>`
+    ? `<button id="history-load-more" class="load-more" data-row-limit="${rowCount + HISTORY_PAGE_SIZE}">Load more (${formatCount(remaining)} more)</button>`
     : "";
   const history = view.state.history;
   const truncatedNote = history?.isTruncated
     ? `<p id="history-truncated" class="truncated-note">${describeLoadedCount(history)}. Older history is not loaded; raise the <code>jwDiffer.historyMaxCommits</code> setting to load more.</p>`
     : "";
-
-  return `<section class="commit-pane" aria-label="Commits">
-<table id="history-commits" class="commit-table" role="grid" aria-label="Commits" aria-multiselectable="true" aria-rowcount="${visibleCount + 1}">
-<thead><tr role="row"><th class="graph-cell" scope="col"><span class="sr-only">Graph</span></th><th scope="col">Subject</th><th scope="col">Author</th><th scope="col">Date</th><th scope="col">Hash</th></tr></thead>
-<tbody>
-${body}
-</tbody>
-</table>
-${rows.length === 0 ? `<p class="empty">No commits match the filters</p>` : ""}
+  return `<div id="history-commit-footer">
+${rowCount === 0 ? `<p class="empty">No commits match the filters</p>` : ""}
 ${loadMore}
 ${truncatedNote}
-</section>`;
+</div>`;
 }
 
 /** `hasTabStop` marks the one row Tab reaches; `is-focused` marks the user's focused row. */

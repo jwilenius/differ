@@ -72,4 +72,15 @@ describe("VisibleCommitCache", () => {
     expect(searched).toEqual([F1]);
     expect(reloaded).toEqual([]);
   });
+
+  it("counts selected commits the filters hide, including ones no longer loaded", () => {
+    const cache = new VisibleCommitCache();
+    const gone = "9".repeat(40);
+
+    expect(cache.hiddenCount(HISTORY, ALL, [C1, F1])).toBe(0);
+    expect(cache.hiddenCount(HISTORY, ALL, [C1, gone])).toBe(1);
+    expect(cache.hiddenCount(HISTORY, { search: "", branchOid: F1 }, [C1, C2, C3, F1])).toBe(2);
+    expect(cache.hiddenCount(HISTORY, { search: "change", branchOid: null }, [C2, F1])).toBe(1);
+    expect(cache.hiddenCount(HISTORY, { search: "change", branchOid: null }, [])).toBe(0);
+  });
 });

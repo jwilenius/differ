@@ -1,5 +1,5 @@
-import { buildHistoryGraph, filterHistoryGraph } from "../../model/historyGraph";
-import type { GraphSegment, HistoryGraphRow, VisibleGraphRow } from "../../model/historyGraph";
+import { HistoryGraphLayout, visibleGraphRows } from "../../model/historyGraph";
+import type { GraphSegment, VisibleGraphRow } from "../../model/historyGraph";
 import { describeResolvedBase, shortHash as abbreviate } from "../../model/historyLabels";
 import type {
   ComparisonFile,
@@ -63,11 +63,18 @@ export interface HistoryPublicState {
   readonly snapshotId: string | null;
 }
 
+/** Lookups over one loaded history, built once per load rather than per render. */
+interface HistoryIndex {
+  readonly history: HistoryData;
+  readonly layout: HistoryGraphLayout;
+  readonly refs: ReadonlyMap<string, readonly HistoryRef[]>;
+}
+
 /** Lookups shared by the markup functions of one render. */
 interface HistoryView {
   readonly state: HistoryState;
   readonly context: HistoryRenderContext;
-  readonly commits: ReadonlyMap<string, HistoryCommit>;
+  readonly commitOf: (oid: string) => HistoryCommit | undefined;
   readonly refs: ReadonlyMap<string, readonly HistoryRef[]>;
   readonly selected: ReadonlySet<string>;
 }
@@ -124,16 +131,15 @@ const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string;
  * file buttons `button.file-row[data-snapshot-id][data-file-id]`.
  */
 export class HtmlHistoryRenderer {
-  private graphSource: HistoryData | null = null;
-  private graphRows: readonly HistoryGraphRow[] = [];
+  private index: HistoryIndex | null = null;
 
   render(state: HistoryState, context: HistoryRenderContext): string {
     if (!NONCE_PATTERN.test(context.nonce)) {
       throw new Error("History renderer needs a base64-style nonce of at least 16 characters");
     }
-    const view = createView(state, context);
-    const visibleRows = filterHistoryGraph(this.graphFor(state.history), context.visibleOids);
-    const renderedRows = visibleRows.slice(0, rowLimit(context));
+    const index = this.indexFor(state.history);
+    const view = createView(state, context, index);
+    const renderedRows = index ? visibleGraphRows(index.layout, context.visibleOids, rowLimit(context)) : [];
     const publicState = createPublicState(state, context, renderedRows);
     const { assets, nonce } = context;
     const csp = [
@@ -154,7 +160,7 @@ export class HtmlHistoryRenderer {
 ${renderToolbar(view)}
 ${renderStatus(view)}
 <main class="history-layout">
-${renderCommitPane(view, renderedRows, visibleRows.length)}
+${renderCommitPane(view, renderedRows, context.visibleOids.length)}
 <aside class="detail-pane">
 ${renderFiles(view)}
 ${renderReplay(view)}
@@ -166,23 +172,29 @@ ${renderDetails(view)}
 </html>`;
   }
 
-  /** The layout covers the whole loaded graph, so it is reused until metadata is reloaded. */
-  private graphFor(history: HistoryData | null): readonly HistoryGraphRow[] {
-    if (history !== this.graphSource) {
-      this.graphSource = history;
-      this.graphRows = history ? buildHistoryGraph(history.commits) : [];
+  /** Reused until metadata is reloaded, so the graph layout keeps the rows it has laid out. */
+  private indexFor(history: HistoryData | null): HistoryIndex | null {
+    if (history !== (this.index?.history ?? null)) {
+      this.index = history ? indexHistory(history) : null;
     }
-    return this.graphRows;
+    return this.index;
   }
 }
 
-function createView(state: HistoryState, context: HistoryRenderContext): HistoryView {
-  const commits = new Map((state.history?.commits ?? []).map((commit) => [commit.oid, commit]));
+function indexHistory(history: HistoryData): HistoryIndex {
   const refs = new Map<string, HistoryRef[]>();
-  for (const ref of state.history?.refs ?? []) {
+  for (const ref of history.refs) {
     refs.set(ref.oid, [...(refs.get(ref.oid) ?? []), ref]);
   }
-  return { state, context, commits, refs, selected: new Set(state.selectedOids) };
+  return { history, layout: new HistoryGraphLayout(history.commits), refs };
+}
+
+function createView(state: HistoryState, context: HistoryRenderContext, index: HistoryIndex | null): HistoryView {
+  const commitOf = (oid: string): HistoryCommit | undefined => {
+    const position = index?.layout.indexOf(oid);
+    return position === undefined ? undefined : index?.history.commits[position];
+  };
+  return { state, context, commitOf, refs: index?.refs ?? new Map(), selected: new Set(state.selectedOids) };
 }
 
 function rowLimit(context: HistoryRenderContext): number {
@@ -231,7 +243,7 @@ function renderRepositoryPicker(context: HistoryRenderContext): string {
 function renderBranchFilter(view: HistoryView): string {
   const branchOid = view.context.presentation.branchOid;
   // A truncated history may not reach a stale branch's tip, and filtering by it would show nothing.
-  const branches = (view.state.history?.refs ?? []).filter((ref) => ref.kind !== "tag" && view.commits.has(ref.oid));
+  const branches = (view.state.history?.refs ?? []).filter((ref) => ref.kind !== "tag" && view.commitOf(ref.oid) !== undefined);
   // Several refs can share a tip; mark only the first so the browser shows a stable choice.
   const selectedIndex = branches.findIndex((ref) => ref.oid === branchOid);
   const fallback = branchOid !== null && selectedIndex < 0 ? option(branchOid, abbreviate(branchOid), true) : "";
@@ -256,7 +268,7 @@ function renderBaseControls(view: HistoryView): string {
 function describeBase(view: HistoryView): string {
   const base = view.state.base;
   if (base.kind === "pinned") {
-    const subject = view.commits.get(base.oid)?.subject;
+    const subject = view.commitOf(base.oid)?.subject;
     const suffix = subject === undefined ? "" : ` <span class="subject">${escapeHtml(subject)}</span>`;
     return `<span class="base-pinned">${escapeHtml(base.label)}</span> <code>${shortHash(base.oid)}</code>${suffix}`;
   }
@@ -372,7 +384,7 @@ ${truncatedNote}
 
 /** `hasTabStop` marks the one row Tab reaches; `is-focused` marks the user's focused row. */
 function renderCommitRow(view: HistoryView, entry: VisibleGraphRow, graphLanes: number, hasTabStop: boolean): string {
-  const commit = view.commits.get(entry.row.oid)!;
+  const commit = view.commitOf(entry.row.oid)!;
   const isSelected = view.selected.has(commit.oid);
   const isFocused = commit.oid === view.context.presentation.focusedOid;
   const classes = ["commit-row", isSelected ? "is-selected" : "", isFocused ? "is-focused" : ""].filter(Boolean).join(" ");
@@ -519,13 +531,13 @@ ${items.length > 0 ? `<ol class="replay-order">${items.join("")}</ol>` : ""}
 }
 
 function renderMainlineSelect(view: HistoryView, oid: string): string {
-  const commit = view.commits.get(oid);
+  const commit = view.commitOf(oid);
   if (!commit || commit.parents.length < 2) {
     return "";
   }
   const chosen = view.state.mainlines.find((choice) => choice.oid === oid)?.parentNumber ?? 1;
   const options = commit.parents.map((parent, index) => {
-    const subject = view.commits.get(parent)?.subject ?? "";
+    const subject = view.commitOf(parent)?.subject ?? "";
     return option(String(index + 1), `Parent ${index + 1}: ${shortHash(parent)} ${subject}`.trimEnd(), index + 1 === chosen);
   });
   return ` <select class="mainline-select" data-oid="${escapeHtml(commit.oid)}" aria-label="Compare merge ${shortHash(commit.oid)} against parent">${options.join("")}</select>`;
@@ -533,7 +545,7 @@ function renderMainlineSelect(view: HistoryView, oid: string): string {
 
 function renderDetails(view: HistoryView): string {
   const focusedOid = view.context.presentation.focusedOid;
-  const commit = focusedOid === null ? undefined : view.commits.get(focusedOid);
+  const commit = focusedOid === null ? undefined : view.commitOf(focusedOid);
   const body = commit ? renderCommitDetails(view, commit) : `<p class="empty">Focus a commit to see its details</p>`;
   return `<section id="history-details" class="details-pane" aria-labelledby="history-details-heading">
 <h2 id="history-details-heading">Commit details</h2>
@@ -561,7 +573,7 @@ function option(value: string, label: string, isSelected: boolean): string {
 
 /** Short hash plus subject when the commit is loaded; escaped. */
 function commitLabel(view: HistoryView, oid: string): string {
-  const subject = view.commits.get(oid)?.subject;
+  const subject = view.commitOf(oid)?.subject;
   const suffix = subject === undefined ? "" : ` <span class="subject">${escapeHtml(subject)}</span>`;
   return `<code>${shortHash(oid)}</code>${suffix}`;
 }

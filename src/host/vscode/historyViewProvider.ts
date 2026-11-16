@@ -522,7 +522,6 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const state = session?.controller.getState() ?? this.emptyState();
     const presentation = session?.presentation ?? INITIAL_PRESENTATION;
     const visibleOids = this.visibility.visibleOids(state.history, presentation);
-    const visible = new Set(visibleOids);
     const wireRevision = this.published.wireRevision + 1;
     const sessionId = session?.id ?? null;
     const isSameSession = sessionId === this.published.sessionId;
@@ -540,7 +539,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       activeRepositoryId: session?.id ?? null,
       presentation,
       visibleOids,
-      hiddenSelectedCount: state.selectedOids.filter((oid) => !visible.has(oid)).length,
+      hiddenSelectedCount: this.visibility.hiddenCount(state.history, presentation, state.selectedOids),
       wireRevision,
     });
   }

@@ -241,6 +241,40 @@ describe("HtmlHistoryRenderer", () => {
     expect(publicState(html).renderedOids).toHaveLength(HISTORY_PAGE_SIZE);
   });
 
+  it("lays out the graph only through the last rendered row on publish, selection change and Load more", () => {
+    const parentReads = new Map<number, number>();
+    const chain = Array.from({ length: 1_000 }, (_, index) => {
+      const { parents, ...fields } = commit(oid(100 + index), `c${index}`, index === 999 ? [] : [oid(101 + index)]);
+      return Object.defineProperty(fields, "parents", {
+        enumerable: true,
+        get: () => {
+          parentReads.set(index, (parentReads.get(index) ?? 0) + 1);
+          return parents;
+        },
+      }) as HistoryCommit;
+    });
+    const state = makeState({ history: { commits: chain, refs: [], isTruncated: false } });
+    const visibleOids = chain.map((entry) => entry.oid);
+    const renderer = new HtmlHistoryRenderer();
+    const contextFor = (rowLimit: number): HistoryRenderContext => makeContext({
+      visibleOids,
+      presentation: { search: "", branchOid: null, focusedOid: null, rowLimit },
+    });
+    const deepestRead = (): number => Math.max(...parentReads.keys());
+    const totalReads = (): number => [...parentReads.values()].reduce((sum, count) => sum + count, 0);
+
+    renderer.render(state, contextFor(HISTORY_PAGE_SIZE));
+    expect(deepestRead()).toBe(HISTORY_PAGE_SIZE - 1);
+
+    const readsBefore = totalReads();
+    renderer.render({ ...state, selectedOids: [oid(150)] }, contextFor(HISTORY_PAGE_SIZE));
+    expect(deepestRead()).toBe(HISTORY_PAGE_SIZE - 1);
+    expect(totalReads() - readsBefore).toBeLessThanOrEqual(HISTORY_PAGE_SIZE + 5);
+
+    renderer.render(state, contextFor(HISTORY_PAGE_SIZE * 2));
+    expect(deepestRead()).toBe(HISTORY_PAGE_SIZE * 2 - 1);
+  });
+
   it("says how many of the newest commits a truncated history shows, with thousands separators", () => {
     const many = Array.from({ length: 1_234 }, (_, index) => commit(oid(100 + index), `c${index}`, []));
     const state = makeState({ history: { commits: many, refs: [], isTruncated: true } });

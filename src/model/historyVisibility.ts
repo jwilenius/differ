@@ -30,26 +30,49 @@ export function reachableFrom(commits: readonly HistoryCommit[], tipOid: string)
   return reached;
 }
 
+interface VisibleResult {
+  readonly history: HistoryData | null;
+  readonly filter: CommitFilter;
+  readonly oids: readonly string[];
+  /** `oids` as a set, built on first use. */
+  set?: ReadonlySet<string>;
+}
+
 /**
  * `filterVisibleOids` remembering its last result and last branch walk, so publications that change neither the
  * loaded history nor the filters do not walk the graph again. Histories are compared by identity: a reload yields a
  * new object.
  */
 export class VisibleCommitCache {
-  private lastVisible: { readonly history: HistoryData | null; readonly filter: CommitFilter; readonly oids: readonly string[] } | null = null;
+  private lastVisible: VisibleResult | null = null;
   private lastReachable: { readonly history: HistoryData; readonly tipOid: string; readonly oids: ReadonlySet<string> } | null = null;
 
   visibleOids(history: HistoryData | null, filter: CommitFilter): readonly string[] {
+    return this.visible(history, filter).oids;
+  }
+
+  /** How many of `oids` the filters hide or the history does not contain. */
+  hiddenCount(history: HistoryData | null, filter: CommitFilter, oids: readonly string[]): number {
+    if (oids.length === 0) {
+      return 0;
+    }
+    const result = this.visible(history, filter);
+    result.set ??= new Set(result.oids);
+    const visible = result.set;
+    return oids.filter((oid) => !visible.has(oid)).length;
+  }
+
+  private visible(history: HistoryData | null, filter: CommitFilter): VisibleResult {
     const last = this.lastVisible;
     const isCached = last !== null && last.history === history
       && last.filter.search === filter.search && last.filter.branchOid === filter.branchOid;
     if (isCached) {
-      return last.oids;
+      return last;
     }
     const reachable = history === null || filter.branchOid === null ? null : this.reachable(history, filter.branchOid);
     const oids = matchingOids(history?.commits ?? [], reachable, filter.search);
     this.lastVisible = { history, filter: { search: filter.search, branchOid: filter.branchOid }, oids };
-    return oids;
+    return this.lastVisible;
   }
 
   private reachable(history: HistoryData, tipOid: string): ReadonlySet<string> {

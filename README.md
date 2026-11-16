@@ -283,8 +283,9 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 
 The extension was renamed from Differ to jw-differ, so its id changed from `local.differ` to `local.jw-differ`, and VS
 Code treats it as a different extension. Uninstall the old Differ before installing jw-differ. Its command, view,
-setting and colour ids moved from `differ.*` to `jwDiffer.*`: update keybindings, `settings.json` entries such as
-`differ.historyDiffViewer`, and `workbench.colorCustomizations` that use the old ids.
+context key, setting and colour ids moved from `differ.*` to `jwDiffer.*`: update keybindings (including `when` clauses
+such as `differ.hasConflicts`), `settings.json` entries such as `differ.historyDiffViewer`, and
+`workbench.colorCustomizations` that use the old ids. Moved or hidden jw-differ views start in their default places.
 
 ## Release
 

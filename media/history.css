@@ -383,8 +383,8 @@ input::placeholder {
 
 /* Parents beyond the loaded history: a faint stub that stops short of the row edge. */
 .graph-cut {
-  stroke-dasharray: 1.5 1.5;
-  opacity: 0.6;
+  stroke-dasharray: 2 1.5;
+  opacity: 0.85;
 }
 
 .graph-node {

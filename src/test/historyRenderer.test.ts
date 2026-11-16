@@ -131,7 +131,7 @@ describe("HtmlHistoryRenderer", () => {
     const complete = render();
     const graphOf = (id: string): string => truncated.slice(truncated.indexOf(rowFor(truncated, id))).split("</tr>")[0]!;
 
-    expect(graphOf(SIDE)).toMatch(/<line class="graph-edge lane-\d graph-cut" x1="18" y1="11" x2="18" y2="17"\/>/);
+    expect(graphOf(SIDE)).toMatch(/<line class="graph-edge lane-\d graph-cut" x1="18" y1="11" x2="18" y2="20"\/>/);
     expect(graphOf(MIDDLE)).toContain("graph-cut");
     expect(graphOf(MERGE)).not.toContain("graph-cut");
     expect(complete).not.toContain("graph-cut");

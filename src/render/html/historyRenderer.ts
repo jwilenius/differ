@@ -83,7 +83,7 @@ const LANE_WIDTH = 12;
 const ROW_HEIGHT = 22;
 const NODE_RADIUS = 3.5;
 /** Cut stubs stop short of the row's bottom edge, so they never read as a line continuing into the next row. */
-const CUT_STUB_END_Y = ROW_HEIGHT - 5;
+const CUT_STUB_END_Y = ROW_HEIGHT - 2;
 const LANE_COLOR_COUNT = 8;
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
 const ISO_MINUTE_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;

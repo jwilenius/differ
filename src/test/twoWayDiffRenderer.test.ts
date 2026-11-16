@@ -205,6 +205,14 @@ describe("HtmlTwoWayDiffRenderer", () => {
     expect(html).toContain(`data-start-at="first"`);
   });
 
+  it("puts a hidden current-change marker after each pane's lines", () => {
+    const html = render("a", "b");
+
+    for (const side of ["base", "result"]) {
+      expect(html).toContain(`<div class="current-change" id="current-${side}" hidden aria-hidden="true"></div></div></div>`);
+    }
+  });
+
   it("has a polite live region for the file-step hint", () => {
     expect(render("a", "b")).toContain(`<div id="file-step" class="file-step" role="status" aria-live="polite"></div>`);
   });

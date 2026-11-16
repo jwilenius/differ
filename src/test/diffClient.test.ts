@@ -158,8 +158,22 @@ class FakeElement {
   scrollHeight = 400;
   clientWidth = 40;
   disabled = false;
+  hidden = false;
   textContent = "";
   readonly dataset: Record<string, string> = {};
+  readonly style: Record<string, string> = {};
+  readonly attributes: Record<string, string> = {};
+  private readonly classes = new Set<string>();
+  readonly classList = {
+    contains: (name: string): boolean => this.classes.has(name),
+    toggle: (name: string, force: boolean): void => {
+      if (force) {
+        this.classes.add(name);
+      } else {
+        this.classes.delete(name);
+      }
+    },
+  };
   children: unknown[] = [];
   private readonly listeners = new Map<string, Listener[]>();
 
@@ -189,7 +203,9 @@ class FakeElement {
     this.children = children;
   }
 
-  setAttribute(): void {}
+  setAttribute(name: string, value: string): void {
+    this.attributes[name] = value;
+  }
 }
 
 interface Harness {
@@ -211,8 +227,21 @@ interface ClientStart {
 }
 
 function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart = {}): Harness {
-  const ids = ["diff", "scroll-base", "scroll-result", "connectors", "prev", "next", "open-native", "file-step"];
+  const ids = [
+    "diff",
+    "scroll-base",
+    "scroll-result",
+    "connectors",
+    "prev",
+    "next",
+    "open-native",
+    "file-step",
+    "current-base",
+    "current-result",
+  ];
   const elements = Object.fromEntries(ids.map((id) => [id, new FakeElement()]));
+  elements["current-base"].hidden = true;
+  elements["current-result"].hidden = true;
   elements.diff.dataset.diff = JSON.stringify({ blocks, baseLineCount: BASE_LINES, resultLineCount: RESULT_LINES });
   if (start.files) {
     elements.diff.dataset.files = JSON.stringify(start.files);
@@ -256,6 +285,17 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
   };
 }
 
+/** The rows `[start, end)` the current-change marker of `side` covers; null while it is hidden. */
+function markedRows(elements: Record<string, FakeElement>, side: Side): [number, number] | null {
+  const marker = elements[`current-${side}`];
+  if (marker.hidden) {
+    return null;
+  }
+  const rows = (value: string | undefined) => Number(/^calc\((\d+) \* var\(--row-height\)\)$/.exec(value ?? "")?.[1]);
+  const start = rows(marker.style.top);
+  return [start, start + rows(marker.style.height)];
+}
+
 describe("diff client wiring", () => {
   it("announces readiness once and asks for the native diff on request", () => {
     const { elements, messages } = startClient();
@@ -279,7 +319,7 @@ describe("diff client wiring", () => {
     expect(result.scrollTop).toBe(2 * 20 - 25);
   });
 
-  it("skips blocks that cannot scroll any further near the end", () => {
+  it("steps onto blocks near the end that cannot scroll any further", () => {
     const nearEnd: ClientBlock[] = [
       { kind: "modified", base: [2, 3], result: [2, 3] },
       { kind: "modified", base: [17, 18], result: [17, 18] },
@@ -290,12 +330,16 @@ describe("diff client wiring", () => {
 
     document.fire("keydown", { key: "F7" });
     expect(result.scrollTop).toBe(300);
+    expect(markedRows(elements, "result")).toEqual([17, 18]);
 
     document.fire("keydown", { key: "F7" });
     expect(result.scrollTop).toBe(300);
+    expect(markedRows(elements, "result")).toEqual([19, 20]);
 
     document.fire("keydown", { key: "F7", shiftKey: true });
+    document.fire("keydown", { key: "F7", shiftKey: true });
     expect(result.scrollTop).toBe(2 * 20 - 25);
+    expect(markedRows(elements, "result")).toEqual([2, 3]);
   });
 
   it("starts at the top when the first difference is near it", () => {
@@ -387,6 +431,64 @@ describe("diff client wiring", () => {
 
     expect(after.elements["scroll-base"].scrollTop).toBe(120);
     expect(after.elements["scroll-result"].scrollTop).toBe(80);
+  });
+});
+
+describe("diff client current change", () => {
+  it("marks the first change on both sides when a file opens", () => {
+    const { elements } = startClient();
+
+    expect(markedRows(elements, "base")).toEqual([2, 4]);
+    expect(markedRows(elements, "result")).toEqual([2, 2]);
+    expect(elements["current-result"].classList.contains("is-empty")).toBe(true);
+    expect(elements["current-base"].classList.contains("is-empty")).toBe(false);
+  });
+
+  it("moves the mark with F7 and Shift+F7", () => {
+    const { elements, document } = startClient();
+
+    document.fire("keydown", { key: "F7" });
+    expect(markedRows(elements, "base")).toEqual([6, 6]);
+    expect(markedRows(elements, "result")).toEqual([4, 7]);
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    expect(markedRows(elements, "result")).toEqual([2, 2]);
+  });
+
+  it("marks the last change of a file opened at its last change", () => {
+    const { elements } = startClient(BLOCKS, { startAt: "last" });
+
+    expect(markedRows(elements, "base")).toEqual([8, 9]);
+    expect(markedRows(elements, "result")).toEqual([9, 12]);
+  });
+
+  it("keeps the mark on the last change when F7 finds no further one", () => {
+    const { elements, document } = startClient(BLOCKS, { startAt: "last" });
+
+    document.fire("keydown", { key: "F7" });
+
+    expect(markedRows(elements, "result")).toEqual([9, 12]);
+  });
+
+  it("marks nothing after restoring a re-render's scroll offsets", () => {
+    const before = startClient();
+    before.elements["scroll-result"].scrollTop = 80;
+    before.elements["scroll-result"].fire("scroll");
+
+    const after = startClient(BLOCKS, { state: before.savedState() });
+
+    expect(markedRows(after.elements, "result")).toBeNull();
+    expect(markedRows(after.elements, "base")).toBeNull();
+  });
+
+  it("outlines the current change's ribbon", () => {
+    const { elements, flushFrames } = startClient();
+
+    flushFrames();
+
+    const classes = (elements.connectors.children as FakeElement[]).map((path) => path.attributes.class);
+    // The third block is below the 100px viewport, so it has no ribbon.
+    expect(classes).toEqual(["conn conn-deleted conn-current", "conn conn-added"]);
   });
 });
 

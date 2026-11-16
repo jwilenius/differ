@@ -75,7 +75,9 @@ const LINE_SEPARATOR = "\n";
  * (all the same height); `svg#connectors` sits in `.strip`; buttons `#prev`,
  * `#next`, `#open-native`; `#diff[data-start-at]` is a {@link StartChange},
  * `#diff[data-files]` the optional {@link FileListNeighbours}; `#file-step`
- * is the live region showing the file-step hint.
+ * is the live region showing the file-step hint. Each pane's `.lines` ends with
+ * `#current-base` / `#current-result`, the hidden marker the client places over
+ * the change navigated to.
  */
 export class HtmlTwoWayDiffRenderer {
   render(input: TwoWayDiffInput, context: TwoWayDiffRenderContext): string {
@@ -181,7 +183,8 @@ function createPane(side: PaneSide, text: string, highlight: HighlightedText, di
 
 function renderPane(pane: PaneInput): string {
   const lines = pane.lines.map((text, index) => renderLine(pane, text, index)).join("");
-  return `<div class="scroller pane-${pane.side}" id="scroll-${pane.side}"><div class="lines">${lines}</div></div>`;
+  const marker = `<div class="current-change" id="current-${pane.side}" hidden aria-hidden="true"></div>`;
+  return `<div class="scroller pane-${pane.side}" id="scroll-${pane.side}"><div class="lines">${lines}${marker}</div></div>`;
 }
 
 /**

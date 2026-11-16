@@ -5,6 +5,8 @@
    contributes.colors), which VS Code sets per theme kind and users override with
    workbench.colorCustomizations; the fallbacks are their dark defaults. */
 :root {
+  /* The change F7 navigated to: the focus colour, kept apart from the change tints. */
+  --current-change: var(--vscode-focusBorder, #0078d4);
   --chg-modified: var(--vscode-jwDiffer-diffModifiedBackground, #28323d);
   --chg-modified-word: var(--vscode-jwDiffer-diffModifiedWordBackground, #3e546e);
   --chg-added: var(--vscode-jwDiffer-diffAddedBackground, #2f4337);
@@ -23,6 +25,7 @@ body.vscode-light {
 }
 
 body.vscode-high-contrast {
+  --current-change: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder, #f38518));
   --divider: var(--vscode-contrastBorder, #6fc3df);
   --gutter-text: var(--vscode-editorLineNumber-foreground, #ffffff);
 }
@@ -184,6 +187,7 @@ button:focus-visible {
 /* --- lines --- */
 
 .lines {
+  position: relative;
   width: max-content;
   min-width: 100%;
 }
@@ -278,6 +282,25 @@ button:focus-visible {
   --gap-color: var(--chg-deleted);
 }
 
+/* The current change: an outline over its rows, gutter included; diff.js sets
+   its top and height. An empty range gets a bar on its thin line instead. */
+.current-change {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--current-change);
+  pointer-events: none;
+}
+
+.current-change.is-empty {
+  min-height: 4px;
+  transform: translateY(-50%);
+  border: none;
+  background: var(--current-change);
+}
+
 /* --- connectors --- */
 
 .conn {
@@ -297,6 +320,12 @@ button:focus-visible {
 .conn-deleted {
   fill: var(--chg-deleted);
   stroke: var(--chg-deleted);
+}
+
+/* After the kind rules, so the current change's ribbon keeps its tint inside the outline. */
+.conn-current {
+  stroke: var(--current-change);
+  stroke-width: 2px;
 }
 
 /* --- file-step hint --- */

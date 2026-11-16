@@ -104,7 +104,7 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   line between the rows of the old side, joined by a curved band. Deleted lines are grey, modified lines blue with the
   changed words in a darker shade.
 - Both panes scroll together, keeping corresponding blocks level; `↑`/`↓` (or F7 / Shift+F7) jump between
-  differences.
+  differences, and the difference jumped to is outlined in the focus colour on both sides, with its band, as the current one.
 - F7 at the last difference shows "Press F7 again to go to the next file"; pressing F7 again within 2.5 s opens the
   next file of the panel's **Changed files** list (same comparison) at its first difference. Shift+F7 at the first
   difference does the same towards the previous file, landing on its last difference. Files with no text difference to

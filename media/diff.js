@@ -26,6 +26,7 @@
   const anchors = buildAnchors(data.blocks, data.baseLineCount, data.resultLineCount);
   const scrollers = { base: document.getElementById("scroll-base"), result: document.getElementById("scroll-result") };
   const svg = document.getElementById("connectors");
+  const currentMarkers = { base: document.getElementById("current-base"), result: document.getElementById("current-result") };
 
   /** Offsets this script set and must not echo back to the other pane. */
   const expectedTop = { base: null, result: null };
@@ -112,27 +113,31 @@
         continue;
       }
       const path = document.createElementNS(SVG_NAMESPACE, "path");
-      path.setAttribute("class", `conn conn-${block.kind}`);
+      const current = block === data.blocks[navigation.index] ? " conn-current" : "";
+      path.setAttribute("class", `conn conn-${block.kind}${current}`);
       path.setAttribute("d", connectorPath(width, leftTop, leftBottom, rightTop, rightBottom));
       paths.push(path);
     }
     svg.replaceChildren(...paths);
   }
 
-  /** Steps past blocks that would not move the view, such as several in the last screenful; returns whether it moved. */
+  /**
+   * Goes to the next or previous block: after the last one navigated to while the view stays there, else after the
+   * viewport. Blocks that cannot scroll any further still count, since the marker shows the step. Returns whether
+   * there was a block to go to.
+   */
   function navigate(direction) {
     const scroller = scrollers.result;
     const offset = scroller.clientHeight * NAVIGATION_OFFSET;
     const isStillAtLastTarget = navigation.index !== -1 && Math.abs(scroller.scrollTop - navigation.top) < 1;
-    const first = isStillAtLastTarget
+    const index = isStillAtLastTarget
       ? navigation.index + direction
       : neighbourBlock(data.blocks, "result", (scroller.scrollTop + offset) / lineHeight, direction);
-    for (let index = first; index >= 0 && index < data.blocks.length; index += direction) {
-      if (goTo(index)) {
-        return true;
-      }
+    if (index < 0 || index >= data.blocks.length) {
+      return false;
     }
-    return false;
+    goTo(index);
+    return true;
   }
 
   /**
@@ -140,8 +145,8 @@
    * neighbouring file, which the same key opens while the hint shows.
    */
   function navigateByKey(direction) {
-    const hasMoved = navigate(direction);
-    if (hasMoved || fileList === null) {
+    const hasStepped = navigate(direction);
+    if (hasStepped || fileList === null) {
       endFileStep();
       return;
     }
@@ -173,13 +178,26 @@
     fileStepHint.textContent = "";
   }
 
-  /** Scrolls block `index` into view near the top; returns whether the view moved. */
+  /** Scrolls block `index` into view near the top and marks it as the current change. */
   function goTo(index) {
     const scroller = scrollers.result;
-    const before = scroller.scrollTop;
     scroller.scrollTop = data.blocks[index].result[0] * lineHeight - scroller.clientHeight * NAVIGATION_OFFSET;
     navigation = { index, top: scroller.scrollTop };
-    return Math.abs(scroller.scrollTop - before) >= 1;
+    markCurrent(data.blocks[index]);
+    scheduleDraw();
+  }
+
+  /** Outlines `block`'s rows on both sides; an empty range becomes a bar on the line where the other side's rows go. */
+  function markCurrent(block) {
+    for (const side of SIDES) {
+      const [start, end] = block[side];
+      const marker = currentMarkers[side];
+      // Rows in --row-height units follow font and zoom changes without measuring.
+      marker.style.top = `calc(${start} * var(--row-height))`;
+      marker.style.height = `calc(${end - start} * var(--row-height))`;
+      marker.classList.toggle("is-empty", start === end);
+      marker.hidden = false;
+    }
   }
 
   /** Puts both panes back where they were without syncing one from the other. */

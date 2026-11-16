@@ -1,5 +1,8 @@
 # jw-differ
 
+> [!NOTE]
+> This was 100% vibe-coded, but the vibes were heavily curated; Claude on a leash.
+
 _jw-differ is short for "just-working-differ" or "jim-wilenius-differ" — take your pick._
 
 IntelliJ-style Git commit diff viewer and three-way merge conflict resolver for VS Code.

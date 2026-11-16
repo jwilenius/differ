@@ -275,12 +275,15 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     this.revalidate(session);
   }
 
-  /** Applies a changed commit cap to every session that has loaded or is loading; the others read it when activated. */
+  /**
+   * Applies a changed commit cap to every session that has tried to load, so a load that failed under the old cap is
+   * retried; the others read it when activated.
+   */
   private reloadLoadedSessions(): void {
     for (const session of this.sessions) {
       const state = session.controller.getState();
-      const isLoadedOrLoading = state.history !== null || state.operations.isLoading;
-      if (isLoadedOrLoading) {
+      const hasTriedLoading = state.history !== null || state.operations.isLoading || state.error?.operation === "load";
+      if (hasTriedLoading) {
         void this.load(session);
       }
     }

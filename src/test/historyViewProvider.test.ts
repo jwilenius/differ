@@ -76,6 +76,8 @@ class FakeRepository implements ClosableHistoryRepository {
   readonly released: string[] = [];
   isDisposed = false;
   isCompareHeld = false;
+  /** Rejects every load while set. */
+  loadFailure: Error | null = null;
   private heldCompares: (() => void)[] = [];
 
   constructor(private history: HistoryData = HISTORY) {}
@@ -87,7 +89,7 @@ class FakeRepository implements ClosableHistoryRepository {
   loadHistory(maxCommits: number): Promise<HistoryData> {
     this.loadCount += 1;
     this.loadCaps.push(maxCommits);
-    return Promise.resolve(this.history);
+    return this.loadFailure ? Promise.reject(this.loadFailure) : Promise.resolve(this.history);
   }
 
   resolveRef(ref: string): Promise<HistoryCommit> {
@@ -151,6 +153,8 @@ function folder(fsPath: string): vscode.WorkspaceFolder {
 
 describe("HistoryViewProvider", () => {
   let repositories: Map<string, FakeRepository>;
+  /** `loadFailure` of each repository the provider creates, so its first load can fail. */
+  let initialLoadFailure: Error | null;
   let fileOpener: HistoryFileOpener & { calls: unknown[][] };
   let log: string[];
   let provider: HistoryViewProvider;
@@ -164,6 +168,7 @@ describe("HistoryViewProvider", () => {
       log: { appendLine: (line) => void log.push(line) },
       createRepository: (root) => {
         const repository = new FakeRepository();
+        repository.loadFailure = initialLoadFailure;
         repositories.set(root, repository);
         return repository;
       },
@@ -193,6 +198,7 @@ describe("HistoryViewProvider", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     resetVscodeMock();
     repositories = new Map();
+    initialLoadFailure = null;
     log = [];
     fileOpener = {
       calls: [],
@@ -612,6 +618,20 @@ describe("HistoryViewProvider", () => {
       expect(view.webview.html).toContain("Third change");
       await send({ type: "repository", repositoryId: betaId });
       expect(repositories.get(ROOT_B)?.loadCaps).toEqual([500]);
+    });
+
+    it("retries a repository whose load failed when the setting changes", async () => {
+      initialLoadFailure = new Error("Git output exceeded 64 MiB");
+      await open();
+      expect(view.webview.html).toContain("Could not load history");
+      repositories.get(ROOT_A)!.loadFailure = null;
+
+      changeConfiguration("jwDiffer.historyMaxCommits", 500);
+      await settle();
+
+      expect(repositories.get(ROOT_A)?.loadCaps).toEqual([20_000, 500]);
+      expect(view.webview.html).not.toContain("Could not load history");
+      expect(view.webview.html).toContain("Third change");
     });
 
     it("does not reload for other settings", async () => {

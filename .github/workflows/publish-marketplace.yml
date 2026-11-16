@@ -75,7 +75,7 @@ jobs:
       # publishing a VSIX needs none of the install scripts.
       - run: npm run check:deps
       - run: npm ci --ignore-scripts
-      - run: npm run check:signatures
+      - run: scripts/check-signatures.sh
       - name: Publish to Marketplace
         env:
           VERSION: ${{ steps.tag.outputs.version }}

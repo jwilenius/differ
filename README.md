@@ -340,7 +340,9 @@ that use the old ids. Moved or hidden jw-differ views start in their default pla
 Releases are automatic. Every push to `main` runs
 [Build and release VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml): lockfile
 malware and high-severity advisory checks, locked install without install scripts, registry signatures, install
-scripts, typecheck, tests. A failed signature check also logs registry keys, the failing package's attestations
+scripts, typecheck, tests. A missing-key signature error is retried up to three times with a fresh npm cache
+(`scripts/check-signatures.sh`), because registry CDN edges can serve stale attestation documents. A failed
+signature check also logs registry keys, the failing package's attestations
 and npm's cached Sigstore TUF keys, and uploads npm's debug logs as artifact **npm-signature-check-logs**. When all
 pass, `scripts/next-release-version.mjs` reads the
 [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/) messages since the last release and picks the

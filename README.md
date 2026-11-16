@@ -241,8 +241,8 @@ that code show through and tints the line numbers twice.
 "workbench.colorCustomizations": {
   // Every theme: added lines in the two-way diff.
   "jwDiffer.diffAddedBackground": "#2e5a3a",
-  // Default Light Modern only, winning over the entry above: a light green, stronger merge-conflict reds.
-  "[Default Light Modern]": {
+  // Light Modern only, winning over the entry above: a light green, stronger merge-conflict reds.
+  "[Light Modern]": {
     "jwDiffer.diffAddedBackground": "#c9f0d2",
     "jwDiffer.mergeConflictBackground": "#ffd9d0",
     "jwDiffer.mergeConflictStrongBackground": "#f5a898"
@@ -251,6 +251,11 @@ that code show through and tints the line numbers twice.
 ```
 
 Typing `jwDiffer.` inside `workbench.colorCustomizations` lists the ids with their descriptions.
+
+A `[<theme>]` key must name the theme as the running VS Code does. VS Code 1.146 names its built-in themes
+`Light Modern`, `Dark Modern`, `Light+`, `Dark+`; older releases such as 1.90 name them `Default Light Modern`,
+`Default Dark Modern`, `Default Light+`, `Default Dark+`. VS Code 1.146 still accepts the old names in
+`workbench.colorTheme`, but not in `[<theme>]` keys.
 
 ## Architecture
 
@@ -278,6 +283,8 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 2. Download the `jw-differ-<version>.vsix` file under **Assets**.
 3. In VS Code, run **Extensions: Install from VSIX...** and select that file, or run
    `code --install-extension jw-differ-<version>.vsix`.
+
+Requires VS Code 1.90 or later; tested with VS Code 1.90 and 1.146.
 
 ### Upgrading from Differ
 

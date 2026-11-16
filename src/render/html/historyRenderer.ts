@@ -1,3 +1,5 @@
+import { branchFilterRef } from "../../model/historyBranchFilter";
+import type { BranchFilter } from "../../model/historyBranchFilter";
 import { HistoryGraphLayout, visibleGraphRows } from "../../model/historyGraph";
 import type { GraphSegment, HistoryGraphRow, VisibleGraphRow } from "../../model/historyGraph";
 import { describeResolvedBase, shortHash as abbreviate } from "../../model/historyLabels";
@@ -27,8 +29,8 @@ export interface HistoryRepositoryOption {
 /** View-only choices that never change the selection or comparison. */
 export interface HistoryPresentation {
   readonly search: string;
-  /** Tip OID of the branch filter; null shows all branches. */
-  readonly branchOid: string | null;
+  /** Limits the list to this branch's loaded history; null shows all branches. */
+  readonly branch: BranchFilter | null;
   readonly focusedOid: string | null;
   readonly rowLimit: number;
 }
@@ -65,7 +67,8 @@ export interface HistoryPublicState {
   readonly selectedOids: readonly string[];
   readonly focusedOid: string | null;
   readonly search: string;
-  readonly branchOid: string | null;
+  /** Ref of the branch filter, as its option value; null for all branches. */
+  readonly branch: string | null;
   readonly rowLimit: number;
   /** Snapshot whose files are listed; null unless the comparison is ready. */
   readonly snapshotId: string | null;
@@ -185,7 +188,7 @@ const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string;
  *
  * Client contract: controls `#history-repository` (select, root IDs),
  * `#history-choose-repository`, `#history-refresh`, `#history-search`,
- * `#history-branch` (select, `""` = all), `#history-base-automatic`,
+ * `#history-branch` (select, branch ref or `""` = all), `#history-base-automatic`,
  * `#history-base-input` + `#history-base-pin`, `#history-clear-selection`,
  * `#history-load-more[data-row-limit]`; rows `#history-commits tr.commit-row[data-oid]`;
  * `select.mainline-select[data-oid]` (value = one-based parent);
@@ -194,7 +197,7 @@ const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string;
 export class HtmlHistoryRenderer {
   private index: HistoryIndex | null = null;
   /** One option per branch, which on large repositories makes it the largest region by far. */
-  private branchFilter: { readonly history: HistoryData | null; readonly branchOid: string | null; readonly markup: string } | null = null;
+  private branchFilter: { readonly history: HistoryData | null; readonly branch: string | null; readonly markup: string } | null = null;
 
   render(state: HistoryState, context: HistoryRenderContext): HistoryDocument {
     if (!NONCE_PATTERN.test(context.nonce)) {
@@ -276,13 +279,13 @@ ${regions["history-details"]}
 
   private branchFilterOf(view: HistoryView): string {
     const { history } = view.state;
-    const { branchOid } = view.context.presentation;
+    const branch = view.context.presentation.branch?.ref ?? null;
     const cached = this.branchFilter;
-    if (cached?.history === history && cached.branchOid === branchOid) {
+    if (cached?.history === history && cached.branch === branch) {
       return cached.markup;
     }
     const markup = renderBranchFilter(view);
-    this.branchFilter = { history, branchOid, markup };
+    this.branchFilter = { history, branch, markup };
     return markup;
   }
 
@@ -330,7 +333,7 @@ function createPublicState(state: HistoryState, context: HistoryPageContext): Hi
     selectedOids: state.selectedOids,
     focusedOid: presentation.focusedOid,
     search: presentation.search,
-    branchOid: presentation.branchOid,
+    branch: presentation.branch?.ref ?? null,
     rowLimit: rowLimit(context),
     snapshotId,
     openFileId: openedFile !== null && openedFile.snapshotId === snapshotId ? openedFile.fileId : null,
@@ -401,14 +404,14 @@ function renderRepositorySelect(context: HistoryPageContext): string {
 }
 
 function renderBranchFilter(view: HistoryView): string {
-  const branchOid = view.context.presentation.branchOid;
-  // A truncated history may not reach a stale branch's tip, and filtering by it would show nothing.
-  const branches = (view.state.history?.refs ?? []).filter((ref) => ref.kind !== "tag" && view.commitOf(ref.oid) !== undefined);
-  // Several refs can share a tip; mark only the first so the browser shows a stable choice.
-  const selectedIndex = branches.findIndex((ref) => ref.oid === branchOid);
-  const fallback = branchOid !== null && selectedIndex < 0 ? option(branchOid, abbreviate(branchOid), true) : "";
-  const options = branches.map((ref, index) => option(ref.oid, ref.name, index === selectedIndex));
-  return `<select id="history-branch" aria-label="Branch filter">${option("", "All branches", branchOid === null)}${fallback}${options.join("")}</select>`;
+  const selected = view.context.presentation.branch?.ref ?? null;
+  // A truncated history may not reach a stale branch's tip, and filtering by it would show nothing. Refs are unique,
+  // so of several branches sharing a tip only the chosen one is marked.
+  const options = (view.state.history?.refs ?? []).flatMap((ref) => {
+    const value = branchFilterRef(ref);
+    return value !== null && view.commitOf(ref.oid) !== undefined ? [option(value, ref.name, value === selected)] : [];
+  });
+  return `<select id="history-branch" aria-label="Branch filter">${option("", "All branches", selected === null)}${options.join("")}</select>`;
 }
 
 function renderBaseControls(view: HistoryView): Pick<Regions, "history-base-automatic" | "history-base-input" | "history-base-current"> {

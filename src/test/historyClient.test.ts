@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as vm from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../render/html/historyRenderer";
-import type { HistoryPage, HistoryRenderContext, HistoryUpdate } from "../render/html/historyRenderer";
+import type { HistoryPage, HistoryPresentation, HistoryRenderContext, HistoryUpdate } from "../render/html/historyRenderer";
 import type { ComparisonFile, HistoryCommit, HistoryData, HistoryState } from "../model/historyTypes";
 
 const CLIENT_SOURCE = fs.readFileSync(path.join(__dirname, "..", "..", "media", "history.js"), "utf8");
@@ -446,6 +446,7 @@ interface Publication {
   readonly focusedOid?: string | null;
   readonly search?: string;
   readonly rowLimit?: number;
+  readonly branch?: HistoryPresentation["branch"];
   readonly revision?: number;
   readonly repositoryId?: string;
   /** File of the listed snapshot the diff panel shows. */
@@ -479,7 +480,7 @@ function pageFor(publication: Publication): { readonly state: HistoryState; read
     activeRepositoryId: repositoryId,
     presentation: {
       search: publication.search ?? "",
-      branchOid: null,
+      branch: publication.branch ?? null,
       focusedOid: publication.focusedOid ?? null,
       rowLimit: publication.rowLimit ?? HISTORY_PAGE_SIZE,
     },
@@ -626,7 +627,7 @@ describe("history client", () => {
       type: "presentation",
       revision: 7,
       search: "",
-      branchOid: null,
+      branch: null,
       focusedOid: D,
       rowLimit: HISTORY_PAGE_SIZE,
     }]);
@@ -643,7 +644,7 @@ describe("history client", () => {
     expect(second.document.activeElement).toBe(second.row(C));
     vi.advanceTimersByTime(FOCUS_DEBOUNCE_MS);
     expect(second.intents()).toEqual([
-      { type: "presentation", revision: 8, search: "", branchOid: null, focusedOid: C, rowLimit: HISTORY_PAGE_SIZE },
+      { type: "presentation", revision: 8, search: "", branch: null, focusedOid: C, rowLimit: HISTORY_PAGE_SIZE },
     ]);
   });
 
@@ -732,7 +733,7 @@ describe("history client", () => {
         nonce: NONCE,
         repositories: [],
         activeRepositoryId: null,
-        presentation: { search: "", branchOid: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
+        presentation: { search: "", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
         visibleOids: many.commits.map((entry) => entry.oid),
         hiddenSelectedCount: 0,
         wireRevision: 3,
@@ -742,11 +743,24 @@ describe("history client", () => {
     const webview = new FakeWebview().load(html);
 
     webview.click(webview.element("history-load-more"));
-    webview.change(webview.element("history-branch"), A);
+    webview.change(webview.element("history-branch"), "refs/heads/main");
 
     expect(webview.intents()).toEqual([
-      { type: "presentation", revision: 3, search: "", branchOid: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE * 2 },
-      { type: "presentation", revision: 3, search: "", branchOid: A, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
+      { type: "presentation", revision: 3, search: "", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE * 2 },
+      { type: "presentation", revision: 3, search: "", branch: "refs/heads/main", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
+    ]);
+  });
+
+  it("sends the published branch ref with other presentation changes and shows it selected", () => {
+    const webview = open({ branch: { ref: "refs/heads/main", tipOid: A }, rowLimit: 1 });
+
+    expect(webview.element("history-branch").value).toBe("refs/heads/main");
+    webview.click(webview.element("history-load-more"));
+    webview.change(webview.element("history-branch"), "");
+
+    expect(webview.intents()).toEqual([
+      { type: "presentation", revision: 7, search: "", branch: "refs/heads/main", focusedOid: null, rowLimit: 1 + HISTORY_PAGE_SIZE },
+      { type: "presentation", revision: 7, search: "", branch: null, focusedOid: null, rowLimit: 1 },
     ]);
   });
 
@@ -762,7 +776,7 @@ describe("history client", () => {
 
     vi.advanceTimersByTime(1);
     expect(webview.intents()).toEqual([
-      { type: "presentation", revision: 7, search: "fix", branchOid: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
+      { type: "presentation", revision: 7, search: "fix", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
     ]);
   });
 
@@ -788,7 +802,7 @@ describe("history client", () => {
       type: "presentation",
       revision: 8,
       search: "bra",
-      branchOid: null,
+      branch: null,
       focusedOid: C,
       rowLimit: HISTORY_PAGE_SIZE,
     });
@@ -1116,7 +1130,7 @@ describe("history client", () => {
       expect(webview.element("history-search")).toBe(search);
       expect(search.value).toBe("bra");
       expect(webview.document.activeElement).toBe(search);
-      expect(webview.last()).toEqual({ type: "presentation", revision: 8, search: "bra", branchOid: null, focusedOid: B, rowLimit: HISTORY_PAGE_SIZE });
+      expect(webview.last()).toEqual({ type: "presentation", revision: 8, search: "bra", branch: null, focusedOid: B, rowLimit: HISTORY_PAGE_SIZE });
     });
 
     it("resends a search an update overtook, and drops it once the host shows it", () => {
@@ -1145,14 +1159,14 @@ describe("history client", () => {
       expect(webview.row(C).classList.contains("is-focused")).toBe(true);
       expect(webview.row(B).classList.contains("is-focused")).toBe(false);
       expect(webview.intents()).toEqual([
-        { type: "presentation", revision: 8, search: "", branchOid: null, focusedOid: C, rowLimit: HISTORY_PAGE_SIZE },
+        { type: "presentation", revision: 8, search: "", branch: null, focusedOid: C, rowLimit: HISTORY_PAGE_SIZE },
       ]);
     });
 
     it("shows the host's choice again in a select whose change it did not take", () => {
       const host = new FakeHost();
       const webview = host.open();
-      webview.change(webview.element("history-branch"), A);
+      webview.change(webview.element("history-branch"), "refs/heads/main");
 
       webview.receive(host.update({ selectedOids: [B], focusedOid: B, revision: 8 }));
 

@@ -316,7 +316,7 @@
       return;
     }
     if (target.id === "history-branch") {
-      sendPresentation({ branchOid: target.value || null });
+      sendPresentation({ branch: target.value || null });
       return;
     }
     if (target.closest("select.mainline-select")) {
@@ -394,7 +394,7 @@
     cancelFocus();
     post("presentation", {
       search: searchInput.value,
-      branchOid: published.branchOid,
+      branch: published.branch,
       focusedOid,
       rowLimit: published.rowLimit,
       ...changes,

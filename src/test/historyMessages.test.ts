@@ -19,7 +19,9 @@ const VALID_MESSAGES: readonly HistoryMessage[] = [
   { type: "refresh", revision: 3 },
   { type: "repository", revision: 3, repositoryId: ROOT_ID },
   { type: "chooseRepository", revision: 3 },
-  { type: "presentation", revision: 3, search: "fix", branchOid: OID, focusedOid: null, rowLimit: 400 },
+  { type: "presentation", revision: 3, search: "fix", branch: "refs/heads/jimw/foo-branch", focusedOid: null, rowLimit: 400 },
+  { type: "presentation", revision: 3, search: "", branch: "refs/remotes/origin/main", focusedOid: OID, rowLimit: 200 },
+  { type: "presentation", revision: 3, search: "", branch: "HEAD", focusedOid: null, rowLimit: 200 },
 ];
 
 /** Stands in for the host: only parsed messages reach the handler. */
@@ -103,7 +105,7 @@ describe("parseHistoryMessage", () => {
   it("bounds search text and base refs", () => {
     const longest = "x".repeat(MAX_HISTORY_TEXT_LENGTH);
     const tooLong = `${longest}x`;
-    const presentation = { type: "presentation", revision: 1, branchOid: null, focusedOid: null, rowLimit: 200 };
+    const presentation = { type: "presentation", revision: 1, branch: null, focusedOid: null, rowLimit: 200 };
 
     expect(parseHistoryMessage({ ...presentation, search: longest })).not.toBeNull();
     expect(parseHistoryMessage({ ...presentation, search: tooLong })).toBeNull();
@@ -118,14 +120,21 @@ describe("parseHistoryMessage", () => {
   it.each([
     ["a string boolean search", { search: "true" }, true],
     ["a numeric search", { search: 1 }, false],
-    ["a branch name instead of an OID", { branchOid: "main" }, false],
-    ["an empty-string branch", { branchOid: "" }, false],
+    ["a short branch name instead of a ref", { branch: "main" }, false],
+    ["a commit ID instead of a ref", { branch: OID }, false],
+    ["a tag ref", { branch: "refs/tags/v1" }, false],
+    ["a ref prefix without a name", { branch: "refs/heads/" }, false],
+    ["a ref with a control character", { branch: "refs/heads/a\nb" }, false],
+    ["an overlong ref", { branch: `refs/heads/${"x".repeat(MAX_HISTORY_TEXT_LENGTH)}` }, false],
+    ["a numeric branch", { branch: 1 }, false],
+    ["an empty-string branch", { branch: "" }, false],
+    ["the old branchOid field", { branch: undefined, branchOid: null }, false],
     ["a zero row limit", { rowLimit: 0 }, false],
     ["a fractional row limit", { rowLimit: 200.5 }, false],
     ["a string row limit", { rowLimit: "200" }, false],
     ["a leftover scroll offset", { scrollTop: 0 }, false],
   ])("validates presentation with %s", (_name, override, isAccepted) => {
-    const message = { type: "presentation", revision: 1, search: "", branchOid: null, focusedOid: null, rowLimit: 200, ...override };
+    const message = { type: "presentation", revision: 1, search: "", branch: null, focusedOid: null, rowLimit: 200, ...override };
 
     expect(parseHistoryMessage(message) !== null).toBe(isAccepted);
   });

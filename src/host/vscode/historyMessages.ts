@@ -1,3 +1,5 @@
+import { isBranchFilterRef } from "../../model/historyBranchFilter";
+
 /**
  * Intents posted by `media/history.js`. Every message echoes the wire revision
  * of the publication it was computed from; the host compares it with the
@@ -24,7 +26,8 @@ export type HistoryMessage =
     readonly type: "presentation";
     readonly revision: number;
     readonly search: string;
-    readonly branchOid: string | null;
+    /** Filter ref: `refs/heads/…`, `refs/remotes/…` or `HEAD`; null shows all branches. */
+    readonly branch: string | null;
     readonly focusedOid: string | null;
     readonly rowLimit: number;
   };
@@ -56,7 +59,7 @@ const SCHEMAS: Readonly<Record<HistoryMessageType, MessageSchema>> = {
   refresh: { fields: [], parse: (_fields, revision) => ({ type: "refresh", revision }) },
   repository: { fields: ["repositoryId"], parse: parseRepository },
   chooseRepository: { fields: [], parse: (_fields, revision) => ({ type: "chooseRepository", revision }) },
-  presentation: { fields: ["search", "branchOid", "focusedOid", "rowLimit"], parse: parsePresentation },
+  presentation: { fields: ["search", "branch", "focusedOid", "rowLimit"], parse: parsePresentation },
 };
 
 /**
@@ -105,9 +108,9 @@ function parseRepository(fields: Fields, revision: number): HistoryMessage | nul
 }
 
 function parsePresentation(fields: Fields, revision: number): HistoryMessage | null {
-  const { search, branchOid, focusedOid, rowLimit } = fields;
-  const isValid = isBoundedText(search) && isOidOrNull(branchOid) && isOidOrNull(focusedOid) && isPositiveInteger(rowLimit);
-  return isValid ? { type: "presentation", revision, search, branchOid, focusedOid, rowLimit } : null;
+  const { search, branch, focusedOid, rowLimit } = fields;
+  const isValid = isBoundedText(search) && isBranchOrNull(branch) && isOidOrNull(focusedOid) && isPositiveInteger(rowLimit);
+  return isValid ? { type: "presentation", revision, search, branch, focusedOid, rowLimit } : null;
 }
 
 function isRecord(value: unknown): value is Fields {
@@ -132,6 +135,10 @@ function isFullOid(value: unknown): value is string {
 
 function isOidOrNull(value: unknown): value is string | null {
   return value === null || isFullOid(value);
+}
+
+function isBranchOrNull(value: unknown): value is string | null {
+  return value === null || (isBoundedText(value) && !CONTROL_CHARACTER_PATTERN.test(value) && isBranchFilterRef(value));
 }
 
 function isUuid(value: unknown): value is string {

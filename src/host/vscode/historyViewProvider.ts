@@ -3,6 +3,8 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { GitComparisonRepository } from "../../git/gitComparisonRepository";
 import { HistoryGitError } from "../../git/historyGitCommand";
+import { resolveBranchFilter } from "../../model/historyBranchFilter";
+import type { BranchFilter } from "../../model/historyBranchFilter";
 import { HistoryController } from "../../model/historyController";
 import { shortHash } from "../../model/historyLabels";
 import type { HistoryRepository, HistoryState } from "../../model/historyTypes";
@@ -78,7 +80,7 @@ interface Publication {
   readonly sessionWireRevision: number;
 }
 
-const INITIAL_PRESENTATION: HistoryPresentation = { search: "", branchOid: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
+const INITIAL_PRESENTATION: HistoryPresentation = { search: "", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
 
 const EMPTY_STATE: HistoryState = {
   revision: 0,
@@ -313,11 +315,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     }
     const known = new Set(state.history.commits.map((commit) => commit.oid));
     const isKnown = (oid: string | null): boolean => oid === null || known.has(oid);
-    const { focusedOid, branchOid } = session.presentation;
+    const { focusedOid, branch } = session.presentation;
     session.presentation = {
       ...session.presentation,
       focusedOid: isKnown(focusedOid) ? focusedOid : null,
-      branchOid: isKnown(branchOid) ? branchOid : null,
+      // Kept by ref, so the filter follows its branch; a branch deleted or cut off by the cap shows all branches.
+      branch: branch && resolveBranchFilter(state.history, branch.ref, (oid) => known.has(oid)),
     };
     // A truncated history does not list a pinned base older than its cut, which still works for comparisons.
     const isPinnedBaseMissing = state.base.kind === "pinned" && !known.has(state.base.oid) && !state.history.isTruncated;
@@ -478,18 +481,32 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const { search, branchOid, focusedOid, rowLimit } = message;
-    const next: HistoryPresentation = isCurrent && isKnown(branchOid)
-      ? { search, branchOid, focusedOid, rowLimit }
-      : { ...session.presentation, focusedOid };
+    const { search, focusedOid, rowLimit } = message;
     const current = session.presentation;
-    const isUnchanged = next.search === current.search && next.branchOid === current.branchOid
+    const branch = this.branchFilterOf(session, message.branch);
+    const next: HistoryPresentation = isCurrent && branch !== undefined
+      ? { search, branch, focusedOid, rowLimit }
+      : { ...current, focusedOid };
+    const isUnchanged = next.search === current.search && next.branch === current.branch
       && next.focusedOid === current.focusedOid && next.rowLimit === current.rowLimit;
     if (isUnchanged) {
       return;
     }
     session.presentation = next;
     this.publish();
+  }
+
+  /**
+   * The filter for `ref`: the current one when it names the same ref, so most messages skip the lookup; null for all
+   * branches; undefined when the loaded history has no such branch.
+   */
+  private branchFilterOf(session: HistorySession, ref: string | null): BranchFilter | null | undefined {
+    const current = session.presentation.branch;
+    if (ref === (current?.ref ?? null)) {
+      return current;
+    }
+    const history = session.controller.getState().history;
+    return ref === null ? null : resolveBranchFilter(history, ref, (oid) => session.controller.hasCommit(oid)) ?? undefined;
   }
 
   /** The session the last publication showed, if it is still the active one. */
@@ -542,7 +559,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const session = this.active;
     const state = session?.controller.getState() ?? this.emptyState();
     const presentation = session?.presentation ?? INITIAL_PRESENTATION;
-    const visibleOids = this.visibility.visibleOids(state.history, presentation);
+    const filter = { search: presentation.search, branchOid: presentation.branch?.tipOid ?? null };
+    const visibleOids = this.visibility.visibleOids(state.history, filter);
     const wireRevision = this.published.wireRevision + 1;
     const sessionId = session?.id ?? null;
     const isSameSession = sessionId === this.published.sessionId;
@@ -553,7 +571,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       activeRepositoryId: sessionId,
       presentation,
       visibleOids,
-      hiddenSelectedCount: this.visibility.hiddenCount(state.history, presentation, state.selectedOids),
+      hiddenSelectedCount: this.visibility.hiddenCount(state.history, filter, state.selectedOids),
       wireRevision,
       openedFile: this.options.fileOpener.openedFile,
     };

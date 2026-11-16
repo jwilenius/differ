@@ -282,13 +282,12 @@ button:focus-visible {
   --gap-color: var(--chg-deleted);
 }
 
-/* The current change: an outline over its rows, gutter included; diff.js sets
-   its top and height. An empty range gets a bar on its thin line instead. */
+/* The current change: an outline over its rows across the visible width, gutter
+   included; diff.js sets its position and size. An empty range gets a bar on
+   its thin line instead. */
 .current-change {
   position: absolute;
   z-index: 3;
-  left: 0;
-  right: 0;
   box-sizing: border-box;
   border: 2px solid var(--current-change);
   pointer-events: none;
@@ -296,9 +295,18 @@ button:focus-visible {
 
 .current-change.is-empty {
   min-height: 4px;
-  transform: translateY(-50%);
+  margin-top: -2px;
   border: none;
   background: var(--current-change);
+}
+
+/* At either end of a pane the bar stays inside it, adding no scroll range. */
+.current-change.is-empty.at-top {
+  margin-top: 0;
+}
+
+.current-change.is-empty.at-bottom {
+  margin-top: -4px;
 }
 
 /* --- connectors --- */

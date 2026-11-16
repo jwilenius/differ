@@ -26,7 +26,10 @@
   const anchors = buildAnchors(data.blocks, data.baseLineCount, data.resultLineCount);
   const scrollers = { base: document.getElementById("scroll-base"), result: document.getElementById("scroll-result") };
   const svg = document.getElementById("connectors");
-  const currentMarkers = { base: document.getElementById("current-base"), result: document.getElementById("current-result") };
+  const currentMarkers = {
+    base: document.getElementById("current-base"),
+    result: document.getElementById("current-result"),
+  };
 
   /** Offsets this script set and must not echo back to the other pane. */
   const expectedTop = { base: null, result: null };
@@ -34,8 +37,8 @@
   const lastTop = { base: 0, result: 0 };
   let lineHeight = measureLineHeight();
   let isDrawScheduled = false;
-  /** Block last navigated to, and the result offset that left it in view. */
-  let navigation = { index: -1, top: -1 };
+  /** Index of the block last navigated to, which the marker shows; -1 before any navigation. */
+  let currentIndex = -1;
   /** The file step a repeated F7 or Shift+F7 confirms while its hint shows: `direction` and the hint's timer. */
   let pendingFileStep = null;
   /**
@@ -58,6 +61,7 @@
   }
 
   function onScroll(side) {
+    fitMarker(side);
     vscode.setState({ key: scrollStateKey, base: scrollers.base.scrollTop, result: scrollers.result.scrollTop });
     const top = scrollers[side].scrollTop;
     const expected = expectedTop[side];
@@ -113,7 +117,7 @@
         continue;
       }
       const path = document.createElementNS(SVG_NAMESPACE, "path");
-      const current = block === data.blocks[navigation.index] ? " conn-current" : "";
+      const current = block === data.blocks[currentIndex] ? " conn-current" : "";
       path.setAttribute("class", `conn conn-${block.kind}${current}`);
       path.setAttribute("d", connectorPath(width, leftTop, leftBottom, rightTop, rightBottom));
       paths.push(path);
@@ -122,16 +126,15 @@
   }
 
   /**
-   * Goes to the next or previous block: after the last one navigated to while the view stays there, else after the
-   * viewport. Blocks that cannot scroll any further still count, since the marker shows the step. Returns whether
-   * there was a block to go to.
+   * Goes to the next or previous block: after the marked one while it is in view, else after the viewport. Blocks
+   * that cannot scroll any further still count, since the marker shows the step. Returns whether there was a block to
+   * go to.
    */
   function navigate(direction) {
     const scroller = scrollers.result;
     const offset = scroller.clientHeight * NAVIGATION_OFFSET;
-    const isStillAtLastTarget = navigation.index !== -1 && Math.abs(scroller.scrollTop - navigation.top) < 1;
-    const index = isStillAtLastTarget
-      ? navigation.index + direction
+    const index = isMarkedInView()
+      ? currentIndex + direction
       : neighbourBlock(data.blocks, "result", (scroller.scrollTop + offset) / lineHeight, direction);
     if (index < 0 || index >= data.blocks.length) {
       return false;
@@ -182,22 +185,46 @@
   function goTo(index) {
     const scroller = scrollers.result;
     scroller.scrollTop = data.blocks[index].result[0] * lineHeight - scroller.clientHeight * NAVIGATION_OFFSET;
-    navigation = { index, top: scroller.scrollTop };
+    currentIndex = index;
     markCurrent(data.blocks[index]);
     scheduleDraw();
   }
 
-  /** Outlines `block`'s rows on both sides; an empty range becomes a bar on the line where the other side's rows go. */
+  function isMarkedInView() {
+    if (currentIndex === -1) {
+      return false;
+    }
+    const scroller = scrollers.result;
+    const [start, end] = data.blocks[currentIndex].result.map((line) => line * lineHeight - scroller.scrollTop);
+    return isBandVisible(start, end, scroller.clientHeight);
+  }
+
+  /**
+   * Outlines `block`'s rows on both sides; an empty range becomes a bar on the line where the other side's rows go,
+   * kept inside the pane at its first and last line.
+   */
   function markCurrent(block) {
     for (const side of SIDES) {
       const [start, end] = block[side];
+      const lineCount = side === "base" ? data.baseLineCount : data.resultLineCount;
+      const isEmpty = start === end;
       const marker = currentMarkers[side];
       // Rows in --row-height units follow font and zoom changes without measuring.
       marker.style.top = `calc(${start} * var(--row-height))`;
       marker.style.height = `calc(${end - start} * var(--row-height))`;
-      marker.classList.toggle("is-empty", start === end);
+      marker.classList.toggle("is-empty", isEmpty);
+      marker.classList.toggle("at-top", isEmpty && start === 0);
+      marker.classList.toggle("at-bottom", isEmpty && start === lineCount);
+      fitMarker(side);
       marker.hidden = false;
     }
+  }
+
+  /** Spans the marker across the visible width, so the text scrolling sideways leaves its sides in view. */
+  function fitMarker(side) {
+    const scroller = scrollers[side];
+    currentMarkers[side].style.left = `${scroller.scrollLeft}px`;
+    currentMarkers[side].style.width = `${scroller.clientWidth}px`;
   }
 
   /** Puts both panes back where they were without syncing one from the other. */
@@ -214,6 +241,9 @@
   }
   window.addEventListener("resize", () => {
     lineHeight = measureLineHeight();
+    for (const side of SIDES) {
+      fitMarker(side);
+    }
     syncFrom("result");
     scheduleDraw();
   });

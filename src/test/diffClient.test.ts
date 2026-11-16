@@ -154,6 +154,7 @@ type Listener = (event: { key?: string; shiftKey?: boolean; preventDefault(): vo
 /** Scroll offsets clamp to the scrollable range, as in a browser. */
 class FakeElement {
   private top = 0;
+  scrollLeft = 0;
   clientHeight = 100;
   scrollHeight = 400;
   clientWidth = 40;
@@ -468,6 +469,59 @@ describe("diff client current change", () => {
     document.fire("keydown", { key: "F7" });
 
     expect(markedRows(elements, "result")).toEqual([9, 12]);
+  });
+
+  it("keeps an empty range's bar inside the pane at its first and last line", () => {
+    const atEdges: ClientBlock[] = [
+      { kind: "deleted", base: [0, 2], result: [0, 0] },
+      { kind: "added", base: [12, 12], result: [13, 15] },
+    ];
+    const { elements, document } = startClient(atEdges);
+    const result = elements["current-result"];
+    const base = elements["current-base"];
+
+    expect(result.classList.contains("at-top")).toBe(true);
+    expect(result.classList.contains("at-bottom")).toBe(false);
+
+    document.fire("keydown", { key: "F7" });
+
+    expect(base.classList.contains("at-bottom")).toBe(true);
+    expect(base.classList.contains("at-top")).toBe(false);
+    expect(result.classList.contains("at-top")).toBe(false);
+  });
+
+  it("spans the visible width of each pane, following sideways scrolling", () => {
+    const { elements } = startClient();
+    expect(elements["current-result"].style.left).toBe("0px");
+    expect(elements["current-base"].style.width).toBe("40px");
+
+    elements["scroll-result"].scrollLeft = 30;
+    elements["scroll-result"].fire("scroll");
+
+    expect(elements["current-result"].style.left).toBe("30px");
+    expect(elements["current-result"].style.width).toBe("40px");
+    expect(elements["current-base"].style.left).toBe("0px");
+  });
+
+  it("steps from the marked change while it is in view, not from the viewport", () => {
+    const nearEnd: ClientBlock[] = [
+      { kind: "modified", base: [2, 3], result: [2, 3] },
+      { kind: "modified", base: [17, 18], result: [17, 18] },
+      { kind: "modified", base: [19, 20], result: [19, 20] },
+    ];
+    const { elements, document } = startClient(nearEnd);
+    const result = elements["scroll-result"];
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7" });
+
+    // Rows 14-19 in view, the marked block 19-20 at the bottom edge.
+    result.scrollTop = 280;
+    result.fire("scroll");
+    document.fire("keydown", { key: "F7" });
+    expect(markedRows(elements, "result")).toEqual([19, 20]);
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    expect(markedRows(elements, "result")).toEqual([17, 18]);
   });
 
   it("marks nothing after restoring a re-render's scroll offsets", () => {

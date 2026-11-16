@@ -39,7 +39,7 @@ export interface HistoryRenderContext {
   readonly repositories: readonly HistoryRepositoryOption[];
   readonly activeRepositoryId: string | null;
   readonly presentation: HistoryPresentation;
-  /** OIDs passing the host's search and branch filters, in graph order. */
+  /** OIDs of the state's history passing the host's search and branch filters, in graph order. */
   readonly visibleOids: readonly string[];
   /** Selected commits the filters currently hide. */
   readonly hiddenSelectedCount: number;
@@ -63,7 +63,10 @@ export interface HistoryPublicState {
   readonly snapshotId: string | null;
 }
 
-/** Lookups over one loaded history, built once per load rather than per render. */
+/**
+ * Lookups over one loaded history, built once per load rather than per render. The layout indexes
+ * `history.commits`, so `layout.indexOf` also finds commits by OID.
+ */
 interface HistoryIndex {
   readonly history: HistoryData;
   readonly layout: HistoryGraphLayout;

@@ -266,14 +266,20 @@ describe("visibleGraphRows", () => {
     }
   });
 
-  it("lays out rows only through the last shown one and skips OIDs it does not know", () => {
+  it("lays out rows only through the last shown one", () => {
     const commits = tangledHistory(400);
     const layout = new HistoryGraphLayout(commits);
 
-    const visible = visibleGraphRows(layout, ["c4", "unknown", "c9", "c30", "c31"], 2);
+    const visible = visibleGraphRows(layout, ["c4", "c9", "c30", "c31"], 2);
 
     expect(visible.map((entry) => entry.row.oid)).toEqual(["c4", "c9"]);
     expect(visible[1]?.hasHiddenBelow).toBe(true);
     expect(layout.laidOutRowCount).toBe(10);
+  });
+
+  it("rejects visible OIDs that are not in the layout", () => {
+    const layout = new HistoryGraphLayout(tangledHistory(10));
+
+    expect(() => visibleGraphRows(layout, ["c4", "unknown"], 5)).toThrow(/unknown/);
   });
 });

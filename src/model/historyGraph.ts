@@ -104,6 +104,7 @@ export class HistoryGraphLayout {
     return this.placedRowCount;
   }
 
+  /** Position of `oid` in the commits given to the constructor, which is also its row index. */
   indexOf(oid: string): number | undefined {
     return this.indexByOid.get(oid);
   }
@@ -154,20 +155,18 @@ export class HistoryGraphLayout {
 /**
  * The first `limit` rows of `visibleOids` (given in graph order) with their
  * original lanes. Lines are never joined across hidden rows; the flags tell the
- * renderer to draw a continuation marker instead. Unknown OIDs are skipped.
+ * renderer to draw a continuation marker instead. Every OID must be one of the
+ * layout's commits, so callers can count visible rows as `visibleOids.length`.
  */
 export function visibleGraphRows(layout: HistoryGraphLayout, visibleOids: readonly string[], limit: number): readonly VisibleGraphRow[] {
   // One index past the limit decides whether hidden rows follow the last shown row.
-  const indices: number[] = [];
-  for (const oid of visibleOids) {
-    if (indices.length > limit) {
-      break;
-    }
+  const indices = visibleOids.slice(0, limit + 1).map((oid) => {
     const index = layout.indexOf(oid);
-    if (index !== undefined) {
-      indices.push(index);
+    if (index === undefined) {
+      throw new Error(`Visible commit ${oid} is not in the graph layout`);
     }
-  }
+    return index;
+  });
   const shown = indices.slice(0, limit);
 
   return layout.rowsAt(shown).map((row, position) => {

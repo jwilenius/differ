@@ -44,7 +44,7 @@ jobs:
       # Check the lockfile and registry signatures before any dependency install script runs.
       - run: npm run check:deps
       - run: npm ci --ignore-scripts
-      # Retries a missing-key failure with a fresh npm cache; a stale registry CDN edge can cause it.
+      # Retries a missing-key failure, which a stale registry CDN edge can cause, against the uncached registry host.
       - id: signatures
         run: scripts/check-signatures.sh
       # Records what this runner sees when the signature check fails; the failed check still fails the job.

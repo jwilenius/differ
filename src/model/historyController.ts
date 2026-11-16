@@ -79,6 +79,11 @@ export class HistoryController {
     return this.state;
   }
 
+  /** Whether `oid` is in the loaded history, without scanning its commits. */
+  hasCommit(oid: string): boolean {
+    return this.commitsByOid.has(oid);
+  }
+
   /** Reads metadata of at most `maxCommits` commits; on failure the previous metadata stays with a visible error. */
   async load(maxCommits: number): Promise<void> {
     this.assertActive();

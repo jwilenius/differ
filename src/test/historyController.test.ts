@@ -136,6 +136,15 @@ describe("HistoryController loading", () => {
     expect(repository.loads.map((call) => call.input)).toEqual([MAX_COMMITS]);
   });
 
+  it("knows which commits the loaded history contains", async () => {
+    const empty = new HistoryController(new FakeRepository());
+    const { controller } = await loadedController();
+
+    expect(empty.hasCommit(A)).toBe(false);
+    expect(controller.hasCommit(A)).toBe(true);
+    expect(controller.hasCommit(oid("f"))).toBe(false);
+  });
+
   it("keeps the last metadata and shows an error when a reload fails", async () => {
     const { controller, repository } = await loadedController();
 

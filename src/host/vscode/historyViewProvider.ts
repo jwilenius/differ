@@ -375,7 +375,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const before = session.controller.getState();
     session.controller.setSelection(oids);
     const isSelectionChanged = session.controller.getState() !== before;
-    const isFocusKnown = focusedOid === null || commits.some((commit) => commit.oid === focusedOid);
+    const isFocusKnown = focusedOid === null || session.controller.hasCommit(focusedOid);
     const isFocusChanged = isFocusKnown && focusedOid !== session.presentation.focusedOid;
     if (!isSelectionChanged && !isFocusChanged) {
       return;
@@ -446,9 +446,11 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
    */
   private applyPresentation(message: Extract<HistoryMessage, { type: "presentation" }>, isCurrent: boolean): void {
     const session = this.publishedSession();
-    const commits = session?.controller.getState().history?.commits ?? [];
-    const isKnown = (oid: string | null): boolean => oid === null || commits.some((commit) => commit.oid === oid);
-    if (!session || !isKnown(message.focusedOid)) {
+    if (!session) {
+      return;
+    }
+    const isKnown = (oid: string | null): boolean => oid === null || session.controller.hasCommit(oid);
+    if (!isKnown(message.focusedOid)) {
       return;
     }
 

@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
+import { stat } from "node:fs/promises";
 import * as vscode from "vscode";
 import { TOKENIZE_TIME_BUDGET_MS, unstyledText, type HighlightOptions } from "../../highlight/textMateHighlighter";
+import { correspondingLine } from "../../model/correspondingLine";
 import type { HighlightedText } from "../../model/syntaxTokens";
 import { buildTwoWayDiff } from "../../model/twoWayDiff";
 import { HtmlTwoWayDiffRenderer, type FileListNeighbours, type StartChange } from "../../render/html/twoWayDiffRenderer";
@@ -54,6 +56,8 @@ export interface TwoWayDiffRequest {
   readonly adjacentFiles?: AdjacentFiles;
   /** Defaults to the first change. */
   readonly startAt?: StartChange;
+  /** The right side's file in the working tree, which F4 opens; absent when the right side deletes the file. */
+  readonly workingCopy?: vscode.Uri;
 }
 
 export interface TwoWayDiffPanelsOptions {
@@ -271,7 +275,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     return webview.asWebviewUri(vscode.Uri.joinPath(this.options.mediaRoot, fileName)).toString();
   }
 
-  /** The webview is untrusted input; only `openNative` and `openAdjacentFile` need an answer. */
+  /** The webview is untrusted input; only `openNative`, `openAdjacentFile` and `openWorkingCopy` need an answer. */
   private async handleMessage(raw: unknown, request: TwoWayDiffRequest): Promise<void> {
     const message = parsePanelMessage(raw);
     switch (message?.type) {
@@ -279,6 +283,8 @@ export class TwoWayDiffPanels implements vscode.Disposable {
         return this.openNative(request);
       case "openAdjacentFile":
         return this.openAdjacentFile(request, message.direction);
+      case "openWorkingCopy":
+        return this.openWorkingCopy(request, message.line);
     }
   }
 
@@ -304,18 +310,51 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       void vscode.window.showErrorMessage(`jw-differ could not open the ${direction} file. ${messageOf(error)}`);
     }
   }
+
+  /**
+   * Opens the working file editable in a tab of its own, not a preview the next file opened would replace, with the
+   * cursor where right-side line `line` is now: past later commits and unsaved edits, or the nearest line.
+   */
+  private async openWorkingCopy(request: TwoWayDiffRequest, line: number): Promise<void> {
+    const uri = request.workingCopy;
+    if (uri === undefined) {
+      void vscode.window.showInformationMessage("The right side deletes this file, so it has no working copy.");
+      return;
+    }
+
+    try {
+      if (!(await isFile(uri.fsPath))) {
+        void vscode.window.showInformationMessage(`${request.result.path} is not in the working copy; it may have been deleted or renamed.`);
+        return;
+      }
+      const document = await vscode.workspace.openTextDocument(uri);
+      const target = correspondingLine(request.result.text, document.getText(), line);
+      const cursor = new vscode.Position(target, 0);
+      await vscode.window.showTextDocument(document, { preview: false, selection: new vscode.Range(cursor, cursor) });
+    } catch (error) {
+      this.options.log(`Opening the working copy of ${request.title} failed. ${messageOf(error)}`);
+      void vscode.window.showErrorMessage(`jw-differ could not open the working copy. ${messageOf(error)}`);
+    }
+  }
 }
 
-/** Messages the diff webview sends; `ready` needs no answer. */
-type PanelMessage = { readonly type: "openNative" } | { readonly type: "openAdjacentFile"; readonly direction: FileDirection };
+/** Messages the diff webview sends; `ready` needs no answer. `line` counts the right side's lines from 0. */
+type PanelMessage =
+  | { readonly type: "openNative" }
+  | { readonly type: "openAdjacentFile"; readonly direction: FileDirection }
+  | { readonly type: "openWorkingCopy"; readonly line: number };
 
 function parsePanelMessage(raw: unknown): PanelMessage | null {
   if (typeof raw !== "object" || raw === null) {
     return null;
   }
-  const { type, direction } = raw as { readonly type?: unknown; readonly direction?: unknown };
+  const { type, direction, line } = raw as { readonly type?: unknown; readonly direction?: unknown; readonly line?: unknown };
   if (type === "openNative") {
     return { type };
+  }
+  if (type === "openWorkingCopy") {
+    const isLine = typeof line === "number" && Number.isInteger(line) && line >= 0;
+    return isLine ? { type, line } : null;
   }
   const isFileDirection = direction === "previous" || direction === "next";
   return type === "openAdjacentFile" && isFileDirection ? { type, direction } : null;
@@ -323,6 +362,22 @@ function parsePanelMessage(raw: unknown): PanelMessage | null {
 
 function neighboursOf(adjacentFiles: AdjacentFiles): FileListNeighbours {
   return { hasPrevious: adjacentFiles.previous !== undefined, hasNext: adjacentFiles.next !== undefined };
+}
+
+/**
+ * False for a missing path, or one that is no longer a file, such as a directory now in its place. Only the disk
+ * counts: a file deleted while open with unsaved edits is gone too.
+ */
+async function isFile(filePath: string): Promise<boolean> {
+  try {
+    return (await stat(filePath)).isFile();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function messageOf(error: unknown): string {

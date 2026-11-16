@@ -469,7 +469,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     try {
-      await this.options.fileOpener.openFile(session.repository, comparison, file);
+      await this.options.fileOpener.openFile(session, comparison, file);
     } catch (error) {
       this.logError("Could not open the file comparison", error);
       if (!isCancellation(error)) {

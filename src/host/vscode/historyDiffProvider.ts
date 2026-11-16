@@ -21,12 +21,19 @@ export const DIFF_VIEWER_SETTING = "historyDiffViewer";
 /** Shown for a URI this provider never issued or has already forgotten; nothing is ever read from disk or Git. */
 export const UNAVAILABLE_DOCUMENT_TEXT = "This jw-differ history document is no longer available. Open the file again from the history panel.\n";
 
+/** A repository's history and the working tree it belongs to, whose files F4 in the diff panel opens. */
+export interface HistoryCheckout {
+  readonly repository: HistoryRepository;
+  /** The working tree's top-level directory. */
+  readonly root: string;
+}
+
 /**
  * Opens one changed file of a ready comparison and reports which one the diff panel shows; implemented by
  * `HistoryDiffProvider`.
  */
 export interface HistoryFileOpener {
-  openFile(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile): Promise<void>;
+  openFile(checkout: HistoryCheckout, comparison: ReadyResult, file: ComparisonFile): Promise<void>;
   /** The file jw-differ's diff panel shows; null while it shows none. A native diff is not tracked. */
   readonly openedFile: OpenedFile | null;
   readonly onDidChangeOpenedFile: vscode.Event<void>;
@@ -63,8 +70,8 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
    * Starts both side reads in the same tick, so both take their snapshot leases before a selection change can release
    * the snapshot. Rejects, opening nothing, when the snapshot is already gone or a read fails.
    */
-  openFile(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile): Promise<void> {
-    return this.openFileAt(repository, comparison, file, "first");
+  openFile(checkout: HistoryCheckout, comparison: ReadyResult, file: ComparisonFile): Promise<void> {
+    return this.openFileAt(checkout, comparison, file, "first");
   }
 
   get openedFile(): OpenedFile | null {
@@ -81,10 +88,10 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
   }
 
   /** Like `openFile`; a panel showing the file starts at `startAt`. */
-  private async openFileAt(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile, startAt: StartChange): Promise<void> {
-    const contents = await this.read(repository, comparison, file);
+  private async openFileAt(checkout: HistoryCheckout, comparison: ReadyResult, file: ComparisonFile, startAt: StartChange): Promise<void> {
+    const contents = await this.read(checkout.repository, comparison, file);
     if (contents !== undefined) {
-      await this.show(repository, comparison, file, contents, startAt);
+      await this.show(checkout, comparison, file, contents, startAt);
     }
   }
 
@@ -93,21 +100,21 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
    * the panel and end the stepping there, so it is passed over; when no candidate reads as text, the first one's
    * explanation opens.
    */
-  private async stepTo(repository: HistoryRepository, comparison: ReadyResult, candidates: readonly ComparisonFile[], startAt: StartChange): Promise<void> {
+  private async stepTo(checkout: HistoryCheckout, comparison: ReadyResult, candidates: readonly ComparisonFile[], startAt: StartChange): Promise<void> {
     let firstNonText: { readonly file: ComparisonFile; readonly contents: SideContents } | undefined;
     for (const file of candidates) {
-      const contents = await this.read(repository, comparison, file);
+      const contents = await this.read(checkout.repository, comparison, file);
       if (contents === undefined) {
         return;
       }
       if (isText(contents)) {
-        await this.show(repository, comparison, file, contents, startAt);
+        await this.show(checkout, comparison, file, contents, startAt);
         return;
       }
       firstNonText ??= { file, contents };
     }
     if (firstNonText !== undefined) {
-      await this.show(repository, comparison, firstNonText.file, firstNonText.contents, startAt);
+      await this.show(checkout, comparison, firstNonText.file, firstNonText.contents, startAt);
     }
   }
 
@@ -121,7 +128,7 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
   }
 
   /** Opens text in the configured viewer, or an explanation of content that is not text. */
-  private async show(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile, contents: SideContents, startAt: StartChange): Promise<void> {
+  private async show(checkout: HistoryCheckout, comparison: ReadyResult, file: ComparisonFile, contents: SideContents, startAt: StartChange): Promise<void> {
     const title = diffTitle(comparison, file);
     const { base, result } = contents;
     if (base.kind !== "text" || result.kind !== "text") {
@@ -140,7 +147,8 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
       } else {
         await this.openPanel(comparison, file, title, sides, {
           startAt,
-          adjacentFiles: this.adjacentFiles(repository, comparison, file),
+          adjacentFiles: this.adjacentFiles(checkout, comparison, file),
+          workingCopy: file.result === null ? undefined : vscode.Uri.joinPath(vscode.Uri.file(checkout.root), file.result.path),
         });
       }
     } catch (error) {
@@ -185,6 +193,7 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
       },
       startAt: navigation.startAt,
       ...(navigation.adjacentFiles === undefined ? {} : { adjacentFiles: navigation.adjacentFiles }),
+      ...(navigation.workingCopy === undefined ? {} : { workingCopy: navigation.workingCopy }),
     });
   }
 
@@ -192,7 +201,7 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
    * Steps to the nearest files before and after `file` in list order that have a text change to land on; undefined
    * when `file` is not in the list.
    */
-  private adjacentFiles(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile): AdjacentFiles | undefined {
+  private adjacentFiles(checkout: HistoryCheckout, comparison: ReadyResult, file: ComparisonFile): AdjacentFiles | undefined {
     const { files } = comparison;
     const index = files.findIndex((candidate) => candidate.id === file.id);
     if (index === -1) {
@@ -201,8 +210,8 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
     const previous = files.slice(0, index).reverse().filter(hasTextChange);
     const next = files.slice(index + 1).filter(hasTextChange);
     return {
-      ...(previous.length === 0 ? {} : { previous: () => this.stepTo(repository, comparison, previous, "last") }),
-      ...(next.length === 0 ? {} : { next: () => this.stepTo(repository, comparison, next, "first") }),
+      ...(previous.length === 0 ? {} : { previous: () => this.stepTo(checkout, comparison, previous, "last") }),
+      ...(next.length === 0 ? {} : { next: () => this.stepTo(checkout, comparison, next, "first") }),
     };
   }
 
@@ -294,6 +303,8 @@ function hasTextChange(file: ComparisonFile): boolean {
 interface PanelNavigation {
   readonly startAt: StartChange;
   readonly adjacentFiles: AdjacentFiles | undefined;
+  /** The file F4 opens; undefined for a deletion. */
+  readonly workingCopy: vscode.Uri | undefined;
 }
 
 interface CachedDocument {

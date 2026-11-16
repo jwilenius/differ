@@ -149,7 +149,22 @@ describe("diff client geometry", () => {
 
 // ------------------------------------------------- webview wiring
 
-type Listener = (event: { key?: string; shiftKey?: boolean; preventDefault(): void }) => void;
+interface FakeEventInit {
+  readonly key?: string;
+  readonly shiftKey?: boolean;
+  readonly ctrlKey?: boolean;
+  readonly altKey?: boolean;
+  readonly metaKey?: boolean;
+}
+
+type Listener = (event: FakeEventInit & { preventDefault(): void; stopPropagation(): void }) => void;
+
+/** What the listeners did with a fired event. */
+interface FiredEvent {
+  readonly isDefaultPrevented: boolean;
+  /** Stopped before it bubbles up to the window, where VS Code's webview host forwards keys to the workbench. */
+  readonly isPropagationStopped: boolean;
+}
 
 /** Scroll offsets clamp to the scrollable range, as in a browser. */
 class FakeElement {
@@ -190,10 +205,17 @@ class FakeElement {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
-  fire(type: string, init: { key?: string; shiftKey?: boolean } = {}): void {
+  fire(type: string, init: FakeEventInit = {}): FiredEvent {
+    let isDefaultPrevented = false;
+    let isPropagationStopped = false;
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({ ...init, preventDefault: () => undefined });
+      listener({
+        ...init,
+        preventDefault: () => (isDefaultPrevented = true),
+        stopPropagation: () => (isPropagationStopped = true),
+      });
     }
+    return { isDefaultPrevented, isPropagationStopped };
   }
 
   querySelector(): { getBoundingClientRect(): { height: number } } {
@@ -687,5 +709,56 @@ describe("diff client file steps", () => {
     const { elements } = startClient(BLOCKS, { files: BOTH_FILES, startAt: "last" });
 
     expect(elements["scroll-result"].scrollTop).toBe(9 * 20 - 25);
+  });
+});
+
+describe("diff client working copy", () => {
+  it("asks with F4 for the working copy at the marked change, keeping the key from VS Code", () => {
+    const { document, messages } = startClient();
+    document.fire("keydown", { key: "F7" });
+
+    const event = document.fire("keydown", { key: "F4" });
+
+    expect(messages).toEqual([{ type: "ready" }, { type: "openWorkingCopy", line: 4 }]);
+    expect(event).toEqual({ isDefaultPrevented: true, isPropagationStopped: true });
+  });
+
+  it("asks for the top visible line once the marked change is out of view", () => {
+    const { elements, document, messages } = startClient();
+    const result = elements["scroll-result"];
+    result.scrollTop = 250;
+    result.fire("scroll");
+
+    document.fire("keydown", { key: "F4" });
+
+    expect(messages.at(-1)).toEqual({ type: "openWorkingCopy", line: 12 });
+  });
+
+  it("asks for the top visible line when no change is marked", () => {
+    const { document, messages } = startClient([]);
+
+    document.fire("keydown", { key: "F4" });
+
+    expect(messages.at(-1)).toEqual({ type: "openWorkingCopy", line: 0 });
+  });
+
+  it("leaves F4 with a modifier to VS Code", () => {
+    const { document, messages } = startClient();
+
+    const events = [{ shiftKey: true }, { ctrlKey: true }, { altKey: true }, { metaKey: true }].map((modifier) =>
+      document.fire("keydown", { key: "F4", ...modifier }),
+    );
+
+    expect(messages).toEqual([{ type: "ready" }]);
+    expect(events.every((event) => !event.isDefaultPrevented && !event.isPropagationStopped)).toBe(true);
+  });
+
+  it("leaves F4 everywhere else in VS Code alone: the extension binds no F4 key", () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(MEDIA_ROOT, "..", "package.json"), "utf8")) as {
+      contributes: { keybindings?: ReadonlyArray<{ key: string }> };
+    };
+    const keys = (manifest.contributes.keybindings ?? []).map((binding) => binding.key.toLowerCase());
+
+    expect(keys.filter((key) => key.split(/[+ ]/).includes("f4"))).toEqual([]);
   });
 });

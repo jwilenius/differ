@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import type { HighlightOptions } from "../highlight/textMateHighlighter";
@@ -477,5 +480,119 @@ describe("TwoWayDiffPanels", () => {
     await panels(highlighter(() => Promise.resolve(BLUE))).open(request());
 
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  describe("working copy", () => {
+    let directory: string;
+
+    beforeEach(() => {
+      directory = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-working-copy-"));
+      vscodeMock.openFileDocument = (uri) => ({ uri, getText: () => fs.readFileSync(uri.fsPath, "utf8") }) as unknown as vscode.TextDocument;
+    });
+
+    afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+    /** The working file of `src/app.ts`, holding `text`. */
+    function workingCopy(text: string): vscode.Uri {
+      const filePath = path.join(directory, "app.ts");
+      fs.writeFileSync(filePath, text);
+      return vscode.Uri.file(filePath);
+    }
+
+    /** Opens a diff with `changes` and sends the message F4 posts for `line`. */
+    async function pressF4(changes: Partial<TwoWayDiffRequest>, line: unknown): Promise<void> {
+      await panels(highlighter(() => Promise.resolve(BLUE))).open(request(changes));
+      onlyPanel().webview.fireDidReceiveMessage({ type: "openWorkingCopy", line });
+    }
+
+    function rightSide(text: string): TwoWayDiffRequest["result"] {
+      return { ...request().result, text };
+    }
+
+    /** The line each shown document's cursor was put on. */
+    function shownLines(): number[] {
+      return vscodeMock.shownDocuments.map(({ options }) => (options?.selection as vscode.Range).start.line);
+    }
+
+    it("opens the working file at the same line when the right side matches it, editable in a tab of its own", async () => {
+      const uri = workingCopy("a\nb\nc\n");
+
+      await pressF4({ result: rightSide("a\nb\nc\n"), workingCopy: uri }, 2);
+
+      await vi.waitFor(() => expect(vscodeMock.shownDocuments).toHaveLength(1));
+      const [{ document, options }] = vscodeMock.shownDocuments;
+      expect(document.uri.fsPath).toBe(uri.fsPath);
+      expect(options).toEqual({ preview: false, selection: new vscode.Range(new vscode.Position(2, 0), new vscode.Position(2, 0)) });
+    });
+
+    it("follows the line to where later commits and edits moved it", async () => {
+      const uri = workingCopy("added 1\nadded 2\na\nb\nc\nd\n");
+
+      await pressF4({ result: rightSide("a\nremoved\nb\nc\nd\n"), workingCopy: uri }, 3);
+
+      await vi.waitFor(() => expect(shownLines()).toEqual([4]));
+    });
+
+    it("maps onto the editor's unsaved text, not the file on disk", async () => {
+      const uri = workingCopy("a\nb\n");
+      vscodeMock.openFileDocument = (opened) => ({ uri: opened, getText: () => "typed\na\nb\n" }) as unknown as vscode.TextDocument;
+
+      await pressF4({ result: rightSide("a\nb\n"), workingCopy: uri }, 1);
+
+      await vi.waitFor(() => expect(shownLines()).toEqual([2]));
+    });
+
+    it("goes to the nearest line when the line is gone from the working file", async () => {
+      const uri = workingCopy("a");
+
+      await pressF4({ result: rightSide("a\nb\nc"), workingCopy: uri }, 2);
+
+      await vi.waitFor(() => expect(shownLines()).toEqual([0]));
+    });
+
+    it("says so when the working file was deleted or renamed", async () => {
+      const uri = vscode.Uri.file(path.join(directory, "gone.ts"));
+
+      await pressF4({ workingCopy: uri }, 0);
+
+      await vi.waitFor(() => expect(vscodeMock.messages).toHaveLength(1));
+      expect(vscodeMock.messages).toEqual([
+        { level: "information", text: "src/app.ts is not in the working copy; it may have been deleted or renamed." },
+      ]);
+      expect(vscodeMock.shownDocuments).toEqual([]);
+    });
+
+    it("says so when the right side deletes the file", async () => {
+      await pressF4({}, 0);
+      await settle();
+
+      expect(vscodeMock.messages).toEqual([{ level: "information", text: "The right side deletes this file, so it has no working copy." }]);
+      expect(vscodeMock.shownDocuments).toEqual([]);
+    });
+
+    it("reports a working file that cannot be opened instead of rejecting", async () => {
+      const uri = workingCopy("a\n");
+      vscodeMock.openFileDocument = () => {
+        throw new Error("file is binary");
+      };
+
+      await pressF4({ workingCopy: uri }, 0);
+
+      await vi.waitFor(() => expect(vscodeMock.messages).toHaveLength(1));
+      expect(vscodeMock.messages).toEqual([{ level: "error", text: "jw-differ could not open the working copy. file is binary" }]);
+      expect(logged[0]).toContain("file is binary");
+    });
+
+    it("ignores a request without a valid line", async () => {
+      const uri = workingCopy("a\n");
+      await pressF4({ workingCopy: uri }, -1);
+      for (const line of [1.5, "2", undefined]) {
+        onlyPanel().webview.fireDidReceiveMessage({ type: "openWorkingCopy", line });
+      }
+      await settle();
+
+      expect(vscodeMock.shownDocuments).toEqual([]);
+      expect(vscodeMock.messages).toEqual([]);
+    });
   });
 });

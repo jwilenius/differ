@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import {
   HISTORY_DOCUMENT_SCHEME,
+  type HistoryCheckout,
   HistoryDiffProvider,
   UNAVAILABLE_DOCUMENT_TEXT,
 } from "../host/vscode/historyDiffProvider";
@@ -17,6 +18,7 @@ import { fireDidCloseTextDocument, resetVscodeMock, vscodeMock } from "./vscodeM
 
 const BASE_OID = "a".repeat(40);
 const SNAPSHOT_ID = "11111111-1111-4111-8111-111111111111";
+const ROOT = "/work/project";
 
 type Contents = Readonly<Record<FileSide, FileContentResult>>;
 
@@ -38,6 +40,10 @@ function fakeRepository(contents: Contents): HistoryRepository & { reads: string
     },
     releaseSnapshot: () => undefined,
   };
+}
+
+function checkout(repository: HistoryRepository): HistoryCheckout {
+  return { repository, root: ROOT };
 }
 
 function file(changes: Partial<ComparisonFile> = {}): ComparisonFile {
@@ -96,7 +102,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
   it("opens the native diff with both sides of the requested snapshot", async () => {
     const repository = fakeRepository({ base: text("old\n"), result: text("new\n") });
 
-    await provider.openFile(repository, comparison(), file());
+    await provider.openFile(checkout(repository), comparison(), file());
 
     const { command, args } = lastCommand();
     const [left, right, title, options] = args as [vscode.Uri, vscode.Uri, string, unknown];
@@ -111,7 +117,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
 
   it("starts both reads before either completes", async () => {
     const repository = fakeRepository({ base: text(""), result: text("") });
-    const pending = provider.openFile(repository, comparison(), file());
+    const pending = provider.openFile(checkout(repository), comparison(), file());
 
     expect(repository.reads).toHaveLength(2);
     await pending;
@@ -124,7 +130,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
       result: { path: "new/name.ts", blob: "c".repeat(40), mode: "100644" },
     });
 
-    await provider.openFile(fakeRepository({ base: text("a"), result: text("a") }), comparison({
+    await provider.openFile(checkout(fakeRepository({ base: text("a"), result: text("a") })), comparison({
       base: { kind: "emptyTree" },
       orderedOids: ["d".repeat(40)],
     }), renamed);
@@ -138,7 +144,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
   it("uses the result path and empty text for an added file's missing base", async () => {
     const added = file({ status: "added", base: null });
 
-    await provider.openFile(fakeRepository({ base: text(""), result: text("hello\n") }), comparison(), added);
+    await provider.openFile(checkout(fakeRepository({ base: text(""), result: text("hello\n") })), comparison(), added);
 
     const [left, right] = lastCommand().args as [vscode.Uri, vscode.Uri];
     expect(left.path.endsWith("/src/app.ts")).toBe(true);
@@ -147,11 +153,11 @@ describe("HistoryDiffProvider with the native viewer", () => {
   });
 
   it("keeps already opened content when a later comparison of the same file opens", async () => {
-    await provider.openFile(fakeRepository({ base: text("v1"), result: text("v2") }), comparison(), file());
+    await provider.openFile(checkout(fakeRepository({ base: text("v1"), result: text("v2") })), comparison(), file());
     const [firstLeft, firstRight] = lastCommand().args as [vscode.Uri, vscode.Uri];
 
     await provider.openFile(
-      fakeRepository({ base: text("other"), result: text("content") }),
+      checkout(fakeRepository({ base: text("other"), result: text("content") })),
       comparison({ snapshotId: "33333333-3333-4333-8333-333333333333" }),
       file(),
     );
@@ -169,7 +175,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
       result: { path: hostile, blob: "c".repeat(40), mode: "100644" },
     });
 
-    await provider.openFile(fakeRepository({ base: text("a"), result: text("b") }), comparison(), changed);
+    await provider.openFile(checkout(fakeRepository({ base: text("a"), result: text("b") })), comparison(), changed);
 
     const [left] = lastCommand().args as [vscode.Uri];
     const roundTripped = vscode.Uri.parse(left.toString());
@@ -181,7 +187,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
   });
 
   it("reports no file shown in jw-differ's panel for a native diff", async () => {
-    await provider.openFile(fakeRepository({ base: text("old\n"), result: text("new\n") }), comparison(), file());
+    await provider.openFile(checkout(fakeRepository({ base: text("old\n"), result: text("new\n") })), comparison(), file());
 
     expect(provider.openedFile).toBeNull();
   });
@@ -209,7 +215,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
       contentKind: "binary",
     });
 
-    await provider.openFile(fakeRepository({ base: text(""), result: binary }), comparison(), image);
+    await provider.openFile(checkout(fakeRepository({ base: text(""), result: binary })), comparison(), image);
 
     const { command, args } = lastCommand();
     const [uri] = args as [vscode.Uri];
@@ -224,7 +230,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
   });
 
   it("forgets content when its document closes", async () => {
-    await provider.openFile(fakeRepository({ base: text("old"), result: text("new") }), comparison(), file());
+    await provider.openFile(checkout(fakeRepository({ base: text("old"), result: text("new") })), comparison(), file());
     const [left, right] = lastCommand().args as [vscode.Uri, vscode.Uri];
 
     fireDidCloseTextDocument(documentFor(left));
@@ -240,7 +246,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
       throw new Error("editor failed");
     });
 
-    const result = provider.openFile(fakeRepository({ base: text("old"), result: text("new") }), comparison(), file());
+    const result = provider.openFile(checkout(fakeRepository({ base: text("old"), result: text("new") })), comparison(), file());
 
     await expect(result).rejects.toThrow("editor failed");
     expect(opened.map((uri) => provider.provideTextDocumentContent(uri))).toEqual([
@@ -253,12 +259,12 @@ describe("HistoryDiffProvider with the native viewer", () => {
     const repository = fakeRepository({ base: text(""), result: text("") });
     repository.readFile = vi.fn(() => Promise.reject(new Error("This comparison is no longer available.")));
 
-    await expect(provider.openFile(repository, comparison(), file())).rejects.toThrow("no longer available");
+    await expect(provider.openFile(checkout(repository), comparison(), file())).rejects.toThrow("no longer available");
     expect(vscodeMock.executedCommands).toEqual([]);
   });
 
   it("clears its cache and stops listening on dispose", async () => {
-    await provider.openFile(fakeRepository({ base: text("old"), result: text("new") }), comparison(), file());
+    await provider.openFile(checkout(fakeRepository({ base: text("old"), result: text("new") })), comparison(), file());
     const [left] = lastCommand().args as [vscode.Uri];
 
     provider.dispose();
@@ -278,7 +284,7 @@ describe("HistoryDiffProvider with the IntelliJ viewer", () => {
   });
 
   async function openPanel(changes: Partial<ComparisonFile> = {}): Promise<TwoWayDiffRequest> {
-    await provider.openFile(fakeRepository({ base: text("old\n"), result: text("new\n") }), comparison(), file(changes));
+    await provider.openFile(checkout(fakeRepository({ base: text("old\n"), result: text("new\n") })), comparison(), file(changes));
     return panels.requests[panels.requests.length - 1];
   }
 
@@ -293,11 +299,18 @@ describe("HistoryDiffProvider with the IntelliJ viewer", () => {
     expect(request.languageUri).toBe(request.result.uri);
   });
 
+  it("offers the right side's file in the repository's working tree as the working copy", async () => {
+    const request = await openPanel({ status: "renamed", base: { path: "src/old.ts", blob: "b".repeat(40), mode: "100644" } });
+
+    expect(request.workingCopy?.fsPath).toBe(`${ROOT}/src/app.ts`);
+  });
+
   it("takes the language from the base document of a deleted file", async () => {
     const request = await openPanel({ status: "deleted", result: null });
 
     expect(request.languageUri).toBe(request.base.uri);
     expect(request.result.path).toBe("");
+    expect(request.workingCopy).toBeUndefined();
   });
 
   it("opens the same cached documents in the native diff on request", async () => {
@@ -351,7 +364,7 @@ describe("HistoryDiffProvider with the IntelliJ viewer", () => {
       return Promise.reject(new Error("panel failed"));
     };
 
-    await expect(provider.openFile(fakeRepository({ base: text("a"), result: text("b") }), comparison(), file())).rejects.toThrow("panel failed");
+    await expect(provider.openFile(checkout(fakeRepository({ base: text("a"), result: text("b") })), comparison(), file())).rejects.toThrow("panel failed");
 
     const [request] = panels.requests;
     expect(provider.provideTextDocumentContent(request.base.uri)).toBe(UNAVAILABLE_DOCUMENT_TEXT);
@@ -390,13 +403,13 @@ describe("HistoryDiffProvider file steps", () => {
   }
 
   it("starts a file opened from the list at its first change", async () => {
-    await provider.openFile(repository, listed, apple);
+    await provider.openFile(checkout(repository), listed, apple);
 
     expect(lastRequest().startAt).toBe("first");
   });
 
   it("opens the next listed file at its first change and the previous one at its last", async () => {
-    await provider.openFile(repository, listed, apple);
+    await provider.openFile(checkout(repository), listed, apple);
     const { adjacentFiles } = lastRequest();
 
     await adjacentFiles?.next?.();
@@ -409,7 +422,7 @@ describe("HistoryDiffProvider file steps", () => {
   });
 
   it("keeps stepping from a file it opened", async () => {
-    await provider.openFile(repository, listed, zebra);
+    await provider.openFile(checkout(repository), listed, zebra);
 
     await lastRequest().adjacentFiles?.next?.();
     await lastRequest().adjacentFiles?.next?.();
@@ -418,7 +431,7 @@ describe("HistoryDiffProvider file steps", () => {
   });
 
   it("keeps reporting the file a step showed when the tab releases the file it replaced", async () => {
-    await provider.openFile(repository, listed, apple);
+    await provider.openFile(checkout(repository), listed, apple);
     const first = lastRequest();
     first.shown?.();
 
@@ -430,15 +443,15 @@ describe("HistoryDiffProvider file steps", () => {
   });
 
   it("has no previous file before the first listed file and no next one after the last", async () => {
-    await provider.openFile(repository, listed, zebra);
+    await provider.openFile(checkout(repository), listed, zebra);
     expect(lastRequest().adjacentFiles).toEqual({ next: expect.any(Function) });
 
-    await provider.openFile(repository, listed, mango);
+    await provider.openFile(checkout(repository), listed, mango);
     expect(lastRequest().adjacentFiles).toEqual({ previous: expect.any(Function) });
   });
 
   it("still has a file list, with no neighbours, for a single changed file", async () => {
-    await provider.openFile(repository, comparison({ files: [apple] }), apple);
+    await provider.openFile(checkout(repository), comparison({ files: [apple] }), apple);
 
     expect(lastRequest().adjacentFiles).toEqual({});
   });
@@ -452,7 +465,7 @@ describe("HistoryDiffProvider file steps", () => {
     });
     const files = comparison({ files: [zebra, binary, renamedOnly, mango] });
 
-    await provider.openFile(repository, files, zebra);
+    await provider.openFile(checkout(repository), files, zebra);
     await lastRequest().adjacentFiles?.next?.();
     expect(lastRequest().result.path).toBe("mango.ts");
 
@@ -479,7 +492,7 @@ describe("HistoryDiffProvider file steps", () => {
   it("passes over a file that reads as not text", async () => {
     const oversized = withOversize(apple.id);
 
-    await provider.openFile(oversized, listed, zebra);
+    await provider.openFile(checkout(oversized), listed, zebra);
     await lastRequest().adjacentFiles?.next?.();
     expect(lastRequest().result.path).toBe("mango.ts");
 
@@ -488,7 +501,7 @@ describe("HistoryDiffProvider file steps", () => {
   });
 
   it("opens the nearest file's explanation when no file in that direction reads as text", async () => {
-    await provider.openFile(withOversize(apple.id, mango.id), listed, zebra);
+    await provider.openFile(checkout(withOversize(apple.id, mango.id)), listed, zebra);
     await lastRequest().adjacentFiles?.next?.();
 
     const { command, args } = lastCommand();
@@ -502,14 +515,14 @@ describe("HistoryDiffProvider file steps", () => {
     const added = changed("66666666-6666-4666-8666-666666666666", "new.ts", { status: "added", base: null });
     const deleted = changed("77777777-7777-4777-8777-777777777777", "gone.ts", { status: "deleted", result: null });
 
-    await provider.openFile(repository, comparison({ files: [added, deleted] }), added);
+    await provider.openFile(checkout(repository), comparison({ files: [added, deleted] }), added);
     await lastRequest().adjacentFiles?.next?.();
 
     expect(lastRequest().base.path).toBe("gone.ts");
   });
 
   it("has no file list for a file missing from its comparison's list", async () => {
-    await provider.openFile(repository, listed, changed("88888888-8888-4888-8888-888888888888", "other.ts"));
+    await provider.openFile(checkout(repository), listed, changed("88888888-8888-4888-8888-888888888888", "other.ts"));
 
     expect(lastRequest().adjacentFiles).toBeUndefined();
   });

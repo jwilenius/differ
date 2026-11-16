@@ -119,6 +119,10 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   previous files". The `↑`/`↓` buttons stay within the file, and the built-in diff editor keeps VS Code's own F7.
 - `Ctrl+F` (`Cmd+F`) opens VS Code's find widget over both sides, off-screen lines included (not the line numbers);
   `Enter` / `Shift+Enter` go to the next / previous match, `Escape` closes it and returns the keys to the diff.
+- F4 opens the file from your working tree, editable in a tab of its own, with the cursor at the current difference
+  (or the top visible line once that is scrolled away). The line follows later commits and unsaved edits to wherever it
+  is now, or the nearest line if it is gone. A file deleted on the right side, or since deleted or renamed in the
+  working tree, gets a short message instead. F4 elsewhere in VS Code is unchanged.
 - Syntax colouring uses the grammars of your installed VS Code extensions and the active colour theme (including
   `editor.tokenColorCustomizations` → `textMateRules`), and follows theme changes. Semantic colouring from language
   servers is not applied, so some identifiers can differ slightly from the editor. Files over 500 000 characters, or

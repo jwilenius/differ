@@ -209,6 +209,11 @@ export interface ShownMessage {
   readonly text: string;
 }
 
+export interface ShownDocument {
+  readonly document: vscode.TextDocument;
+  readonly options: vscode.TextDocumentShowOptions | undefined;
+}
+
 export interface QuickPickRequest {
   readonly items: readonly vscode.QuickPickItem[];
   readonly options: vscode.QuickPickOptions;
@@ -248,6 +253,8 @@ export interface VscodeMockState {
   readonly statusBarItems: FakeStatusBarItem[];
   readonly outputChannels: FakeOutputChannel[];
   readonly messages: ShownMessage[];
+  /** Documents and options of each `window.showTextDocument` call. */
+  readonly shownDocuments: ShownDocument[];
   readonly openDialogRequests: vscode.OpenDialogOptions[];
   /** Items and options of each `window.showQuickPick` call. */
   readonly quickPickRequests: QuickPickRequest[];
@@ -284,6 +291,7 @@ export const vscodeMock: VscodeMockState = {
   statusBarItems: [],
   outputChannels: [],
   messages: [],
+  shownDocuments: [],
   openDialogRequests: [],
   quickPickRequests: [],
   quickPickChoice: undefined,
@@ -319,6 +327,7 @@ export function resetVscodeMock(): void {
   vscodeMock.statusBarItems.length = 0;
   vscodeMock.outputChannels.length = 0;
   vscodeMock.messages.length = 0;
+  vscodeMock.shownDocuments.length = 0;
   vscodeMock.openDialogRequests.length = 0;
   vscodeMock.quickPickRequests.length = 0;
   vscodeMock.quickPickChoice = undefined;
@@ -582,6 +591,11 @@ export const window = {
   showOpenDialog(options?: vscode.OpenDialogOptions): Promise<Uri[] | undefined> {
     vscodeMock.openDialogRequests.push(options ?? {});
     return Promise.resolve(vscodeMock.openDialogResponse);
+  },
+
+  showTextDocument(document: vscode.TextDocument, options?: vscode.TextDocumentShowOptions): Promise<vscode.TextEditor> {
+    vscodeMock.shownDocuments.push({ document, options });
+    return Promise.resolve({ document } as vscode.TextEditor);
   },
 
   async showQuickPick<T extends vscode.QuickPickItem>(items: readonly T[], options: vscode.QuickPickOptions = {}): Promise<T | undefined> {

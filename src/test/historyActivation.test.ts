@@ -150,7 +150,7 @@ describe("extension activation", () => {
     const comparison = { kind: "ready", snapshotId: "s", base: { kind: "emptyTree" }, orderedOids: ["d".repeat(40)], files: [] } as unknown as ReadyResult;
     const file = { id: "f", status: "modified", base: { path: "a.ts" }, result: { path: "a.ts" }, contentKind: "text" } as unknown as ComparisonFile;
 
-    await provider.openFile(repository, comparison, file);
+    await provider.openFile({ repository, root: "/work/project" }, comparison, file);
 
     const [panel] = vscodeMock.webviewPanels;
     expect(panel.title).toBe("a.ts (empty tree ↔ 1 selected commit)");

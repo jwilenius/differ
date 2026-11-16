@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { HistoryGitError } from "../git/historyGitCommand";
-import type { HistoryFileOpener } from "../host/vscode/historyDiffProvider";
+import type { HistoryCheckout, HistoryFileOpener } from "../host/vscode/historyDiffProvider";
 import {
   COMPARE_DELAY_MS,
   COMPARISON_CHANGED_MESSAGE,
@@ -337,8 +337,9 @@ describe("HistoryViewProvider", () => {
     await send({ type: "openFile", snapshotId: SNAPSHOT_ID, fileId: FILE_ID });
 
     expect(fileOpener.calls).toHaveLength(1);
-    const [repository, comparison, file] = fileOpener.calls[0] as [unknown, ReadyResult, { id: string }];
-    expect(repository).toBe(repositories.get(ROOT_A));
+    const [checkout, comparison, file] = fileOpener.calls[0] as [HistoryCheckout, ReadyResult, { id: string }];
+    expect(checkout.repository).toBe(repositories.get(ROOT_A));
+    expect(checkout.root).toBe(ROOT_A);
     expect(comparison.snapshotId).toBe(SNAPSHOT_ID);
     expect(file.id).toBe(FILE_ID);
   });

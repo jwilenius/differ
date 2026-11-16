@@ -181,6 +181,23 @@
     fileStepHint.textContent = "";
   }
 
+  /**
+   * F4: the working file at the marked change while it is in view, as F7 steps from it, else at the top visible line.
+   * The key stops here: the webview host forwards keys to the workbench from the window, where F4 means the next
+   * search result.
+   */
+  function openWorkingCopy(event) {
+    if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const line = isMarkedInView()
+      ? data.blocks[currentIndex].result[0]
+      : Math.floor(scrollers.result.scrollTop / lineHeight);
+    vscode.postMessage({ type: "openWorkingCopy", line });
+  }
+
   /** Scrolls block `index` into view near the top and marks it as the current change. */
   function goTo(index) {
     const scroller = scrollers.result;
@@ -258,6 +275,10 @@
   });
   document.getElementById("open-native").addEventListener("click", () => vscode.postMessage({ type: "openNative" }));
   document.addEventListener("keydown", (event) => {
+    if (event.key === "F4") {
+      openWorkingCopy(event);
+      return;
+    }
     if (event.key !== "F7") {
       return;
     }

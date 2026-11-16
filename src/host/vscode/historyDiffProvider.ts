@@ -67,17 +67,50 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
 
   /** Like `openFile`; a panel showing the file starts at `startAt`. */
   private async openFileAt(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile, startAt: StartChange): Promise<void> {
+    const contents = await this.read(repository, comparison, file);
+    if (contents !== undefined) {
+      await this.show(repository, comparison, file, contents, startAt);
+    }
+  }
+
+  /**
+   * Opens the first of `candidates` that reads as text on both sides. A file too large or not UTF-8 would open outside
+   * the panel and end the stepping there, so it is passed over; when no candidate reads as text, the first one's
+   * explanation opens.
+   */
+  private async stepTo(repository: HistoryRepository, comparison: ReadyResult, candidates: readonly ComparisonFile[], startAt: StartChange): Promise<void> {
+    let firstNonText: { readonly file: ComparisonFile; readonly contents: SideContents } | undefined;
+    for (const file of candidates) {
+      const contents = await this.read(repository, comparison, file);
+      if (contents === undefined) {
+        return;
+      }
+      if (isText(contents)) {
+        await this.show(repository, comparison, file, contents, startAt);
+        return;
+      }
+      firstNonText ??= { file, contents };
+    }
+    if (firstNonText !== undefined) {
+      await this.show(repository, comparison, firstNonText.file, firstNonText.contents, startAt);
+    }
+  }
+
+  /** Both sides of `file`, read in the same tick; undefined once the provider is disposed. */
+  private async read(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile): Promise<SideContents | undefined> {
     const signal = this.shutdown.signal;
     const [base, result] = await Promise.all(
       (["base", "result"] as const).map((side) => repository.readFile(comparison.snapshotId, file.id, side, signal)),
     );
-    if (signal.aborted) {
-      return;
-    }
+    return signal.aborted ? undefined : { base, result };
+  }
 
+  /** Opens text in the configured viewer, or an explanation of content that is not text. */
+  private async show(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile, contents: SideContents, startAt: StartChange): Promise<void> {
     const title = diffTitle(comparison, file);
+    const { base, result } = contents;
     if (base.kind !== "text" || result.kind !== "text") {
-      await this.openExplanation(this.store(file, "result", describeNonText(title, file, { base, result }), " (not text)"));
+      await this.openExplanation(this.store(file, "result", describeNonText(title, file, contents), " (not text)"));
       return;
     }
 
@@ -133,8 +166,8 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
   }
 
   /**
-   * Opens the nearest files before and after `file` in list order that have a text change to land on; undefined when
-   * `file` is not in the list.
+   * Steps to the nearest files before and after `file` in list order that have a text change to land on; undefined
+   * when `file` is not in the list.
    */
   private adjacentFiles(repository: HistoryRepository, comparison: ReadyResult, file: ComparisonFile): AdjacentFiles | undefined {
     const { files } = comparison;
@@ -142,11 +175,11 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
     if (index === -1) {
       return undefined;
     }
-    const previous = files.slice(0, index).reverse().find(hasTextChange);
-    const next = files.slice(index + 1).find(hasTextChange);
+    const previous = files.slice(0, index).reverse().filter(hasTextChange);
+    const next = files.slice(index + 1).filter(hasTextChange);
     return {
-      ...(previous === undefined ? {} : { previous: () => this.openFileAt(repository, comparison, previous, "last") }),
-      ...(next === undefined ? {} : { next: () => this.openFileAt(repository, comparison, next, "first") }),
+      ...(previous.length === 0 ? {} : { previous: () => this.stepTo(repository, comparison, previous, "last") }),
+      ...(next.length === 0 ? {} : { next: () => this.stepTo(repository, comparison, next, "first") }),
     };
   }
 
@@ -248,6 +281,10 @@ interface CachedSides {
 interface SideContents {
   readonly base: FileContentResult;
   readonly result: FileContentResult;
+}
+
+function isText(contents: SideContents): boolean {
+  return contents.base.kind === "text" && contents.result.kind === "text";
 }
 
 function describeNonText(title: string, file: ComparisonFile, contents: SideContents): string {

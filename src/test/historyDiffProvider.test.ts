@@ -429,6 +429,44 @@ describe("HistoryDiffProvider file steps", () => {
     expect(lastRequest().result.path).toBe("zebra.ts");
   });
 
+  /** `repository`, except that the files with `nonTextIds` read as too large on both sides. */
+  function withOversize(...nonTextIds: string[]): HistoryRepository {
+    const oversize: FileContentResult = {
+      kind: "nonText",
+      reason: "oversize",
+      explanation: "Too large to show.",
+      sizeBytes: 20_000_000,
+      mode: "100644",
+    };
+    return {
+      ...repository,
+      readFile: (snapshotId, fileId, side, signal) =>
+        nonTextIds.includes(fileId) ? Promise.resolve(oversize) : repository.readFile(snapshotId, fileId, side, signal),
+    };
+  }
+
+  it("passes over a file that reads as not text", async () => {
+    const oversized = withOversize(apple.id);
+
+    await provider.openFile(oversized, listed, zebra);
+    await lastRequest().adjacentFiles?.next?.();
+    expect(lastRequest().result.path).toBe("mango.ts");
+
+    await lastRequest().adjacentFiles?.previous?.();
+    expect(lastRequest().result.path).toBe("zebra.ts");
+  });
+
+  it("opens the nearest file's explanation when no file in that direction reads as text", async () => {
+    await provider.openFile(withOversize(apple.id, mango.id), listed, zebra);
+    await lastRequest().adjacentFiles?.next?.();
+
+    const { command, args } = lastCommand();
+    const [uri] = args as [vscode.Uri];
+    expect(command).toBe("vscode.open");
+    expect(provider.provideTextDocumentContent(uri)).toContain("apple.ts");
+    expect(panels.requests).toHaveLength(1);
+  });
+
   it("steps into added and deleted files", async () => {
     const added = changed("66666666-6666-4666-8666-666666666666", "new.ts", { status: "added", base: null });
     const deleted = changed("77777777-7777-4777-8777-777777777777", "gone.ts", { status: "deleted", result: null });

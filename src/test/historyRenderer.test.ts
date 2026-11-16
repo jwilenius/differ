@@ -251,6 +251,22 @@ describe("HtmlHistoryRenderer", () => {
     expect(comparing).toContain('id="history-truncated"');
   });
 
+  it("offers only branches whose tip is loaded and keeps a selected loaded branch", () => {
+    const unloadedTip = oid(99);
+    const refs: HistoryData["refs"] = [
+      { kind: "localBranch", name: "main", oid: MERGE },
+      { kind: "remoteBranch", name: "origin/old", oid: unloadedTip },
+      { kind: "localBranch", name: "side", oid: SIDE },
+    ];
+    const presentation = { search: "", branchOid: SIDE, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
+
+    const html = render({ history: { ...history, refs, isTruncated: true } }, { presentation });
+
+    expect(html).not.toContain("origin/old");
+    expect(html).toContain(`<option value="${MERGE}">main</option>`);
+    expect(html).toContain(`<option value="${SIDE}" selected>side</option>`);
+  });
+
   it("shows no truncation note for a complete history", () => {
     const html = render();
 

@@ -228,7 +228,8 @@ function renderRepositoryPicker(context: HistoryRenderContext): string {
 
 function renderBranchFilter(view: HistoryView): string {
   const branchOid = view.context.presentation.branchOid;
-  const branches = (view.state.history?.refs ?? []).filter((ref) => ref.kind !== "tag");
+  // A truncated history may not reach a stale branch's tip, and filtering by it would show nothing.
+  const branches = (view.state.history?.refs ?? []).filter((ref) => ref.kind !== "tag" && view.commits.has(ref.oid));
   // Several refs can share a tip; mark only the first so the browser shows a stable choice.
   const selectedIndex = branches.findIndex((ref) => ref.oid === branchOid);
   const fallback = branchOid !== null && selectedIndex < 0 ? option(branchOid, abbreviate(branchOid), true) : "";

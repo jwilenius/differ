@@ -337,6 +337,27 @@ describe("HtmlHistoryRenderer", () => {
       expect(update.appendedRows).toBe("");
     });
 
+    it("renders the branch filter again only when the history or branch changes", () => {
+      const renderer = new HtmlHistoryRenderer();
+      let refReads = 0;
+      const data = Object.defineProperty({ ...history }, "refs", {
+        get: () => {
+          refReads += 1;
+          return history.refs;
+        },
+      });
+      const context = makeContext();
+      const { page } = renderer.render(makeState({ history: data }), context);
+      const readsAfterRender = refReads;
+
+      const selected = renderer.update(makeState({ history: data, selectedOids: [MIDDLE] }), context, page);
+      expect(refReads).toBe(readsAfterRender);
+
+      const filtered = renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, branchOid: MERGE } }, selected.page);
+      expect(refReads).toBeGreaterThan(readsAfterRender);
+      expect(filtered.update.regions["history-branch"]).toContain(`<option value="${MERGE}" selected>main</option>`);
+    });
+
     it("sends no regions when only the focus moves without changing the details", () => {
       const renderer = new HtmlHistoryRenderer();
       const context = makeContext();

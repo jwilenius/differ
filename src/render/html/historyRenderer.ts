@@ -188,6 +188,8 @@ const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string;
  */
 export class HtmlHistoryRenderer {
   private index: HistoryIndex | null = null;
+  /** One option per branch, which on large repositories makes it the largest region by far. */
+  private branchFilter: { readonly history: HistoryData | null; readonly branchOid: string | null; readonly markup: string } | null = null;
 
   render(state: HistoryState, context: HistoryRenderContext): HistoryDocument {
     if (!NONCE_PATTERN.test(context.nonce)) {
@@ -196,7 +198,7 @@ export class HtmlHistoryRenderer {
     const view = this.viewOf(state, context);
     const entries = this.rowsOf(view);
     const rows = rowSetOf(view, entries);
-    const regions = renderRegions(view, rows);
+    const regions = renderRegions(view, rows, this.branchFilterOf(view));
     const { assets, nonce } = context;
     const csp = [
       "default-src 'none'",
@@ -253,7 +255,7 @@ ${regions["history-details"]}
         changed[COMMIT_TABLE_ID] = renderCommitTable(view, entries, rows.graphColumns);
       }
     }
-    const regions = renderRegions(view, rows);
+    const regions = renderRegions(view, rows, this.branchFilterOf(view));
     for (const [id, markup] of Object.entries(regions)) {
       if (shown.regions[id] !== markup) {
         changed[id] = markup;
@@ -265,6 +267,18 @@ ${regions["history-details"]}
 
   private viewOf(state: HistoryState, context: HistoryPageContext): HistoryView {
     return createView(state, context, this.indexFor(state.history));
+  }
+
+  private branchFilterOf(view: HistoryView): string {
+    const { history } = view.state;
+    const { branchOid } = view.context.presentation;
+    const cached = this.branchFilter;
+    if (cached?.history === history && cached.branchOid === branchOid) {
+      return cached.markup;
+    }
+    const markup = renderBranchFilter(view);
+    this.branchFilter = { history, branchOid, markup };
+    return markup;
   }
 
   private rowsOf(view: HistoryView): readonly VisibleGraphRow[] {
@@ -337,10 +351,10 @@ type RegionId =
 
 type Regions = Readonly<Record<RegionId, string>>;
 
-function renderRegions(view: HistoryView, rows: HistoryRowSet): Regions {
+function renderRegions(view: HistoryView, rows: HistoryRowSet, branchFilter: string): Regions {
   return {
     "history-repository": renderRepositorySelect(view.context),
-    "history-branch": renderBranchFilter(view),
+    "history-branch": branchFilter,
     ...renderBaseControls(view),
     "history-selection": renderSelectionSummary(view),
     "history-status": renderStatus(view),

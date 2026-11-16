@@ -145,6 +145,36 @@ describe("GitHistoryRepository", () => {
       expect(history.isTruncated).toBe(true);
     });
 
+    it("keeps a recent branch forked before the cut instead of only the deepest line of history", async () => {
+      commit("Base", "file.txt", "2026-01-01T00:00:00Z");
+      runFixtureGit(fixture.root, ["branch", "side"]);
+      const [, , , main07, main09] = ["04", "05", "06", "07", "09"].map((day) => commit(`Main ${day}`, "file.txt", `2026-01-${day}T00:00:00Z`));
+      runFixtureGit(fixture.root, ["checkout", "-q", "side"]);
+      const side08 = commit("Side 08", "side.txt", "2026-01-08T00:00:00Z");
+
+      const history = await repository.loadHistory(cap, signal);
+
+      expect(history.commits.map((entry) => entry.oid)).toEqual([main09, side08, main07]);
+      expect(history.isTruncated).toBe(true);
+    });
+
+    it("keeps each branch's commits together when the whole history fits", async () => {
+      const base = commit("Base", "file.txt", "2026-01-01T00:00:00Z");
+      runFixtureGit(fixture.root, ["checkout", "-q", "-b", "side"]);
+      const side1 = commit("Side 1", "side.txt", "2026-01-02T00:00:00Z");
+      const side2 = commit("Side 2", "side.txt", "2026-01-04T00:00:00Z");
+      runFixtureGit(fixture.root, ["checkout", "-q", "main"]);
+      const main1 = commit("Main 1", "file.txt", "2026-01-03T00:00:00Z");
+      const main2 = commit("Main 2", "file.txt", "2026-01-05T00:00:00Z");
+
+      const history = await repository.loadHistory(MAX_COMMITS, signal);
+
+      const oids = history.commits.map((entry) => entry.oid);
+      expect(Math.abs(oids.indexOf(side1) - oids.indexOf(side2))).toBe(1);
+      expect(Math.abs(oids.indexOf(main1) - oids.indexOf(main2))).toBe(1);
+      expect(oids.at(-1)).toBe(base);
+    });
+
     it("asks Git for one commit more than the cap instead of reading the whole history", async () => {
       commitChain(cap + 2);
       const tracePath = path.join(fixture.directory, "git-trace.log");

@@ -57,9 +57,10 @@ export class GitHistoryRepository {
   ) {}
 
   /**
-   * Labels and up to `maxCommits` commits reachable from them, children before parents: the first commits of the
-   * topological walk over every label, which are the newest ones. Tips are pinned before the log is read, so refs
-   * moving meanwhile cannot mix two snapshots. An unborn repository has an empty history.
+   * Labels and up to `maxCommits` commits reachable from them, children before parents. A history over the cap keeps
+   * its newest commits by commit date, in date order; a complete one is in topological order, which keeps each
+   * branch's commits together. Tips are pinned before the log is read, so refs moving meanwhile cannot mix two
+   * snapshots. An unborn repository has an empty history.
    */
   async loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData> {
     const refs = [...await this.readRefs(signal), ...await this.readDetachedHead(signal)];
@@ -68,12 +69,16 @@ export class GitHistoryRepository {
       return { commits: [], refs: [], isTruncated: false };
     }
 
-    // One commit beyond the cap tells a history of exactly `maxCommits` commits from a longer one.
-    const args = ["log", ...LOG_OUTPUT_OPTIONS, "--topo-order", `--max-count=${maxCommits + 1}`, "-z", COMMIT_FORMAT, "--stdin"];
-    const result = await this.git(args, signal, revisionInput(tips));
-    const commits = parseCommits(result.stdout);
-    const isTruncated = commits.length > maxCommits;
-    return { commits: isTruncated ? commits.slice(0, maxCommits) : commits, refs, isTruncated };
+    // A capped topological walk follows one line of history deep before others, dropping recent branches; the
+    // date-ordered walk picks the newest commits. One commit beyond the cap tells a longer history from a full one.
+    const newest = await this.readLog("--date-order", maxCommits + 1, tips, signal);
+    const isTruncated = newest.length > maxCommits;
+    if (isTruncated) {
+      return { commits: newest.slice(0, maxCommits), refs, isTruncated };
+    }
+    // Re-reading a history that fits under the cap is cheap.
+    const commits = await this.readLog("--topo-order", maxCommits, tips, signal);
+    return { commits, refs, isTruncated };
   }
 
   /** Resolves a branch, tag or (possibly abbreviated) hash to the commit it names now. */
@@ -159,6 +164,18 @@ export class GitHistoryRepository {
       const [oid = "", ...parents] = line.split(" ");
       return { oid, parents };
     });
+  }
+
+  /** Up to `maxCount` commits reachable from `tips`, children before parents, in the given order. */
+  private async readLog(
+    order: "--date-order" | "--topo-order",
+    maxCount: number,
+    tips: readonly string[],
+    signal: AbortSignal,
+  ): Promise<readonly HistoryCommit[]> {
+    const args = ["log", ...LOG_OUTPUT_OPTIONS, order, `--max-count=${maxCount}`, "-z", COMMIT_FORMAT, "--stdin"];
+    const result = await this.git(args, signal, revisionInput(tips));
+    return parseCommits(result.stdout);
   }
 
   private async readRefs(signal: AbortSignal): Promise<readonly HistoryRef[]> {

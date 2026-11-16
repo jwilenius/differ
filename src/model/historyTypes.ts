@@ -33,7 +33,10 @@ export interface HistoryRef {
 export interface HistoryData {
   readonly commits: readonly HistoryCommit[];
   readonly refs: readonly HistoryRef[];
-  /** Older commits exist beyond the commit cap; parents outside `commits` were not loaded rather than missing. */
+  /**
+   * Older commits exist beyond the commit cap, which `commits` then fills exactly; parents outside `commits` were not
+   * loaded rather than missing.
+   */
   readonly isTruncated: boolean;
 }
 

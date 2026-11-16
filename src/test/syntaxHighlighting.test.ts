@@ -45,6 +45,13 @@ const THEME_EXTENSION: FakeExtension = {
   },
 };
 
+/** A built-in theme under the id newer VS Code gave it; VS Code 1.90 contributes it as "Default Light Modern". */
+const RENAMED_THEME_EXTENSION: FakeExtension = {
+  id: "test.renamed-theme",
+  extensionPath: path.join(FIXTURES, "themes"),
+  packageJSON: { contributes: { themes: [{ id: "Light Modern", uiTheme: "vs", path: "./base.json" }] } },
+};
+
 /** Colour of the first token on each line. */
 function firstColors(highlighted: HighlightedText): (string | null)[] {
   return highlighted.lines.map((tokens) => highlighted.styles[tokens[0]?.styleIndex ?? 0]?.color ?? null);
@@ -98,6 +105,30 @@ describe("SyntaxHighlighting", () => {
     const highlighted = await highlighting.highlight("let\n42", "demo");
 
     expect(firstColors(highlighted)).toEqual(["#569CD6", null]);
+  });
+
+  it("finds a built-in theme by its old id after VS Code renamed it, with customizations under the new id", async () => {
+    vscodeMock.extensions = [GRAMMAR_EXTENSION, RENAMED_THEME_EXTENSION];
+    vscodeMock.colorThemeKind = ColorThemeKind.Light;
+    vscodeMock.configuration.set("workbench.colorTheme", "Default Light Modern");
+    vscodeMock.configuration.set("editor.tokenColorCustomizations", {
+      "[Light Modern]": { textMateRules: [{ scope: "string", settings: { foreground: "#123456" } }] },
+    });
+
+    const highlighted = await highlighting.highlight("let\n\"s\"", "demo");
+
+    expect(firstColors(highlighted)).toEqual(["#569CD6", "#123456"]);
+    expect(problems).toEqual([]);
+  });
+
+  it("falls back to the default theme for the active kind under its renamed id", async () => {
+    vscodeMock.extensions = [GRAMMAR_EXTENSION, RENAMED_THEME_EXTENSION];
+    vscodeMock.colorThemeKind = ColorThemeKind.Light;
+
+    const highlighted = await highlighting.highlight("let", "demo");
+
+    expect(firstColors(highlighted)).toEqual(["#569CD6"]);
+    expect(problems).toEqual([]);
   });
 
   it("reports a theme that is not installed and still applies the grammar", async () => {

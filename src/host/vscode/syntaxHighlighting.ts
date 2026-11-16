@@ -46,7 +46,10 @@ const UI_THEME_KINDS: Readonly<Record<string, vscode.ColorThemeKind>> = {
   "hc-light": vscode.ColorThemeKind.HighContrastLight,
 };
 
-/** Per theme kind: the setting VS Code reads when it picks the theme automatically, and that setting's default. */
+/**
+ * Per theme kind: the setting VS Code reads when it picks the theme automatically, and that setting's default. The
+ * defaults keep the ids VS Code 1.90 contributes; {@link findTheme} maps them to the ids newer VS Code renamed them to.
+ */
 const PREFERRED_THEMES: Readonly<Partial<Record<vscode.ColorThemeKind, readonly [setting: string, fallback: string]>>> = {
   [vscode.ColorThemeKind.Light]: ["preferredLightColorTheme", "Default Light Modern"],
   [vscode.ColorThemeKind.Dark]: ["preferredDarkColorTheme", "Default Dark Modern"],
@@ -219,8 +222,22 @@ function activeTheme(themes: readonly ThemeContribution[]): ThemeContribution | 
   return findTheme(themes, workbench.get<string>(preferredSetting)) ?? findTheme(themes, fallbackTheme) ?? configured;
 }
 
+/** Built-in theme ids that newer VS Code renamed; it still accepts the old ids in settings and maps them like this. */
+const RENAMED_THEME_IDS: Readonly<Record<string, string>> = {
+  "Default Dark Modern": "Dark Modern",
+  "Default Light Modern": "Light Modern",
+  "Default Dark+": "Dark+",
+  "Default Light+": "Light+",
+  "Experimental Dark": "Dark 2026",
+  "VS Code Dark": "Dark 2026",
+  "Experimental Light": "Light 2026",
+  "VS Code Light": "Light 2026",
+};
+
+/** The theme named `settingsId`, else the theme it was renamed to, so old ids work on VS Code before and after the rename. */
 function findTheme(themes: readonly ThemeContribution[], settingsId: string | undefined): ThemeContribution | null {
-  return themes.find((theme) => theme.settingsId === settingsId) ?? null;
+  const renamedId = settingsId === undefined ? undefined : RENAMED_THEME_IDS[settingsId];
+  return themes.find((theme) => theme.settingsId === settingsId) ?? themes.find((theme) => theme.settingsId === renamedId) ?? null;
 }
 
 /**

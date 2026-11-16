@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
-import type { HistoryCommit, HistoryData, HistoryHead, HistoryRef, HistoryRefKind } from "../model/historyTypes";
+import { LOCAL_BRANCH_PREFIX, REF_NAMESPACES } from "../model/historyRefNames";
+import type { HistoryCommit, HistoryData, HistoryHead, HistoryRef } from "../model/historyTypes";
 import { runHistoryGit } from "./historyGitCommand";
 import type { HistoryGitResult } from "./historyGitCommand";
 
@@ -13,12 +14,6 @@ const COMMIT_FIELD_COUNT = 5;
 const LOG_OUTPUT_OPTIONS = ["--no-show-signature", "--encoding=UTF-8"] as const;
 
 const REF_FORMAT = "--format=%(refname)%00%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%00%(symref)";
-const LOCAL_BRANCH_PREFIX = "refs/heads/";
-const REF_NAMESPACES: ReadonlyArray<{ readonly prefix: string; readonly kind: HistoryRefKind }> = [
-  { prefix: LOCAL_BRANCH_PREFIX, kind: "localBranch" },
-  { prefix: "refs/remotes/", kind: "remoteBranch" },
-  { prefix: "refs/tags/", kind: "tag" },
-];
 
 /** One commit of an ancestry walk. */
 export interface AncestryEntry {

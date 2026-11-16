@@ -468,6 +468,7 @@ Press `F5` in VS Code to launch an Extension Development Host, then open `sample
 | `src/model/historyGraph.ts`              | Branch graph lanes and edges per commit row                    |
 | `src/model/historyVisibility.ts`         | Search and branch filtering of loaded commits                  |
 | `src/model/historyBranchFilter.ts`       | Branch filter kept by ref name; HEAD's branch by default       |
+| `src/model/historyRefNames.ts`           | Ref namespaces (`refs/heads/`, …) and the ref kinds they give  |
 | `src/git/historyGitCommand.ts`           | Binary-safe, bounded, cancellable `git` subprocess runner      |
 | `src/git/gitHistoryRepository.ts`        | Commits, refs and pinned ref resolution                        |
 | `src/git/historyComparisonResolver.ts`   | Replay order, Automatic base, merge parents                    |

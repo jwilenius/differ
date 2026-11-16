@@ -1,3 +1,4 @@
+import { LOCAL_BRANCH_PREFIX, REF_NAMESPACES } from "./historyRefNames";
 import type { HistoryData, HistoryRef } from "./historyTypes";
 
 /**
@@ -11,11 +12,8 @@ export interface BranchFilter {
 }
 
 const DETACHED_HEAD_REF = "HEAD";
-const LOCAL_BRANCH_PREFIX = "refs/heads/";
-const BRANCH_PREFIXES = [
-  { prefix: LOCAL_BRANCH_PREFIX, kind: "localBranch" },
-  { prefix: "refs/remotes/", kind: "remoteBranch" },
-] as const;
+/** Tags are not offered as branches. */
+const BRANCH_PREFIXES = REF_NAMESPACES.filter((namespace) => namespace.kind !== "tag");
 
 /** What a filter ref names: a ref of `kind` with the display `name` `HistoryRef` uses. */
 interface RefKey {

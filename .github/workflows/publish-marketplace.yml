@@ -1,0 +1,82 @@
+name: Publish to VS Code Marketplace
+
+# Marketplace publishing is a manual promotion of an existing GitHub Release: pushing tag vscode-vX.Y.Z on the commit of
+# release tag vX.Y.Z publishes that release's tested installer as it is, without rebuilding it. Authentication is
+# Marketplace Trusted Publishing: the Marketplace exchanges this job's GitHub OIDC token for a short-lived credential,
+# so no PAT is stored. Its policy names this repository, this workflow file and the marketplace environment; renaming
+# any of them breaks publishing until the policy is updated.
+on:
+  push:
+    tags: ['vscode-v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Restrict this environment to tag pattern vscode-v* in the repository settings, so no other ref can use it.
+    environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # The release's own commit, so the lockfile below is the one the installer was built and tested with.
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          # No dependency cache: this job can publish, so it installs only from the registry.
+          node-version: '22'
+      - name: Read version from tag
+        id: tag
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^vscode-v((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))$ ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' is not vscode-vX.Y.Z with a plain X.Y.Z version."
+            exit 1
+          fi
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+      # Only a commit that CI released can be published.
+      - name: Check release tag is on the same commit
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          if ! git fetch --quiet --no-tags --depth=1 origin "refs/tags/v$VERSION:refs/tags/v$VERSION"; then
+            echo "::error::Cannot fetch release tag v$VERSION; push vscode-v$VERSION only for a released version."
+            exit 1
+          fi
+          release_commit=$(git rev-parse "refs/tags/v$VERSION^{commit}")
+          tag_commit=$(git rev-parse HEAD)
+          if [[ "$release_commit" != "$tag_commit" ]]; then
+            echo "::error::$GITHUB_REF_NAME is on $tag_commit, but release tag v$VERSION is on $release_commit."
+            exit 1
+          fi
+      - name: Download release installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          gh release download "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "jw-differ-$VERSION.vsix" \
+            --dir "$RUNNER_TEMP/installer"
+      # The Marketplace takes the extension id and version from the manifest packaged in the installer.
+      - name: Check installer manifest
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          manifest=$(unzip -p "$RUNNER_TEMP/installer/jw-differ-$VERSION.vsix" extension/package.json)
+          identity=$(jq -r '"\(.publisher).\(.name)@\(.version)"' <<< "$manifest")
+          if [[ "$identity" != "jwilenius.jw-differ@$VERSION" ]]; then
+            echo "::error::Installer manifest is $identity, expected jwilenius.jw-differ@$VERSION."
+            exit 1
+          fi
+      # vsce comes from the lockfile, behind the same checks as the build. It runs with this job's OIDC token, and
+      # publishing a VSIX needs none of the install scripts.
+      - run: npm run check:deps
+      - run: npm ci --ignore-scripts
+      - run: npm run check:signatures
+      - name: Publish to Marketplace
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: node_modules/.bin/vsce publish --oidc --packagePath "$RUNNER_TEMP/installer/jw-differ-$VERSION.vsix"

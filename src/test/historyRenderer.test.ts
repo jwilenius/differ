@@ -81,6 +81,31 @@ function publicState(html: string): HistoryPublicState {
   return JSON.parse(decodeAttribute(match[1]!)) as HistoryPublicState;
 }
 
+/** The whole `<tr>` of a commit row. */
+function rowHtml(html: string, id: string): string {
+  const start = html.indexOf(rowFor(html, id));
+  return html.slice(start, html.indexOf("</tr>", start) + "</tr>".length);
+}
+
+/** `count` branch tips side by side, each on its own parent, all joining one root below. */
+function wideHistory(count: number): HistoryData {
+  const tips = Array.from({ length: count }, (_, index) => commit(oid(1_000 + index), `tip ${index}`, [oid(2_000 + index)]));
+  const bases = Array.from({ length: count }, (_, index) => commit(oid(2_000 + index), `base ${index}`, [ROOT]));
+  return { commits: [...tips, ...bases, commit(ROOT, "Initial", [])], refs: [], isTruncated: false };
+}
+
+function renderAll(data: HistoryData): string {
+  const visibleOids = data.commits.map((entry) => entry.oid);
+  return render({ history: data }, {
+    visibleOids,
+    presentation: { search: "", branchOid: null, focusedOid: null, rowLimit: visibleOids.length },
+  });
+}
+
+function numbers(html: string, pattern: RegExp): readonly number[] {
+  return [...html.matchAll(pattern)].map((match) => Number(match[1]));
+}
+
 function rowFor(html: string, id: string): string {
   const match = new RegExp(`<tr [^>]*data-oid="${id}"[^>]*>`).exec(html);
   if (!match) {
@@ -135,6 +160,21 @@ describe("HtmlHistoryRenderer", () => {
     expect(graphOf(MIDDLE)).toContain("graph-cut");
     expect(graphOf(MERGE)).not.toContain("graph-cut");
     expect(complete).not.toContain("graph-cut");
+  });
+
+  it("keeps stubs to unloaded parents within the node's own column", () => {
+    const octopus: HistoryData = {
+      commits: [commit(MERGE, "Octopus", [MIDDLE, oid(90), oid(91), oid(92)]), commit(MIDDLE, "Middle work", [])],
+      refs: [],
+      isTruncated: true,
+    };
+
+    const html = render({ history: octopus }, { visibleOids: [MERGE, MIDDLE] });
+    const stubs = [...rowHtml(html, MERGE).matchAll(/<line class="[^"]*graph-cut" x1="([\d.]+)" y1="[\d.]+" x2="([\d.]+)"/g)];
+
+    expect(stubs).toHaveLength(3);
+    expect(stubs.every(([, x1, x2]) => Number(x1) === 6 && Number(x2) > 6 && Number(x2) < 12)).toBe(true);
+    expect(rowHtml(html, MERGE)).toContain('<svg class="graph" width="12"');
   });
 
   it("marks hidden rows in the graph instead of joining visible rows", () => {
@@ -369,5 +409,59 @@ describe("HtmlHistoryRenderer", () => {
   it("reports an empty repository and a load error", () => {
     expect(render({ history: { commits: [], refs: [], isTruncated: false } }, { visibleOids: [] })).toContain("This repository has no commits");
     expect(render({ error: { operation: "load", message: "git missing" } })).toContain("Could not load history: git missing");
+  });
+});
+
+describe("HtmlHistoryRenderer graph width", () => {
+  const LANE_WIDTH = 12;
+  const DRAWN_LANES = 16;
+  const OVERFLOW_X = DRAWN_LANES * LANE_WIDTH + LANE_WIDTH / 2;
+  const OVERFLOW_EDGE = DRAWN_LANES * LANE_WIDTH;
+
+  it("draws at most 16 lanes plus one overflow column, however wide the history", () => {
+    for (const count of [17, 40]) {
+      const html = renderAll(wideHistory(count));
+
+      expect(new Set(numbers(html, /<svg class="graph" width="(\d+)"/g))).toEqual(new Set([(DRAWN_LANES + 1) * LANE_WIDTH]));
+      expect(Math.max(...numbers(html, / cx="([\d.]+)"/g))).toBe(OVERFLOW_X);
+    }
+  });
+
+  it("marks commits in the overflow column with a distinct node", () => {
+    const html = renderAll(wideHistory(24));
+
+    expect(rowHtml(html, oid(1_000 + 15))).not.toContain("is-overflow");
+    for (const index of [16, 20, 23]) {
+      expect(rowHtml(html, oid(1_000 + index))).toMatch(new RegExp(`<circle class="graph-node lane-\\d is-overflow" cx="${OVERFLOW_X}" cy="11"`));
+    }
+  });
+
+  it("draws no line between lanes it does not draw, and clips lines into the overflow at its edge", () => {
+    const html = renderAll(wideHistory(24));
+    const lines = [...html.matchAll(/<line class="([^"]*)" x1="([\d.]+)" y1="[\d.]+" x2="([\d.]+)"/g)]
+      .map(([, classes, x1, x2]) => ({ classes: classes!, x1: Number(x1), x2: Number(x2) }));
+    const clipped = lines.filter((line) => line.classes.includes("graph-clipped"));
+
+    expect(lines.every((line) => Math.min(line.x1, line.x2) < OVERFLOW_EDGE)).toBe(true);
+    expect(lines.every((line) => Math.max(line.x1, line.x2) <= OVERFLOW_X)).toBe(true);
+    expect(clipped.length).toBeGreaterThan(0);
+    expect(clipped.every((line) => Math.max(line.x1, line.x2) === OVERFLOW_EDGE)).toBe(true);
+  });
+
+  it("explains the collapsed lanes on rows that reach the overflow column", () => {
+    const html = renderAll(wideHistory(24));
+
+    expect(rowHtml(html, oid(1_000))).not.toMatch(/<td class="graph-cell"[^>]* title=/);
+    expect(rowHtml(html, oid(1_000 + 20))).toMatch(/<td class="graph-cell" role="gridcell" title="[^"]*too wide[^"]*">/);
+  });
+
+  it("leaves graphs within 16 lanes unchanged", () => {
+    const html = renderAll(wideHistory(DRAWN_LANES));
+
+    expect(new Set(numbers(html, /<svg class="graph" width="(\d+)"/g))).toEqual(new Set([DRAWN_LANES * LANE_WIDTH]));
+    expect(html).not.toContain("is-overflow");
+    expect(html).not.toContain("graph-clipped");
+    expect(html).not.toMatch(/<td class="graph-cell"[^>]* title=/);
+    expect(rowHtml(html, oid(1_000 + 15))).toContain(`<circle class="graph-node lane-7" cx="${15 * LANE_WIDTH + 6}" cy="11" r="3.5"/>`);
   });
 });

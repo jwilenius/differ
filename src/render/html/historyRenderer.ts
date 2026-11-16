@@ -1,5 +1,5 @@
 import { HistoryGraphLayout, visibleGraphRows } from "../../model/historyGraph";
-import type { GraphSegment, VisibleGraphRow } from "../../model/historyGraph";
+import type { GraphSegment, HistoryGraphRow, VisibleGraphRow } from "../../model/historyGraph";
 import { describeResolvedBase, shortHash as abbreviate } from "../../model/historyLabels";
 import type {
   ComparisonFile,
@@ -89,8 +89,16 @@ interface StatusLine {
 const LANE_WIDTH = 12;
 const ROW_HEIGHT = 22;
 const NODE_RADIUS = 3.5;
+/** Lanes drawn apart. Later lanes share one overflow column, so a very branchy history keeps a usable width. */
+const DRAWN_LANE_COUNT = 16;
+const OVERFLOW_COLUMN = DRAWN_LANE_COUNT;
+/** Lines into the overflow column end at its left edge. */
+const OVERFLOW_EDGE_X = OVERFLOW_COLUMN * LANE_WIDTH;
+const OVERFLOW_TITLE = `The graph is too wide to draw every line: lanes after the first ${DRAWN_LANE_COUNT} share the last column`;
 /** Cut stubs stop short of the row's bottom edge, so they never read as a line continuing into the next row. */
 const CUT_STUB_END_Y = ROW_HEIGHT - 2;
+/** How far right of its node the most angled cut stub ends; stubs stay within the node's column. */
+const CUT_STUB_SPREAD = LANE_WIDTH / 2 - 1;
 const LANE_COLOR_COUNT = 8;
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
 const ISO_MINUTE_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
@@ -355,11 +363,11 @@ function describeComparison(view: HistoryView, comparison: ComparisonResult | nu
 // ---------------------------------------------------------- commit table
 
 function renderCommitPane(view: HistoryView, rows: readonly VisibleGraphRow[], visibleCount: number): string {
-  const graphLanes = Math.max(1, ...rows.map((entry) => entry.row.width));
+  const graphColumns = Math.min(OVERFLOW_COLUMN + 1, Math.max(1, ...rows.map((entry) => entry.row.width)));
   const focusedOid = rows.some((entry) => entry.row.oid === view.context.presentation.focusedOid)
     ? view.context.presentation.focusedOid
     : rows[0]?.row.oid ?? null;
-  const body = rows.map((entry) => renderCommitRow(view, entry, graphLanes, entry.row.oid === focusedOid)).join("\n");
+  const body = rows.map((entry) => renderCommitRow(view, entry, graphColumns, entry.row.oid === focusedOid)).join("\n");
   const remaining = visibleCount - rows.length;
   const loadMore = remaining > 0
     ? `<button id="history-load-more" class="load-more" data-row-limit="${rows.length + HISTORY_PAGE_SIZE}">Load more (${formatCount(remaining)} more)</button>`
@@ -383,15 +391,16 @@ ${truncatedNote}
 }
 
 /** `hasTabStop` marks the one row Tab reaches; `is-focused` marks the user's focused row. */
-function renderCommitRow(view: HistoryView, entry: VisibleGraphRow, graphLanes: number, hasTabStop: boolean): string {
+function renderCommitRow(view: HistoryView, entry: VisibleGraphRow, graphColumns: number, hasTabStop: boolean): string {
   const commit = view.commitOf(entry.row.oid)!;
   const isSelected = view.selected.has(commit.oid);
   const isFocused = commit.oid === view.context.presentation.focusedOid;
   const classes = ["commit-row", isSelected ? "is-selected" : "", isFocused ? "is-focused" : ""].filter(Boolean).join(" ");
   const current = isFocused ? ` aria-current="true"` : "";
+  const graphTitle = entry.row.width > DRAWN_LANE_COUNT ? ` title="${OVERFLOW_TITLE}"` : "";
 
   return `<tr class="${classes}" role="row" data-oid="${escapeHtml(commit.oid)}" aria-selected="${isSelected}" tabindex="${hasTabStop ? 0 : -1}"${current}>`
-    + `<td class="graph-cell" role="gridcell">${renderGraph(entry, graphLanes, commit.parents.length > 1)}</td>`
+    + `<td class="graph-cell" role="gridcell"${graphTitle}>${renderGraph(entry, graphColumns, commit.parents.length > 1)}</td>`
     + `<td class="subject-cell" role="gridcell">${renderRefLabels(view, commit.oid)}<span class="subject">${escapeHtml(commit.subject)}</span></td>`
     + `<td class="author-cell" role="gridcell">${escapeHtml(commit.author)}</td>`
     + `<td class="date-cell" role="gridcell"><time datetime="${escapeHtml(commit.authoredDate)}">${escapeHtml(formatDate(commit.authoredDate))}</time></td>`
@@ -409,37 +418,73 @@ function renderRefLabels(view: HistoryView, oid: string): string {
 
 /**
  * Decorative SVG; dashed `graph-gap` lines mark rows hidden by filters instead
- * of joining across them, and short `graph-cut` stubs mark parents beyond the
- * loaded history.
+ * of joining across them, short `graph-cut` stubs mark parents beyond the
+ * loaded history, and lanes after the first `DRAWN_LANE_COUNT` share one
+ * overflow column with hollow `is-overflow` nodes.
  */
-function renderGraph(entry: VisibleGraphRow, lanes: number, isMerge: boolean): string {
+function renderGraph(entry: VisibleGraphRow, columns: number, isMerge: boolean): string {
   const { row } = entry;
-  const width = lanes * LANE_WIDTH;
+  const width = columns * LANE_WIDTH;
   const middle = ROW_HEIGHT / 2;
-  const upper = row.upper.map((segment) => renderSegment(segment, 0, middle, entry.hasHiddenAbove));
-  const lower = row.lower.map((segment) => renderSegment(segment, middle, ROW_HEIGHT, entry.hasHiddenBelow));
-  const cuts = row.cuts.map((segment) => renderCutStub(segment, middle));
-  const nodeClass = `graph-node ${laneClass(row.color)}${isMerge ? " is-merge" : ""}`;
-  const node = `<circle class="${nodeClass}" cx="${laneX(row.lane)}" cy="${middle}" r="${NODE_RADIUS}"/>`;
+  const upper = row.upper.map((segment) => renderSegment(segment, 0, middle, entry.hasHiddenAbove, false));
+  const lower = row.lower.map((segment) => renderSegment(segment, middle, ROW_HEIGHT, entry.hasHiddenBelow, segment.from === row.lane));
+  const cuts = renderCutStubs(row, middle);
+  const isOverflow = row.lane >= OVERFLOW_COLUMN;
+  const nodeClass = `graph-node ${laneClass(row.color)}${isMerge ? " is-merge" : ""}${isOverflow ? " is-overflow" : ""}`;
+  const node = `<circle class="${nodeClass}" cx="${columnX(row.lane)}" cy="${middle}" r="${NODE_RADIUS}"/>`;
 
   return `<svg class="graph" width="${width}" height="${ROW_HEIGHT}" viewBox="0 0 ${width} ${ROW_HEIGHT}" aria-hidden="true" focusable="false">${upper.join("")}${lower.join("")}${cuts.join("")}${node}</svg>`;
 }
 
-function renderSegment(segment: GraphSegment, y1: number, y2: number, isGap: boolean): string {
+/**
+ * Lanes in the overflow column share one position, so a line between two of
+ * them would join unrelated lanes and is left out. A line between a drawn lane
+ * and the overflow column fades out at the column's edge, unless it starts at
+ * this row's node, which the column shows.
+ */
+function renderSegment(segment: GraphSegment, y1: number, y2: number, isGap: boolean, startsAtNode: boolean): string {
   const classes = `graph-edge ${laneClass(segment.color)}${isGap ? " graph-gap" : ""}`;
-  return `<line class="${classes}" x1="${laneX(segment.from)}" y1="${y1}" x2="${laneX(segment.to)}" y2="${y2}"/>`;
+  const isFromOverflow = segment.from >= OVERFLOW_COLUMN;
+  const isToOverflow = segment.to >= OVERFLOW_COLUMN;
+  if (isFromOverflow && isToOverflow) {
+    return "";
+  }
+  if (isToOverflow || (isFromOverflow && !startsAtNode)) {
+    return renderClippedSegment(classes, laneX(segment.from), y1, laneX(segment.to), y2);
+  }
+  return `<line class="${classes}" x1="${columnX(segment.from)}" y1="${y1}" x2="${laneX(segment.to)}" y2="${y2}"/>`;
 }
 
-/** The first part of the lower segment the parent would have had, from the node toward `to`. */
-function renderCutStub(segment: GraphSegment, middle: number): string {
-  const fromX = laneX(segment.from);
-  const shortening = (CUT_STUB_END_Y - middle) / (ROW_HEIGHT - middle);
-  const endX = fromX + (laneX(segment.to) - fromX) * shortening;
-  return `<line class="graph-edge ${laneClass(segment.color)} graph-cut" x1="${fromX}" y1="${middle}" x2="${endX}" y2="${CUT_STUB_END_Y}"/>`;
+/** The part of a line left of the overflow column; exactly one end lies beyond its edge. */
+function renderClippedSegment(classes: string, x1: number, y1: number, x2: number, y2: number): string {
+  const edgeY = roundCoordinate(y1 + ((y2 - y1) * (OVERFLOW_EDGE_X - x1)) / (x2 - x1));
+  const [startX, startY, endX, endY] = x1 < x2 ? [x1, y1, OVERFLOW_EDGE_X, edgeY] : [OVERFLOW_EDGE_X, edgeY, x2, y2];
+  return `<line class="${classes} graph-clipped" x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY}"/>`;
 }
 
+/** Short lines from the node, fanned by how far right of it each stub aims, within the node's column. */
+function renderCutStubs(row: HistoryGraphRow, middle: number): readonly string[] {
+  const widestOffset = Math.max(1, ...row.cuts.map((segment) => segment.to - segment.from));
+  return row.cuts.map((segment) => {
+    const fromX = columnX(segment.from);
+    const endX = roundCoordinate(fromX + (CUT_STUB_SPREAD * (segment.to - segment.from)) / widestOffset);
+    return `<line class="graph-edge ${laneClass(segment.color)} graph-cut" x1="${fromX}" y1="${middle}" x2="${endX}" y2="${CUT_STUB_END_Y}"/>`;
+  });
+}
+
+/** Centre of a lane, which may lie beyond the drawn columns. */
 function laneX(lane: number): number {
   return requireLaneNumber(lane) * LANE_WIDTH + LANE_WIDTH / 2;
+}
+
+/** Centre of the column that shows a lane. */
+function columnX(lane: number): number {
+  return laneX(Math.min(requireLaneNumber(lane), OVERFLOW_COLUMN));
+}
+
+/** Keeps computed coordinates short in the HTML. */
+function roundCoordinate(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function laneClass(color: number): string {

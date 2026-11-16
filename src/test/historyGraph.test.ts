@@ -125,13 +125,13 @@ describe("graph rows", () => {
     expect(row?.width).toBe(1);
   });
 
-  it("angles stubs for unloaded parents beside the lane to a loaded parent", () => {
+  it("angles stubs for unloaded parents beside the lane to a loaded parent, without widening the row", () => {
     const rows = layOutAll([commit("m", "p1", "gone1", "gone2"), commit("p1")]);
     const merge = rowOf(rows, "m");
 
     expect(ends(merge.lower)).toEqual([[0, 0]]);
     expect(ends(merge.cuts)).toEqual([[0, 1], [0, 2]]);
-    expect(merge.width).toBe(3);
+    expect(merge.width).toBe(1);
   });
 
   it("draws no stubs for true roots or for parents that are loaded", () => {

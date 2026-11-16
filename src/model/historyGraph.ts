@@ -21,11 +21,12 @@ export interface HistoryGraphRow {
   readonly lower: readonly GraphSegment[];
   /**
    * Short lower stubs from the node for parents beyond the loaded commits:
-   * straight down when no loaded parent continues the lane, else angled to
-   * the lanes right of the node, one per unloaded parent.
+   * straight down when no loaded parent continues the lane, else angled
+   * toward the lanes right of the node, one per unloaded parent. Stubs stay
+   * within the node's lane, so `to` only orders them.
    */
   readonly cuts: readonly GraphSegment[];
-  /** Number of lane positions this row touches; at least `lane + 1`. */
+  /** Number of lane positions this row's lines and node use; at least `lane + 1`. */
   readonly width: number;
 }
 
@@ -252,7 +253,6 @@ function buildRow({ commit, parents, placement }: PlacedCommit, incoming: readon
     color: nodeColor,
   }));
 
-  const widestCut = firstCutLane + unloadedParentCount;
-  const width = Math.max(nodeLane + 1, incoming.length, middle.length, outgoing.length, widestCut);
+  const width = Math.max(nodeLane + 1, incoming.length, middle.length, outgoing.length);
   return { oid, lane: nodeLane, color: nodeColor, upper, lower, cuts, width };
 }

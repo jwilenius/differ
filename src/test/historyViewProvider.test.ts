@@ -620,6 +620,22 @@ describe("HistoryViewProvider", () => {
     expect(publicState(view).selectedOids).toEqual([C3]);
   });
 
+  it("takes a search from a document shown again as soon as it loads, posting nothing it already shows", async () => {
+    await open();
+    view.fireDidChangeVisibility(false);
+    view.fireDidChangeVisibility(true);
+    loadDocument(view);
+    await settle();
+    const shownRevision = documentState(view).revision;
+    expect(updates(view)).toEqual([]);
+
+    // Sent before any update could arrive.
+    view.webview.fireDidReceiveMessage({ type: "presentation", revision: shownRevision, search: "c3", branchOid: null, focusedOid: null, rowLimit: 200 });
+    await settle();
+
+    expect(publicState(view).search).toBe("c3");
+  });
+
   it("accepts a selection from a document older only by presentation changes", async () => {
     await open();
     const olderRevision = publicState(view).revision;

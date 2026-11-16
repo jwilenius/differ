@@ -346,7 +346,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       // Any other revision is a replaced document whose updates would be lost.
       if (this.document !== null && message.revision === this.document.revision) {
         this.shownPage = this.document.page;
-        this.publish();
+        // Only publications made while it loaded are missing: a needless one would make its next intents stale.
+        if (this.published.wireRevision !== this.document.revision) {
+          this.publish();
+        }
       }
       return;
     }
@@ -566,7 +569,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       this.shownPage = null;
       return;
     }
-    // A loading document announces itself with `ready`, which publishes again.
+    // A loading document announces itself with `ready`, which publishes again if it missed a publication.
     if (this.shownPage !== null) {
       const patch = this.renderer.update(state, context, this.shownPage);
       void view.webview.postMessage(patch.update);

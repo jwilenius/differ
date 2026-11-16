@@ -370,6 +370,9 @@ For a local installer, use Node.js 22, run `npm ci`, then `npm run package`.
 
 ## Build and test
 
+Project-local Node.js (version in `.node-version`; npm included), signature- and checksum-verified into `.node/`:
+`scripts/install-node.sh`, then `export PATH="$PWD/.node/bin:$PATH"`.
+
 ```sh
 npm install         # deps
 npm run build       # bundle to dist/extension.js

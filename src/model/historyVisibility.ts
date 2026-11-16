@@ -34,8 +34,6 @@ interface VisibleResult {
   readonly history: HistoryData | null;
   readonly filter: CommitFilter;
   readonly oids: readonly string[];
-  /** `oids` as a set, built on first use. */
-  set?: ReadonlySet<string>;
 }
 
 /**
@@ -45,6 +43,8 @@ interface VisibleResult {
  */
 export class VisibleCommitCache {
   private lastVisible: VisibleResult | null = null;
+  /** The last visible OIDs as a set, built on first use by `hiddenCount`. */
+  private lastVisibleSet: { readonly oids: readonly string[]; readonly set: ReadonlySet<string> } | null = null;
   private lastReachable: { readonly history: HistoryData; readonly tipOid: string; readonly oids: ReadonlySet<string> } | null = null;
 
   visibleOids(history: HistoryData | null, filter: CommitFilter): readonly string[] {
@@ -56,9 +56,11 @@ export class VisibleCommitCache {
     if (oids.length === 0) {
       return 0;
     }
-    const result = this.visible(history, filter);
-    result.set ??= new Set(result.oids);
-    const visible = result.set;
+    const visibleOids = this.visible(history, filter).oids;
+    if (this.lastVisibleSet?.oids !== visibleOids) {
+      this.lastVisibleSet = { oids: visibleOids, set: new Set(visibleOids) };
+    }
+    const visible = this.lastVisibleSet.set;
     return oids.filter((oid) => !visible.has(oid)).length;
   }
 

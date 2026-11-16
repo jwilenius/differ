@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { branchFilterRef, isBranchFilterRef, resolveBranchFilter } from "../model/historyBranchFilter";
+import { branchFilterRef, headBranchFilter, isBranchFilterRef, resolveBranchFilter } from "../model/historyBranchFilter";
 import type { HistoryData } from "../model/historyTypes";
 
 const MAIN = "a".repeat(40);
@@ -17,6 +17,7 @@ const HISTORY: HistoryData = {
     { kind: "head", name: "HEAD", oid: DETACHED },
     { kind: "localBranch", name: "stale", oid: UNLOADED },
   ],
+  head: null,
   isTruncated: false,
 };
 
@@ -57,5 +58,20 @@ describe("resolveBranchFilter", () => {
     expect(resolveBranchFilter(HISTORY, "refs/tags/main", isLoaded)).toBeNull();
     expect(resolveBranchFilter(HISTORY, "refs/heads/stale", isLoaded)).toBeNull();
     expect(resolveBranchFilter(null, "refs/heads/main", isLoaded)).toBeNull();
+  });
+});
+
+describe("headBranchFilter", () => {
+  it("filters by the checked-out local branch, not another ref sharing its tip or name", () => {
+    const history: HistoryData = { ...HISTORY, head: { oid: MAIN, branch: "origin/main" } };
+
+    expect(headBranchFilter(history, isLoaded)).toEqual({ ref: "refs/heads/origin/main", tipOid: MAIN });
+  });
+
+  it("is null for a detached, unborn or unloaded HEAD", () => {
+    expect(headBranchFilter({ ...HISTORY, head: { oid: DETACHED, branch: null } }, isLoaded)).toBeNull();
+    expect(headBranchFilter({ ...HISTORY, head: null }, isLoaded)).toBeNull();
+    expect(headBranchFilter({ ...HISTORY, head: { oid: UNLOADED, branch: "stale" } }, isLoaded)).toBeNull();
+    expect(headBranchFilter(null, isLoaded)).toBeNull();
   });
 });

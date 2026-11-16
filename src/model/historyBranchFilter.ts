@@ -11,8 +11,9 @@ export interface BranchFilter {
 }
 
 const DETACHED_HEAD_REF = "HEAD";
+const LOCAL_BRANCH_PREFIX = "refs/heads/";
 const BRANCH_PREFIXES = [
-  { prefix: "refs/heads/", kind: "localBranch" },
+  { prefix: LOCAL_BRANCH_PREFIX, kind: "localBranch" },
   { prefix: "refs/remotes/", kind: "remoteBranch" },
 ] as const;
 
@@ -45,6 +46,12 @@ export function resolveBranchFilter(
   const key = parseBranchFilterRef(ref);
   const match = key && history?.refs.find((candidate) => candidate.kind === key.kind && candidate.name === key.name);
   return match && isLoaded(match.oid) ? { ref, tipOid: match.oid } : null;
+}
+
+/** The filter for HEAD's branch while its tip is loaded; null for a detached, unborn or missing HEAD. */
+export function headBranchFilter(history: HistoryData | null, isLoaded: (oid: string) => boolean): BranchFilter | null {
+  const branch = history?.head?.branch;
+  return branch ? resolveBranchFilter(history, `${LOCAL_BRANCH_PREFIX}${branch}`, isLoaded) : null;
 }
 
 function parseBranchFilterRef(value: string): RefKey | null {

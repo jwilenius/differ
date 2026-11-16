@@ -30,6 +30,7 @@ const history: HistoryData = {
     { kind: "localBranch", name: "main", oid: MERGE },
     { kind: "tag", name: "v1", oid: ROOT },
   ],
+  head: null,
   isTruncated: false,
 };
 
@@ -92,7 +93,7 @@ function rowHtml(html: string, id: string): string {
 function wideHistory(count: number): HistoryData {
   const tips = Array.from({ length: count }, (_, index) => commit(oid(1_000 + index), `tip ${index}`, [oid(2_000 + index)]));
   const bases = Array.from({ length: count }, (_, index) => commit(oid(2_000 + index), `base ${index}`, [ROOT]));
-  return { commits: [...tips, ...bases, commit(ROOT, "Initial", [])], refs: [], isTruncated: false };
+  return { commits: [...tips, ...bases, commit(ROOT, "Initial", [])], refs: [], head: null, isTruncated: false };
 }
 
 function renderAll(data: HistoryData): string {
@@ -167,6 +168,7 @@ describe("HtmlHistoryRenderer", () => {
     const octopus: HistoryData = {
       commits: [commit(MERGE, "Octopus", [MIDDLE, oid(90), oid(91), oid(92)]), commit(MIDDLE, "Middle work", [])],
       refs: [],
+      head: null,
       isTruncated: true,
     };
 
@@ -287,7 +289,7 @@ describe("HtmlHistoryRenderer", () => {
 
   it("renders one page of rows and a Load more action", () => {
     const many = Array.from({ length: HISTORY_PAGE_SIZE + 1 }, (_, index) => commit(oid(100 + index), `c${index}`, []));
-    const state = makeState({ history: { commits: many, refs: [], isTruncated: false } });
+    const state = makeState({ history: { commits: many, refs: [], head: null, isTruncated: false } });
     const { html } = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
 
     expect(html.match(/<tr class="commit-row/g)).toHaveLength(HISTORY_PAGE_SIZE);
@@ -306,7 +308,7 @@ describe("HtmlHistoryRenderer", () => {
         },
       }) as HistoryCommit;
     });
-    const state = makeState({ history: { commits: chain, refs: [], isTruncated: false } });
+    const state = makeState({ history: { commits: chain, refs: [], head: null, isTruncated: false } });
     const visibleOids = chain.map((entry) => entry.oid);
     const renderer = new HtmlHistoryRenderer();
     const contextFor = (rowLimit: number): HistoryRenderContext => makeContext({
@@ -331,7 +333,7 @@ describe("HtmlHistoryRenderer", () => {
   describe("update", () => {
     function chain(count: number): HistoryData {
       const commits = Array.from({ length: count }, (_, index) => commit(oid(100 + index), `c${index}`, index === count - 1 ? [] : [oid(101 + index)]));
-      return { commits, refs: [], isTruncated: false };
+      return { commits, refs: [], head: null, isTruncated: false };
     }
 
     function rowsIn(markup: string): string[] {
@@ -462,7 +464,7 @@ describe("HtmlHistoryRenderer", () => {
 
   it("says how many of the newest commits a truncated history shows, with thousands separators", () => {
     const many = Array.from({ length: 1_234 }, (_, index) => commit(oid(100 + index), `c${index}`, []));
-    const state = makeState({ history: { commits: many, refs: [], isTruncated: true } });
+    const state = makeState({ history: { commits: many, refs: [], head: null, isTruncated: true } });
 
     const { html } = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
 
@@ -545,6 +547,7 @@ describe("HtmlHistoryRenderer", () => {
     const hostileHistory: HistoryData = {
       commits: [{ ...commit(ROOT, hostile, []), author: hostile }],
       refs: [{ kind: "localBranch", name: hostile, oid: ROOT }],
+      head: null,
       isTruncated: false,
     };
     const html = render(
@@ -585,7 +588,7 @@ describe("HtmlHistoryRenderer", () => {
   });
 
   it("reports an empty repository and a load error", () => {
-    expect(render({ history: { commits: [], refs: [], isTruncated: false } }, { visibleOids: [] })).toContain("This repository has no commits");
+    expect(render({ history: { commits: [], refs: [], head: null, isTruncated: false } }, { visibleOids: [] })).toContain("This repository has no commits");
     expect(render({ error: { operation: "load", message: "git missing" } })).toContain("Could not load history: git missing");
   });
 });

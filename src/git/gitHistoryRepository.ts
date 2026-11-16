@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import type { HistoryCommit, HistoryData, HistoryRef, HistoryRefKind } from "../model/historyTypes";
+import type { HistoryCommit, HistoryData, HistoryHead, HistoryRef, HistoryRefKind } from "../model/historyTypes";
 import { runHistoryGit } from "./historyGitCommand";
 import type { HistoryGitResult } from "./historyGitCommand";
 
@@ -13,8 +13,9 @@ const COMMIT_FIELD_COUNT = 5;
 const LOG_OUTPUT_OPTIONS = ["--no-show-signature", "--encoding=UTF-8"] as const;
 
 const REF_FORMAT = "--format=%(refname)%00%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%00%(symref)";
+const LOCAL_BRANCH_PREFIX = "refs/heads/";
 const REF_NAMESPACES: ReadonlyArray<{ readonly prefix: string; readonly kind: HistoryRefKind }> = [
-  { prefix: "refs/heads/", kind: "localBranch" },
+  { prefix: LOCAL_BRANCH_PREFIX, kind: "localBranch" },
   { prefix: "refs/remotes/", kind: "remoteBranch" },
   { prefix: "refs/tags/", kind: "tag" },
 ];
@@ -63,10 +64,12 @@ export class GitHistoryRepository {
    * snapshots. An unborn repository has an empty history.
    */
   async loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData> {
-    const refs = [...await this.readRefs(signal), ...await this.readDetachedHead(signal)];
+    const branches = await this.readRefs(signal);
+    const { head, detachedRefs } = await this.readHead(branches, signal);
+    const refs = [...branches, ...detachedRefs];
     const tips = [...new Set(refs.map((ref) => ref.oid))];
     if (tips.length === 0) {
-      return { commits: [], refs: [], isTruncated: false };
+      return { commits: [], refs: [], head: null, isTruncated: false };
     }
 
     // A capped topological walk follows one line of history deep before others, dropping recent branches; the
@@ -74,7 +77,7 @@ export class GitHistoryRepository {
     // full one far more cheaply than formatting the log twice.
     const isTruncated = await this.countCommits(maxCommits + 1, tips, signal) > maxCommits;
     const commits = await this.readLog(isTruncated ? "--date-order" : "--topo-order", maxCommits, tips, signal);
-    return { commits, refs, isTruncated };
+    return { commits, refs, head, isTruncated };
   }
 
   /** Resolves a branch, tag or (possibly abbreviated) hash to the commit it names now. */
@@ -193,17 +196,28 @@ export class GitHistoryRepository {
     });
   }
 
-  /** `HEAD` when it points directly at a commit; an attached HEAD is already covered by its branch. */
-  private async readDetachedHead(signal: AbortSignal): Promise<readonly HistoryRef[]> {
+  /**
+   * This working tree's HEAD, plus a `HEAD` ref when it points directly at a commit; an attached HEAD is already
+   * covered by its branch in `refs`, which also gives its commit. HEAD is per worktree, so a linked worktree reports its
+   * own branch. A HEAD attached to a branch without commits, or to something other than a local branch, is null.
+   */
+  private async readHead(
+    refs: readonly HistoryRef[],
+    signal: AbortSignal,
+  ): Promise<{ readonly head: HistoryHead | null; readonly detachedRefs: readonly HistoryRef[] }> {
     const symbolic = await this.git(["symbolic-ref", "-q", "HEAD"], signal, undefined, [0, 1]);
     const isAttached = symbolic.exitCode === 0;
     if (isAttached) {
-      return [];
+      const refName = symbolic.stdout.toString("utf8").trim();
+      const branch = refs.find((ref) => ref.kind === "localBranch" && `${LOCAL_BRANCH_PREFIX}${ref.name}` === refName);
+      return { head: branch ? { oid: branch.oid, branch: branch.name } : null, detachedRefs: [] };
     }
 
-    const head = await this.git(["rev-parse", "--verify", "-q", "HEAD^{commit}"], signal, undefined, [0, 1]);
-    const oid = head.stdout.toString("utf8").trim();
-    return head.exitCode === 0 ? [{ kind: "head", name: "HEAD", oid }] : [];
+    const rev = await this.git(["rev-parse", "--verify", "-q", "HEAD^{commit}"], signal, undefined, [0, 1]);
+    const oid = rev.stdout.toString("utf8").trim();
+    return rev.exitCode === 0
+      ? { head: { oid, branch: null }, detachedRefs: [{ kind: "head", name: "HEAD", oid }] }
+      : { head: null, detachedRefs: [] };
   }
 
   private async assertCommitsExist(oids: readonly string[], signal: AbortSignal): Promise<void> {

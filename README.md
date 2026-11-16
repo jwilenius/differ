@@ -61,6 +61,10 @@ the left; changed files, replay order and commit details on the right.
 
 - **Search** filters by subject or hash (literal, case-insensitive); the branch filter shows commits reachable from
   that branch. Filtering never changes the selection — selected commits it hides are counted next to the selection.
+- The branch filter starts on the checked-out branch (each worktree's own) and follows HEAD on every refresh until you
+  pick one: a new commit, or checking out another branch, moves it along. It shows all branches while HEAD is detached
+  or older than the loaded commits. A branch you pick, or **All branches**, is kept across refreshes and repository
+  switches and follows that branch as it moves; if the branch is deleted or no longer loaded, it shows all branches.
 - The table shows 200 commits at a time; **Load more** adds 200.
 - The panel loads at most `jwDiffer.historyMaxCommits` commits (default 20,000, minimum 100): the newest ones by commit
   date across local and remote branches, tags and a detached HEAD; the table then lists them in date order rather than
@@ -463,6 +467,7 @@ Press `F5` in VS Code to launch an Extension Development Host, then open `sample
 | `src/model/historyController.ts`         | Selection, base, merge parents, cancellable comparisons        |
 | `src/model/historyGraph.ts`              | Branch graph lanes and edges per commit row                    |
 | `src/model/historyVisibility.ts`         | Search and branch filtering of loaded commits                  |
+| `src/model/historyBranchFilter.ts`       | Branch filter kept by ref name; HEAD's branch by default       |
 | `src/git/historyGitCommand.ts`           | Binary-safe, bounded, cancellable `git` subprocess runner      |
 | `src/git/gitHistoryRepository.ts`        | Commits, refs and pinned ref resolution                        |
 | `src/git/historyComparisonResolver.ts`   | Replay order, Automatic base, merge parents                    |

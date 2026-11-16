@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { GitComparisonRepository } from "../../git/gitComparisonRepository";
 import { HistoryGitError } from "../../git/historyGitCommand";
-import { resolveBranchFilter } from "../../model/historyBranchFilter";
+import { headBranchFilter, resolveBranchFilter } from "../../model/historyBranchFilter";
 import type { BranchFilter } from "../../model/historyBranchFilter";
 import { HistoryController } from "../../model/historyController";
 import { shortHash } from "../../model/historyLabels";
@@ -64,6 +64,8 @@ interface HistorySession {
   readonly repository: ClosableHistoryRepository;
   readonly controller: HistoryController;
   presentation: HistoryPresentation;
+  /** The user picked a branch filter, or All branches; until then the filter follows HEAD's branch on every load. */
+  isBranchChosen: boolean;
   compareTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
@@ -271,6 +273,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       repository,
       controller: new HistoryController(withErrorLogging(repository, (error) => this.logError(root, error))),
       presentation: INITIAL_PRESENTATION,
+      isBranchChosen: false,
       compareTimer: undefined,
     };
     this.sessions.push(session);
@@ -288,9 +291,13 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     this.publish();
   }
 
-  /** Loads metadata, then drops selected commits that no longer exist and reports what changed. */
+  /**
+   * Loads metadata, then drops selected commits that no longer exist and reports what changed. The filters are fixed
+   * before the loaded history is first published, so it never shows with a stale branch filter in between.
+   */
   private async load(session: HistorySession): Promise<void> {
-    await this.follow(session.controller.load(configuredMaxCommits()));
+    const loaded = session.controller.load(configuredMaxCommits()).then(() => this.revalidatePresentation(session));
+    await this.follow(loaded);
     this.revalidate(session);
   }
 
@@ -314,14 +321,6 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const known = new Set(state.history.commits.map((commit) => commit.oid));
-    const isKnown = (oid: string | null): boolean => oid === null || known.has(oid);
-    const { focusedOid, branch } = session.presentation;
-    session.presentation = {
-      ...session.presentation,
-      focusedOid: isKnown(focusedOid) ? focusedOid : null,
-      // Kept by ref, so the filter follows its branch; a branch deleted or cut off by the cap shows all branches.
-      branch: branch && resolveBranchFilter(state.history, branch.ref, (oid) => known.has(oid)),
-    };
     // A truncated history does not list a pinned base older than its cut, which still works for comparisons.
     const isPinnedBaseMissing = state.base.kind === "pinned" && !known.has(state.base.oid) && !state.history.isTruncated;
     if (isPinnedBaseMissing) {
@@ -337,6 +336,25 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     // Also retries a comparison that failed before the refresh.
     this.scheduleCompare(session);
     this.publish();
+  }
+
+  /**
+   * Drops a focus the loaded history lacks and resolves the branch filter against it. Until the user picks one, the
+   * filter is HEAD's branch, or all branches when HEAD is detached or older than the loaded commits. A picked branch is
+   * kept by ref, so it follows the branch; once deleted or cut off by the cap it becomes All branches and stays a
+   * choice, so the filter never jumps to another branch the user did not pick.
+   */
+  private revalidatePresentation(session: HistorySession): void {
+    const { history } = session.controller.getState();
+    const isLoaded = (oid: string): boolean => session.controller.hasCommit(oid);
+    const { focusedOid, branch } = session.presentation;
+    session.presentation = {
+      ...session.presentation,
+      focusedOid: focusedOid !== null && isLoaded(focusedOid) ? focusedOid : null,
+      branch: session.isBranchChosen
+        ? branch && resolveBranchFilter(history, branch.ref, isLoaded)
+        : headBranchFilter(history, isLoaded),
+    };
   }
 
   // ---------------------------------------------------------------- messages
@@ -484,14 +502,15 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const { search, focusedOid, rowLimit } = message;
     const current = session.presentation;
     const branch = this.branchFilterOf(session, message.branch);
-    const next: HistoryPresentation = isCurrent && branch !== undefined
-      ? { search, branch, focusedOid, rowLimit }
-      : { ...current, focusedOid };
+    const isApplied = isCurrent && branch !== undefined;
+    const next: HistoryPresentation = isApplied ? { search, branch, focusedOid, rowLimit } : { ...current, focusedOid };
     const isUnchanged = next.search === current.search && next.branch === current.branch
       && next.focusedOid === current.focusedOid && next.rowLimit === current.rowLimit;
     if (isUnchanged) {
       return;
     }
+    // A current page sends the filter it shows, so a different one is the user's pick, All branches included.
+    session.isBranchChosen ||= next.branch !== current.branch;
     session.presentation = next;
     this.publish();
   }

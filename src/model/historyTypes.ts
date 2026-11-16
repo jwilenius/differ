@@ -29,10 +29,19 @@ export interface HistoryRef {
   readonly oid: string;
 }
 
+/** What the working tree has checked out. */
+export interface HistoryHead {
+  readonly oid: string;
+  /** Short name of the checked-out local branch, as in its `HistoryRef`; null for a detached HEAD. */
+  readonly branch: string | null;
+}
+
 /** The loaded graph: commits ordered children before parents, plus their labels. */
 export interface HistoryData {
   readonly commits: readonly HistoryCommit[];
   readonly refs: readonly HistoryRef[];
+  /** The working tree's HEAD; null while its branch has no commit yet. */
+  readonly head: HistoryHead | null;
   /**
    * Older commits exist beyond the commit cap, which `commits` then fills exactly; parents outside `commits` were not
    * loaded rather than missing.

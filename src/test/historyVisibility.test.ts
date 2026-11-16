@@ -20,6 +20,7 @@ const HISTORY: HistoryData = {
     commit(C1, [], "Initial import"),
   ],
   refs: [],
+  head: null,
   isTruncated: false,
 };
 

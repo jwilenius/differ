@@ -48,6 +48,7 @@ const HISTORY: HistoryData = {
     { kind: "localBranch", name: "main", oid: C3 },
     { kind: "localBranch", name: "feature", oid: F1 },
   ],
+  head: null,
   isTruncated: false,
 };
 
@@ -58,7 +59,7 @@ function linearOid(index: number): string {
 /** `count` commits in one line, newest first. */
 function linearHistory(count: number): HistoryData {
   const commits = Array.from({ length: count }, (_, index) => commit(linearOid(index), index + 1 < count ? [linearOid(index + 1)] : [], `Change ${index}`));
-  return { commits, refs: [{ kind: "localBranch", name: "main", oid: linearOid(0) }], isTruncated: false };
+  return { commits, refs: [{ kind: "localBranch", name: "main", oid: linearOid(0) }], head: null, isTruncated: false };
 }
 
 function readyResult(request: ComparisonRequest): ReadyResult {
@@ -699,7 +700,7 @@ describe("HistoryViewProvider", () => {
     await open();
     await send({ type: "presentation", search: "", branch: "refs/heads/feature", focusedOid: F1, rowLimit: 200 });
     const repository = repositories.get(ROOT_A)!;
-    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== F1), refs: HISTORY.refs.slice(0, 1), isTruncated: false });
+    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== F1), refs: HISTORY.refs.slice(0, 1), head: null, isTruncated: false });
 
     await send({ type: "refresh" });
     expect(publicState(view)).toMatchObject({ focusedOid: null, branch: null });
@@ -716,6 +717,7 @@ describe("HistoryViewProvider", () => {
     repository.setHistory({
       commits: [commit(F2, [F1], "More feature work"), ...HISTORY.commits],
       refs: [{ kind: "localBranch", name: "feature", oid: F2 }, { kind: "localBranch", name: "main", oid: C3 }],
+      head: null,
       isTruncated: false,
     });
 
@@ -745,6 +747,129 @@ describe("HistoryViewProvider", () => {
     await send({ type: "presentation", search: "third", branch: "refs/heads/gone", focusedOid: C3, rowLimit: 200 });
 
     expect(publicState(view)).toMatchObject({ branch: null, search: "", focusedOid: C3 });
+  });
+
+  describe("default branch filter", () => {
+    const F2 = "e".repeat(40);
+    const OLD = "0".repeat(40);
+    /** HISTORY with HEAD on `branch`. */
+    const onBranch = (branch: string, oid: string): HistoryData => ({ ...HISTORY, head: { oid, branch } });
+    /** feature moved on to F2, with HEAD on `branch`. */
+    const featureMoved = (head: HistoryData["head"]): HistoryData => ({
+      commits: [commit(F2, [F1], "More feature work"), ...HISTORY.commits],
+      refs: [{ kind: "localBranch", name: "main", oid: C3 }, { kind: "localBranch", name: "feature", oid: F2 }],
+      head,
+      isTruncated: false,
+    });
+
+    async function refresh(history: HistoryData, root = ROOT_A): Promise<void> {
+      repositories.get(root)!.setHistory(history);
+      await send({ type: "refresh" });
+    }
+
+    /** Value of the branch filter's selected option. */
+    function selectedOption(): string | undefined {
+      const html = shownHtml(view);
+      const filter = html.slice(html.indexOf(`<select id="history-branch"`), html.indexOf("</select>", html.indexOf(`<select id="history-branch"`)));
+      return /<option value="([^"]*)" selected>/.exec(filter)?.[1];
+    }
+
+    it("preselects the checked-out branch on the first load without first showing every branch", async () => {
+      initialHistory = onBranch("feature", F1);
+
+      await open();
+
+      expect(publicState(view).branch).toBe("refs/heads/feature");
+      expect(selectedOption()).toBe("refs/heads/feature");
+      expect(shownRows(view)).toEqual([F1, C1]);
+      const tables = [view.webview.html, ...updates(view).map((update) => update.regions["history-commits"] ?? "")];
+      expect(tables.filter((table) => table.includes(`data-oid="${C3}"`))).toEqual([]);
+    });
+
+    it("follows HEAD on refresh while the user has not picked a branch", async () => {
+      initialHistory = onBranch("feature", F1);
+      await open();
+
+      await refresh(featureMoved({ oid: F2, branch: "feature" }));
+      expect(publicState(view).branch).toBe("refs/heads/feature");
+      expect(shownRows(view)).toEqual([F2, F1, C1]);
+
+      await refresh(featureMoved({ oid: C3, branch: "main" }));
+      expect(publicState(view).branch).toBe("refs/heads/main");
+      expect(shownRows(view)).toEqual([C3, C2, C1]);
+    });
+
+    it("shows every branch for a detached HEAD and still offers HEAD", async () => {
+      initialHistory = onBranch("feature", F1);
+      await open();
+
+      await refresh({ ...HISTORY, refs: [...HISTORY.refs, { kind: "head", name: "HEAD", oid: C2 }], head: { oid: C2, branch: null } });
+
+      expect(publicState(view).branch).toBeNull();
+      expect(selectedOption()).toBe("");
+      expect(shownHtml(view)).toContain(`<option value="HEAD">HEAD</option>`);
+      expect(shownRows(view)).toEqual([F1, C3, C2, C1]);
+    });
+
+    it("shows every branch when HEAD's commit is older than the loaded ones", async () => {
+      initialHistory = { ...HISTORY, refs: [...HISTORY.refs, { kind: "localBranch", name: "old", oid: OLD }], head: { oid: OLD, branch: "old" }, isTruncated: true };
+
+      await open();
+
+      expect(publicState(view).branch).toBeNull();
+      expect(shownRows(view)).toEqual([F1, C3, C2, C1]);
+    });
+
+    it("keeps a picked branch across refreshes and HEAD changes, following it as it moves", async () => {
+      initialHistory = onBranch("main", C3);
+      await open();
+
+      await send({ type: "presentation", search: "", branch: "refs/heads/feature", focusedOid: null, rowLimit: 200 });
+      await refresh(featureMoved({ oid: C3, branch: "main" }));
+
+      expect(publicState(view).branch).toBe("refs/heads/feature");
+      expect(shownRows(view)).toEqual([F2, F1, C1]);
+    });
+
+    it("keeps All branches once picked, even when HEAD moves to another branch", async () => {
+      initialHistory = onBranch("main", C3);
+      await open();
+
+      await send({ type: "presentation", search: "", branch: null, focusedOid: null, rowLimit: 200 });
+      expect(publicState(view).branch).toBeNull();
+      await refresh(featureMoved({ oid: F2, branch: "feature" }));
+
+      expect(publicState(view).branch).toBeNull();
+      expect(selectedOption()).toBe("");
+    });
+
+    it("shows All branches after a picked branch is deleted and keeps it when HEAD moves", async () => {
+      initialHistory = onBranch("main", C3);
+      await open();
+      await send({ type: "presentation", search: "", branch: "refs/heads/feature", focusedOid: null, rowLimit: 200 });
+
+      await refresh({ ...onBranch("main", C3), refs: HISTORY.refs.slice(0, 1) });
+      expect(publicState(view).branch).toBeNull();
+      await refresh(featureMoved({ oid: F2, branch: "feature" }));
+
+      expect(publicState(view).branch).toBeNull();
+    });
+
+    it("defaults each repository on its own and keeps each one's choice when switching back", async () => {
+      initialHistory = onBranch("feature", F1);
+      await open([ROOT_A, ROOT_B]);
+      const alphaId = publicState(view).repositoryId!;
+      const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1]!;
+      await send({ type: "presentation", search: "", branch: null, focusedOid: null, rowLimit: 200 });
+
+      await send({ type: "repository", repositoryId: betaId });
+      expect(publicState(view)).toMatchObject({ repositoryId: betaId, branch: "refs/heads/feature" });
+      await refresh(onBranch("main", C3), ROOT_B);
+      expect(publicState(view).branch).toBe("refs/heads/main");
+
+      await send({ type: "repository", repositoryId: alphaId });
+      expect(publicState(view)).toMatchObject({ repositoryId: alphaId, branch: null });
+    });
   });
 
   it("retries a failed comparison on refresh", async () => {
@@ -829,7 +954,7 @@ describe("HistoryViewProvider", () => {
     await send({ type: "select", oids: [C3, F1], focusedOid: C3 });
     await send({ type: "base", ref: "main" });
     const repository = repositories.get(ROOT_A)!;
-    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== F1), refs: HISTORY.refs.slice(0, 1), isTruncated: false });
+    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== F1), refs: HISTORY.refs.slice(0, 1), head: null, isTruncated: false });
 
     await send({ type: "refresh" });
 
@@ -846,7 +971,7 @@ describe("HistoryViewProvider", () => {
     await open();
     await send({ type: "base", ref: "main" });
     const repository = repositories.get(ROOT_A)!;
-    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== C3), refs: HISTORY.refs, isTruncated: true });
+    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== C3), refs: HISTORY.refs, head: null, isTruncated: true });
 
     await send({ type: "refresh" });
 
@@ -858,7 +983,7 @@ describe("HistoryViewProvider", () => {
     await open();
     await send({ type: "base", ref: "main" });
     const repository = repositories.get(ROOT_A)!;
-    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== C3), refs: HISTORY.refs, isTruncated: false });
+    repository.setHistory({ commits: HISTORY.commits.filter((candidate) => candidate.oid !== C3), refs: HISTORY.refs, head: null, isTruncated: false });
 
     await send({ type: "refresh" });
 

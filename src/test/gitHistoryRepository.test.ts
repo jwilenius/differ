@@ -38,7 +38,55 @@ describe("GitHistoryRepository", () => {
   it("returns an empty history for an unborn repository", async () => {
     const history = await repository.loadHistory(MAX_COMMITS, signal);
 
-    expect(history).toEqual({ commits: [], refs: [], isTruncated: false });
+    expect(history).toEqual({ commits: [], refs: [], head: null, isTruncated: false });
+  });
+
+  describe("head", () => {
+    it("names the checked-out branch and its commit", async () => {
+      commit("First");
+      runFixtureGit(fixture.root, ["branch", "feature"]);
+      const second = commit("Second");
+
+      const history = await repository.loadHistory(MAX_COMMITS, signal);
+
+      expect(history.head).toEqual({ oid: second, branch: "main" });
+    });
+
+    it("names a linked worktree's own branch while the main worktree is on another", async () => {
+      const first = commit("First");
+      const worktree = path.join(fixture.directory, "foo");
+      runFixtureGit(fixture.root, ["worktree", "add", "-q", "-b", "jimw/foo-branch", worktree]);
+      const foo = commitFiles(worktree, { message: "Foo", changes: [{ kind: "write", path: "foo.txt", content: "foo\n" }] });
+      const linked = new GitHistoryRepository(worktree, fixtureGitEnvironment());
+
+      const [main, other] = await Promise.all([
+        repository.loadHistory(MAX_COMMITS, signal),
+        linked.loadHistory(MAX_COMMITS, signal),
+      ]);
+
+      expect(main.head).toEqual({ oid: first, branch: "main" });
+      expect(other.head).toEqual({ oid: foo, branch: "jimw/foo-branch" });
+    });
+
+    it("has no branch when detached", async () => {
+      const first = commit("First");
+      commit("Second");
+      runFixtureGit(fixture.root, ["checkout", "-q", "--detach", first]);
+
+      const history = await repository.loadHistory(MAX_COMMITS, signal);
+
+      expect(history.head).toEqual({ oid: first, branch: null });
+    });
+
+    it("is absent on an unborn branch even when other branches exist", async () => {
+      const first = commit("First");
+      runFixtureGit(fixture.root, ["checkout", "-q", "--orphan", "fresh"]);
+
+      const history = await repository.loadHistory(MAX_COMMITS, signal);
+
+      expect(history.head).toBeNull();
+      expect(history.commits.map((entry) => entry.oid)).toEqual([first]);
+    });
   });
 
   it("labels branches, remote branches and tags, peeling annotated tags to their commit", async () => {

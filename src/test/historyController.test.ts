@@ -81,6 +81,7 @@ function commit(commitOid: string, parents: readonly string[]): HistoryCommit {
 const HISTORY: HistoryData = {
   commits: [commit(M, [C, A]), commit(C, [B]), commit(B, [A]), commit(A, [])],
   refs: [{ kind: "localBranch", name: "main", oid: M }],
+  head: null,
   isTruncated: false,
 };
 
@@ -167,7 +168,7 @@ describe("HistoryController loading", () => {
     const second = controller.load(MAX_COMMITS);
     expect(repository.loads[0]!.signal.aborted).toBe(true);
     repository.loads[1]!.reply.resolve(HISTORY);
-    repository.loads[0]!.reply.resolve({ commits: [], refs: [], isTruncated: false });
+    repository.loads[0]!.reply.resolve({ commits: [], refs: [], head: null, isTruncated: false });
     await Promise.all([first, second]);
 
     expect(controller.getState().history).toBe(HISTORY);
@@ -465,7 +466,7 @@ describe("HistoryController lifecycle", () => {
     controller.dispose();
     pending.call.reply.resolve(ready("late"));
     repository.resolves[0]!.reply.resolve(commit(A, []));
-    repository.loads[1]!.reply.resolve({ commits: [], refs: [], isTruncated: false });
+    repository.loads[1]!.reply.resolve({ commits: [], refs: [], head: null, isTruncated: false });
     await Promise.all([reloading, resolving, pending.done]);
 
     expect(repository.loads[1]!.signal.aborted).toBe(true);

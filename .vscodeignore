@@ -14,3 +14,6 @@ scripts/**
 vitest.config.mts
 docs/**
 media/differ-icon.svg
+.node/**
+.node.*/**
+.node-version

@@ -216,16 +216,19 @@
       return !isLocalBranchesOnly() || branch.kind !== "remoteBranch";
     }
 
-    /** Adds options until `count` of the matching branches are shown. */
+    /** Adds options until `count` of the matching branches are shown; with none left to add, it reads no layout. */
     function showMoreBranches(count) {
-      const query = fuzzyMatch.foldForMatch(input.value);
       const end = Math.min(count, matchingBranches.length);
+      if (end <= shownBranchCount) {
+        return;
+      }
+      const query = fuzzyMatch.foldForMatch(input.value);
       const added = [];
       for (let index = shownBranchCount; index < end; index++) {
         added.push(branchOption(matchingBranches[index], index, query));
       }
       list.append(...added);
-      shownBranchCount = Math.max(shownBranchCount, end);
+      shownBranchCount = end;
       // The list's height and width follow its options.
       placeBranchList();
     }

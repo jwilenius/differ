@@ -293,6 +293,19 @@ describe("history branch filter", () => {
     expect(webview.element("history-branch-option-0").getAttribute("aria-setsize")).toBe("5002");
   });
 
+  it("leaves the list alone when scrolling finds every match already shown", () => {
+    const webview = open({ refs: BRANCHES });
+    const input = webview.element("history-branch-input");
+    const list = webview.element("history-branch-list");
+    webview.click(input);
+    const reads = input.boundingRectReads;
+
+    list.dispatch(new FakeEvent("scroll", list));
+
+    expect(input.boundingRectReads).toBe(reads);
+    expect(webview.branchOptions()).toHaveLength(6);
+  });
+
   describe("local branches only", () => {
     it("starts released", () => {
       const webview = open({ refs: BRANCHES });

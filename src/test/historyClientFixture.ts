@@ -118,6 +118,8 @@ export class FakeElement extends FakeEventTarget {
   readonly offsetWidth = 0;
   /** `scrollIntoView` calls, as their options. */
   readonly scrolledIntoView: unknown[] = [];
+  /** `getBoundingClientRect` calls, each a layout read in a browser. */
+  boundingRectReads = 0;
   selectionStart = 0;
   selectionEnd = 0;
   readonly style = new FakeStyle();
@@ -208,6 +210,7 @@ export class FakeElement extends FakeEventTarget {
   }
 
   getBoundingClientRect(): typeof FAKE_RECT {
+    this.boundingRectReads++;
     return FAKE_RECT;
   }
 

@@ -601,13 +601,14 @@ describe("HtmlHistoryRenderer", () => {
     const html = render({ selectedOids: [MERGE] });
 
     expect(html).toContain('role="grid" aria-label="Commits" aria-multiselectable="true"');
-    for (const id of ["history-repository", "history-search", "history-branch-input", "history-branch-list", "history-base-input"]) {
+    for (const id of ["history-repository", "history-search", "history-branch-input", "history-branch-list", "history-branch-local-only", "history-base-input"]) {
       expect(html).toMatch(new RegExp(`id="${id}"[^>]*aria-label="[^"]+"`));
     }
     expect(html).toContain('role="combobox"');
     expect(html).toContain('aria-controls="history-branch-list"');
     expect(html).toContain('<select id="history-branch" hidden>');
     expect(html).toContain('<button id="history-clear-selection" class="tool">Clear</button>');
+    expect(html).toContain('<button id="history-branch-local-only" class="option-toggle" title="Show local branches only" aria-label="Show local branches only" aria-pressed="false"><svg ');
     expect(html).toContain('<option value="" selected>All branches</option>');
   });
 

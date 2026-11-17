@@ -71,6 +71,10 @@ the left; changed files, replay order and commit details on the right.
   matches when it contains the typed letters in order, ignoring case; they need not be adjacent (`fjl` finds
   `feature/JIRA-1-cache-login`). Matched letters are highlighted; the list keeps its order. `↑`/`↓` move, `Enter` or a
   click picks, `Escape` or a click elsewhere closes it and clears the typed text.
+- The funnel button next to the branch filter (**Show local branches only**) leaves remote branches out of the list;
+  **All branches**, **Checked out branch** and typed narrowing still apply. It changes the list only, never the shown
+  history: **All branches** still means every branch, and a remote branch already picked stays picked until you pick
+  another. The button stays on across refreshes, repositories and hiding the panel; it starts off.
 - The table shows 200 commits at a time; **Load more** adds 200.
 - The panel loads at most `jwDiffer.historyMaxCommits` commits (default 20,000, minimum 100): the newest ones by commit
   date across local and remote branches, tags and a detached HEAD; the table then lists them in date order rather than

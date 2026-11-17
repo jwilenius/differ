@@ -22,7 +22,8 @@
   /**
    * Presentation kept by the iframe across publications of one repository:
    * range anchor, last focused control, caret, pane scroll offsets, unsent
-   * text or focus, and the file last marked as open in the diff view.
+   * text or focus, the file last marked as open in the diff view, and whether
+   * the branch list offers local branches only.
    */
   let view = restoreView();
   /**
@@ -290,6 +291,7 @@
     "history-base-automatic": () => post("base", { ref: null }),
     "history-base-pin": pinBase,
     "history-load-more": (button) => sendPresentation({ rowLimit: Number(button.dataset.rowLimit) }),
+    "history-branch-local-only": toggleLocalBranchesOnly,
   };
 
   document.addEventListener("click", (event) => {
@@ -396,6 +398,8 @@
   const BRANCH_LIST_GAP = 2;
   const branchInput = document.getElementById("history-branch-input");
   const branchList = document.getElementById("history-branch-list");
+  /** Pressed, the list leaves out remote branches; it filters the list only, never the history. */
+  const localOnlyToggle = document.getElementById("history-branch-local-only");
   /** The select `branches` was read from; each update that changes the branches replaces it. */
   let branchSelect = null;
   /** `{ value, label, kind, folded }` per option, in the host's order; `kind` is null for All and Checked out. */
@@ -463,7 +467,17 @@
       placeBranchList();
     }
   });
+  showLocalBranchesOnly();
   refreshBranches();
+
+  function toggleLocalBranchesOnly() {
+    saveView({ isLocalBranchesOnly: !view.isLocalBranchesOnly });
+    showLocalBranchesOnly();
+  }
+
+  function showLocalBranchesOnly() {
+    localOnlyToggle.setAttribute("aria-pressed", String(view.isLocalBranchesOnly));
+  }
 
   /**
    * Reads the branches again when an update replaced the select, refiltering an open list on the same active option,
@@ -532,10 +546,10 @@
     activeBranchIndex = -1;
   }
 
-  /** Lists the branches matching the query and makes `activeValue`'s option active, else the first. */
+  /** Lists the offered branches matching the query and makes `activeValue`'s option active, else the first. */
   function filterBranches(activeValue) {
     const query = foldForMatch(branchInput.value);
-    matchingBranches = branches.filter((branch) => isFuzzyMatch(query, branch.folded));
+    matchingBranches = branches.filter((branch) => isOfferedBranch(branch) && isFuzzyMatch(query, branch.folded));
     const kept = matchingBranches.findIndex((branch) => branch.value === activeValue);
     branchList.replaceChildren();
     shownBranchCount = 0;
@@ -552,6 +566,11 @@
     }
     showMoreBranches(BRANCH_PAGE_SIZE);
     setActiveBranch(Math.max(kept, 0));
+  }
+
+  /** Local only, every branch but the remote ones: All branches, Checked out, local branches and a detached HEAD. */
+  function isOfferedBranch(branch) {
+    return !view.isLocalBranchesOnly || branch.kind !== "remoteBranch";
   }
 
   /** Adds options until `count` of the matching branches are shown. */
@@ -696,7 +715,7 @@
     showOpenFile();
   }
 
-  /** Nothing carries over to another repository but the focused control, caret and detail width. */
+  /** Nothing carries over to another repository but the focused control, caret, detail width and local-only toggle. */
   function forgetRepository() {
     cancelSearch();
     cancelFocus();
@@ -725,6 +744,8 @@
   function restoreView() {
     const saved = vscode.getState();
     const isSameRepository = saved && saved.repositoryId === published.repositoryId;
+    // The local-only toggle is the panel's, kept for every repository.
+    const isLocalBranchesOnly = Boolean(saved && saved.isLocalBranchesOnly);
     const initial = {
       repositoryId: published.repositoryId,
       anchorOid: null,
@@ -736,6 +757,7 @@
       searchDraft: null,
       baseDraft: null,
       focusDraft: null,
+      isLocalBranchesOnly,
     };
     return isSameRepository ? { ...initial, ...saved } : initial;
   }

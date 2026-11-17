@@ -1145,6 +1145,90 @@ describe("history client", () => {
       expect(webview.branchOptions()).toHaveLength(300);
       expect(webview.element("history-branch-option-0").getAttribute("aria-setsize")).toBe("5002");
     });
+
+    describe("local branches only", () => {
+      it("starts released", () => {
+        const webview = open({ refs: BRANCHES });
+
+        expect(webview.element("history-branch-local-only").getAttribute("aria-pressed")).toBe("false");
+      });
+
+      it("leaves out remote branches while pressed, keeping All branches and Checked out branch", () => {
+        const webview = open({ refs: BRANCHES });
+        const toggle = webview.element("history-branch-local-only");
+
+        webview.click(toggle);
+        webview.click(webview.element("history-branch-input"));
+
+        expect(toggle.getAttribute("aria-pressed")).toBe("true");
+        expect(webview.branchOptions()).toEqual(["All branches", "Checked out branch", "main", "feature/branch-filter", "fix/bug"]);
+        expect(webview.element("history-branch-option-0").getAttribute("aria-setsize")).toBe("5");
+        expect(webview.intents()).toEqual([]);
+      });
+
+      it("offers remote branches again once released", () => {
+        const webview = open({ refs: BRANCHES });
+        const toggle = webview.element("history-branch-local-only");
+
+        webview.click(toggle);
+        webview.click(toggle);
+        webview.click(webview.element("history-branch-input"));
+
+        expect(toggle.getAttribute("aria-pressed")).toBe("false");
+        expect(webview.branchOptions()).toHaveLength(6);
+      });
+
+      it("matches typed text among the local branches only", () => {
+        const webview = open({ refs: BRANCHES });
+        const input = webview.element("history-branch-input");
+        webview.click(webview.element("history-branch-local-only"));
+        webview.click(input);
+
+        webview.type(input, "mn");
+        expect(webview.branchOptions()).toEqual(["[m]ai[n]"]);
+        webview.type(input, "orig");
+        expect(webview.branchOptions()).toEqual(["No matching branches"]);
+      });
+
+      it("keeps a chosen remote branch shown without offering it", () => {
+        const webview = open({ refs: BRANCHES, branch: { ref: "refs/remotes/origin/main", tipOid: A } });
+        const input = webview.element("history-branch-input");
+
+        webview.click(webview.element("history-branch-local-only"));
+        webview.click(input);
+
+        expect(input.placeholder).toBe("origin/main");
+        expect(webview.branchOptions()).not.toContain("origin/main");
+        expect(webview.document.querySelectorAll("li.is-chosen")).toEqual([]);
+        webview.key(input, "Escape");
+        expect(input.placeholder).toBe("origin/main");
+        expect(webview.intents()).toEqual([]);
+      });
+
+      it("stays pressed in a document recreated after the panel was hidden", () => {
+        const first = open({ refs: BRANCHES });
+        first.click(first.element("history-branch-local-only"));
+
+        const second = new FakeWebview();
+        second.state = first.state;
+        second.load(publish({ refs: BRANCHES, revision: 8 }));
+        second.click(second.element("history-branch-input"));
+
+        expect(second.element("history-branch-local-only").getAttribute("aria-pressed")).toBe("true");
+        expect(second.branchOptions()).not.toContain("origin/main");
+      });
+
+      it("stays pressed in a document recreated for another repository", () => {
+        const first = open({ refs: BRANCHES });
+        first.click(first.element("history-branch-local-only"));
+
+        const second = new FakeWebview();
+        second.state = first.state;
+        second.load(publish({ refs: BRANCHES, repositoryId: OTHER_REPOSITORY_ID, revision: 8 }));
+
+        expect(second.element("history-branch-local-only").getAttribute("aria-pressed")).toBe("true");
+      });
+    });
   });
 
   it("debounces search by 150 ms", () => {
@@ -1603,6 +1687,32 @@ describe("history client", () => {
 
       expect(webview.branchOptions()).toEqual([]);
       expect(webview.last()).toMatchObject({ type: "presentation", revision: 8, branch: "refs/remotes/origin/main" });
+    });
+
+    it("keeps local branches only across an update that replaces the branches under an open list", () => {
+      const host = new FakeHost();
+      const webview = host.open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(webview.element("history-branch-local-only"));
+      webview.click(input);
+      webview.type(input, "mn");
+
+      webview.receive(host.update({ refs: [...BRANCHES, { kind: "remoteBranch", name: "origin/maintenance", oid: B }], revision: 8 }));
+
+      expect(webview.element("history-branch-local-only").getAttribute("aria-pressed")).toBe("true");
+      expect(webview.branchOptions()).toEqual(["[m]ai[n]"]);
+    });
+
+    it("keeps local branches only when the update shows another repository", () => {
+      const host = new FakeHost();
+      const webview = host.open({ refs: BRANCHES });
+      webview.click(webview.element("history-branch-local-only"));
+
+      webview.receive(host.update({ refs: BRANCHES, repositoryId: OTHER_REPOSITORY_ID, revision: 8 }));
+      webview.click(webview.element("history-branch-input"));
+
+      expect(webview.element("history-branch-local-only").getAttribute("aria-pressed")).toBe("true");
+      expect(webview.branchOptions()).not.toContain("origin/main");
     });
 
     it("forgets anchor, scroll and drafts when the update shows another repository", () => {

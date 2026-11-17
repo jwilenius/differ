@@ -160,6 +160,8 @@ const LANE_COLOR_COUNT = 8;
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
 const COMMIT_TABLE_ID = "history-commits";
 const ISO_MINUTE_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
+/** A funnel drawn like VS Code's filter codicon, in the toggle's text colour. */
+const FILTER_ICON = `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 3h12l-4.5 5.5V13l-3 1.5v-6z" fill="none" stroke="currentColor" stroke-linejoin="round"/></svg>`;
 
 const REF_CLASSES: Readonly<Record<HistoryRefKind, string>> = {
   head: "ref-head",
@@ -193,8 +195,8 @@ const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string;
  *
  * Client contract: controls `#history-repository` (select, root IDs),
  * `#history-choose-repository`, `#history-refresh`, `#history-search`,
- * `#history-branch` (select, `CHECKED_OUT_BRANCH`, branch ref or `""` = all), `#history-base-automatic`,
- * `#history-base-input` + `#history-base-pin`, `#history-clear-selection`,
+ * `#history-branch` (select, `CHECKED_OUT_BRANCH`, branch ref or `""` = all), `#history-branch-local-only`,
+ * `#history-base-automatic`, `#history-base-input` + `#history-base-pin`, `#history-clear-selection`,
  * `#history-load-more[data-row-limit]`; rows `#history-commits tr.commit-row[data-oid]`;
  * `select.mainline-select[data-oid]` (value = one-based parent);
  * file buttons `button.file-row[data-snapshot-id][data-file-id]`.
@@ -385,13 +387,14 @@ function renderRegions(view: HistoryView, rows: HistoryRowSet, branchFilter: str
 
 /**
  * The search box and the branch filter's combobox are never replaced, so text typed and a list opened while an
- * update arrives stay. The combobox picks from the hidden `#history-branch` select, the region the host renders.
+ * update arrives stay. The combobox picks from the hidden `#history-branch` select, the region the host renders; its
+ * local-only toggle, pressed by the client from its saved view, is never replaced either.
  */
 function renderToolbar(presentation: HistoryPresentation, regions: Regions): string {
   return `<header class="history-toolbar" role="toolbar" aria-label="History controls">
 <span class="toolbar-group">${regions["history-repository"]}<button id="history-choose-repository" class="tool" title="Open another repository folder">Open…</button><button id="history-refresh" class="tool" title="Reload history" aria-label="Refresh history">⟳</button></span>
 <input id="history-search" class="search" type="search" placeholder="Search subject or hash" aria-label="Search commits by subject or hash" value="${escapeHtml(presentation.search)}">
-<span class="branch-filter"><input id="history-branch-input" class="branch-input" type="text" role="combobox" aria-label="Branch filter" aria-autocomplete="list" aria-expanded="false" aria-controls="history-branch-list" autocomplete="off" spellcheck="false"><ul id="history-branch-list" class="branch-list" role="listbox" aria-label="Branches" hidden></ul>${regions["history-branch"]}</span>
+<span class="toolbar-group"><span class="branch-filter"><input id="history-branch-input" class="branch-input" type="text" role="combobox" aria-label="Branch filter" aria-autocomplete="list" aria-expanded="false" aria-controls="history-branch-list" autocomplete="off" spellcheck="false"><ul id="history-branch-list" class="branch-list" role="listbox" aria-label="Branches" hidden></ul>${regions["history-branch"]}</span><button id="history-branch-local-only" class="option-toggle" title="Show local branches only" aria-label="Show local branches only" aria-pressed="false">${FILTER_ICON}</button></span>
 <span class="toolbar-group base-control" role="group" aria-label="Comparison base">
 <span class="label">Base:</span>
 ${regions["history-base-automatic"]}

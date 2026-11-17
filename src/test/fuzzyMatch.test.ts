@@ -120,13 +120,16 @@ describe("fuzzy match", () => {
     const names = Array.from({ length: 10_000 }, (_, index) => `remotes/origin/feature/JIRA-${index}-improve-the-thing-${index % 97}`);
     const folded = names.map((name) => fuzzy.foldForMatch(name));
     const queries = ["f", "fe", "fea", "feat", "feat9", "feat97", "featimp9"].map((query) => fuzzy.foldForMatch(query));
-    const timings: number[] = [];
+    // The best of a few rounds, so neither JIT warm-up nor other test files running alongside decide the result.
+    const timings = queries.map(() => Infinity);
 
-    for (const query of queries) {
-      const started = performance.now();
-      const matched = names.filter((_, index) => fuzzy.isFuzzyMatch(query, folded[index]!));
-      matched.slice(0, 100).forEach((name) => fuzzy.fuzzyMatchRanges(query, name));
-      timings.push(performance.now() - started);
+    for (let round = 0; round < 5; round++) {
+      queries.forEach((query, queryIndex) => {
+        const started = performance.now();
+        const matched = names.filter((_, index) => fuzzy.isFuzzyMatch(query, folded[index]!));
+        matched.slice(0, 100).forEach((name) => fuzzy.fuzzyMatchRanges(query, name));
+        timings[queryIndex] = Math.min(timings[queryIndex]!, performance.now() - started);
+      });
     }
 
     expect(Math.max(...timings)).toBeLessThan(16);

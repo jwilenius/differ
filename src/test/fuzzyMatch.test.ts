@@ -10,7 +10,7 @@ interface MatchRange {
   readonly end: number;
 }
 
-/** The pure functions `fuzzyMatch.js` defines at top level. */
+/** The pure functions `fuzzyMatch.js` exposes as its one global, `fuzzyMatch`. */
 interface FuzzyMatch {
   foldForMatch(text: string): string;
   isFuzzyMatch(foldedQuery: string, foldedText: string): boolean;
@@ -20,7 +20,7 @@ interface FuzzyMatch {
 function loadFuzzyMatch(): FuzzyMatch {
   const context: Record<string, unknown> = {};
   vm.runInNewContext(MATCH_SOURCE, context);
-  return context as unknown as FuzzyMatch;
+  return context.fuzzyMatch as FuzzyMatch;
 }
 
 const fuzzy = loadFuzzyMatch();
@@ -45,6 +45,14 @@ function marked(query: string, text: string): string | null {
 }
 
 describe("fuzzy match", () => {
+  it("defines one global, fuzzyMatch, and nothing else", () => {
+    const context: Record<string, unknown> = {};
+    vm.runInNewContext(MATCH_SOURCE, context);
+
+    expect(Object.keys(context)).toEqual(["fuzzyMatch"]);
+    expect(Object.keys(context.fuzzyMatch as object).sort()).toEqual(["foldForMatch", "fuzzyMatchRanges", "isFuzzyMatch"]);
+  });
+
   it("matches letters in order, adjacent or not, across words", () => {
     expect(matches("fb", "feature/branch")).toBe(true);
     expect(matches("ftbr", "feature/branch")).toBe(true);
@@ -109,6 +117,25 @@ describe("fuzzy match", () => {
 
   it("keeps marks aligned when lower-casing lengthens a letter", () => {
     expect(marked("x", "İx")).toBe("İ[x]");
+  });
+
+  it("marks a lengthened letter matched by part or all of its folding", () => {
+    expect(matches("i", "İx")).toBe(true);
+    expect(marked("i", "İx")).toBe("[İ]x");
+    expect(marked("ix", "İx")).toBe("[İx]");
+    expect(marked("İx", "İx")).toBe("[İx]");
+    expect(marked("x", "aİx")).toBe("aİ[x]");
+  });
+
+  it("marks every text it matches, and none it does not", () => {
+    const texts = ["İx", "aİb", "ΑΣ", "ας", "Straße", "STRASSE", "ﬁx", "🚀x", "a🚀bx", "fix/İstanbul-Σ", "Ǆemal", ""];
+    const queries = ["i", "i̇", "İ", "x", "ix", "σ", "ς", "ß", "ss", "ﬁ", "fi", "🚀", "ǆ", "Ǆ", "is", "ab", "a"];
+    for (const text of texts) {
+      for (const query of queries) {
+        const isMarked = fuzzy.fuzzyMatchRanges(fuzzy.foldForMatch(query), text) !== null;
+        expect(isMarked, `${query} in ${text}`).toBe(matches(query, text));
+      }
+    }
   });
 
   it("does not take half of a surrogate pair for a match", () => {

@@ -114,7 +114,10 @@ isLocalBranchesOnly, onPick })` → `{ refresh(select) }`; `history.js` owns the
 presentation message, and calls `refresh` at load and after every update. Tests:
 `src/test/historyBranchFilterClient.test.ts`.
 `fuzzyMatch.js` (after [fzy](https://github.com/jhawthorn/fzy/blob/master/ALGORITHM.md), MIT) decides a match in one greedy pass per branch and
-picks the letters to mark (word starts, camelCase, runs) only for rendered options.
+picks the letters to mark (word starts, camelCase, runs) only for rendered options. It exposes one frozen global,
+`fuzzyMatch` → `{ foldForMatch, isFuzzyMatch, fuzzyMatchRanges }`, which `branchFilter.js` reads at call time. Both
+passes compare the same per-character lower-cased code points (`İ` folds to two, `Σ` always to `σ`), so a branch is
+listed exactly when its marks can be found.
 
 The `core/`, `model/` and `render/` layers have no `vscode` import and are unit-tested on their own; `src/test/layering.test.ts` enforces it.
 

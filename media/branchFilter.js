@@ -109,7 +109,7 @@
           value: option.value,
           label: option.textContent,
           kind: option.dataset.kind || null,
-          folded: foldForMatch(option.textContent),
+          folded: fuzzyMatch.foldForMatch(option.textContent),
         }));
         const chosenIndex = options.findIndex((option) => option.hasAttribute("selected"));
         chosenBranch = branches[Math.max(chosenIndex, 0)];
@@ -186,8 +186,8 @@
      * option is active: Enter then closes the list without picking a branch the user never moved to.
      */
     function filterBranches(activeValue) {
-      const query = foldForMatch(input.value);
-      matchingBranches = branches.filter((branch) => isOfferedBranch(branch) && isFuzzyMatch(query, branch.folded));
+      const query = fuzzyMatch.foldForMatch(input.value);
+      matchingBranches = branches.filter((branch) => isOfferedBranch(branch) && fuzzyMatch.isFuzzyMatch(query, branch.folded));
       const kept = matchingBranches.findIndex((branch) => branch.value === activeValue);
       list.replaceChildren();
       shownBranchCount = 0;
@@ -218,7 +218,7 @@
 
     /** Adds options until `count` of the matching branches are shown. */
     function showMoreBranches(count) {
-      const query = foldForMatch(input.value);
+      const query = fuzzyMatch.foldForMatch(input.value);
       const end = Math.min(count, matchingBranches.length);
       const added = [];
       for (let index = shownBranchCount; index < end; index++) {
@@ -241,7 +241,7 @@
       option.setAttribute("aria-posinset", String(index + 1));
       option.dataset.index = String(index);
       let offset = 0;
-      for (const range of fuzzyMatchRanges(query, branch.label) || []) {
+      for (const range of fuzzyMatch.fuzzyMatchRanges(query, branch.label) || []) {
         const mark = document.createElement("mark");
         mark.textContent = branch.label.slice(range.start, range.end);
         option.append(branch.label.slice(offset, range.start), mark);

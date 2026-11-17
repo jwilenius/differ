@@ -726,7 +726,7 @@ describe("HistoryViewProvider", () => {
 
     expect(publicState(view).branch).toBe("refs/heads/feature");
     expect(shownRows(view)).toEqual([F2, F1, C1]);
-    expect(shownHtml(view)).toContain(`<option value="refs/heads/feature" selected>feature</option>`);
+    expect(shownHtml(view)).toContain(`<option value="refs/heads/feature" data-kind="localBranch" selected>feature</option>`);
   });
 
   it("drops a picked branch whose tip is no longer loaded", async () => {
@@ -772,7 +772,7 @@ describe("HistoryViewProvider", () => {
     function selectedOption(): string | undefined {
       const html = shownHtml(view);
       const filter = html.slice(html.indexOf(`<select id="history-branch"`), html.indexOf("</select>", html.indexOf(`<select id="history-branch"`)));
-      return /<option value="([^"]*)" selected>/.exec(filter)?.[1];
+      return /<option value="([^"]*)"[^>]* selected>/.exec(filter)?.[1];
     }
 
     it("selects the checked-out branch on the first load without first showing every branch", async () => {
@@ -822,7 +822,7 @@ describe("HistoryViewProvider", () => {
 
       expect(publicState(view).branch).toBe("checked-out");
       expect(shownHtml(view)).toContain(`<option value="checked-out" selected>Checked out (detached HEAD)</option>`);
-      expect(shownHtml(view)).toContain(`<option value="HEAD">HEAD</option>`);
+      expect(shownHtml(view)).toContain(`<option value="HEAD" data-kind="head">HEAD</option>`);
       expect(shownRows(view)).toEqual([C2, C1]);
     });
 

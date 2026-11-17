@@ -51,6 +51,7 @@ function makeState(overrides: Partial<HistoryState> = {}): HistoryState {
 function makeContext(overrides: Partial<HistoryRenderContext> = {}): HistoryRenderContext {
   return {
     assets: { styleUri: "res://history.css", scriptUri: "res://history.js", cspSource: "res:" },
+    fuzzyMatchScriptUri: "res://fuzzyMatch.js",
     nonce: NONCE,
     repositories: [{ id: "repo-1", name: "differ" }],
     activeRepositoryId: "repo-1",
@@ -387,7 +388,7 @@ describe("HtmlHistoryRenderer", () => {
       const branch = { ref: "refs/heads/main", tipOid: MERGE };
       const filtered = renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, branchChoice: branch.ref, branch } }, selected.page);
       expect(refReads).toBeGreaterThan(readsAfterRender);
-      expect(filtered.update.regions["history-branch"]).toContain(`<option value="refs/heads/main" selected>main</option>`);
+      expect(filtered.update.regions["history-branch"]).toContain(`<option value="refs/heads/main" data-kind="localBranch" selected>main</option>`);
       const readsAfterFilter = refReads;
 
       renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, branchChoice: branch.ref, branch: { ...branch } } }, filtered.page);
@@ -498,11 +499,11 @@ describe("HtmlHistoryRenderer", () => {
 
     expect(html).not.toContain("origin/old");
     expect(html).toContain(`<option value="">All branches</option>`);
-    expect(html).toContain(`<option value="refs/heads/main">main</option>`);
-    expect(html).toContain(`<option value="refs/heads/side" selected>side</option>`);
+    expect(html).toContain(`<option value="refs/heads/main" data-kind="localBranch">main</option>`);
+    expect(html).toContain(`<option value="refs/heads/side" data-kind="localBranch" selected>side</option>`);
   });
 
-  it("names each branch option by its ref and selects the chosen one among refs sharing its tip", () => {
+  it("names each branch option by its ref, gives its kind and selects the chosen one among refs sharing its tip", () => {
     const refs: HistoryData["refs"] = [
       { kind: "localBranch", name: "main", oid: MERGE },
       { kind: "remoteBranch", name: "origin/main", oid: MERGE },
@@ -514,16 +515,16 @@ describe("HtmlHistoryRenderer", () => {
 
     const html = render({ history: { ...history, refs } }, { presentation });
 
-    const options = [...html.matchAll(/<option value="([^"]*)"( selected)?>([^<]*)<\/option>/g)]
+    const options = [...html.matchAll(/<option value="([^"]*)"(?: data-kind="([^"]+)")?( selected)?>([^<]*)<\/option>/g)]
       .filter((match) => ["", "checked-out", "HEAD"].includes(match[1]!) || match[1]!.startsWith("refs/"))
-      .map(([, value, selected, label]) => `${value}${selected ?? ""} ${label}`);
+      .map(([, value, kind, selected, label]) => `${value} ${kind ?? "-"}${selected ?? ""} ${label}`);
     expect(options).toEqual([
-      " All branches",
-      "checked-out Checked out branch",
-      "refs/heads/main main",
-      "refs/remotes/origin/main origin/main",
-      "refs/heads/origin/main selected origin/main",
-      "HEAD HEAD",
+      " - All branches",
+      "checked-out - Checked out branch",
+      "refs/heads/main localBranch main",
+      "refs/remotes/origin/main remoteBranch origin/main",
+      "refs/heads/origin/main localBranch selected origin/main",
+      "HEAD head HEAD",
     ]);
     expect(publicState(html).branch).toBe("refs/heads/origin/main");
   });
@@ -534,7 +535,7 @@ describe("HtmlHistoryRenderer", () => {
     const html = render({ history: { ...history, head: { branch: "main", oid: MERGE } } }, { presentation });
 
     expect(html).toContain(`<option value="">All branches</option><option value="checked-out" selected>Checked out branch (main)</option>`);
-    expect(html).toContain(`<option value="refs/heads/main">main</option>`);
+    expect(html).toContain(`<option value="refs/heads/main" data-kind="localBranch">main</option>`);
     expect(publicState(html).branch).toBe("checked-out");
   });
 
@@ -550,7 +551,7 @@ describe("HtmlHistoryRenderer", () => {
     const html = render();
 
     expect(html).toContain(`<option value="" selected>All branches</option>`);
-    expect(html).toContain(`<option value="refs/heads/main">main</option>`);
+    expect(html).toContain(`<option value="refs/heads/main" data-kind="localBranch">main</option>`);
   });
 
   it("shows no truncation note for a complete history", () => {
@@ -588,8 +589,9 @@ describe("HtmlHistoryRenderer", () => {
     const html = render();
 
     expect(html).toContain(`content="default-src 'none'; style-src res:; script-src 'nonce-${NONCE}'"`);
-    expect(html).toContain(`<script nonce="${NONCE}" src="res://history.js"></script>`);
-    expect(html.match(/<script/g)).toHaveLength(1);
+    expect(html).toContain(`<script nonce="${NONCE}" src="res://fuzzyMatch.js"></script>
+<script nonce="${NONCE}" src="res://history.js"></script>`);
+    expect(html.match(/<script/g)).toHaveLength(2);
     expect(html).not.toMatch(/\son[a-z]+=/i);
     expect(html).not.toMatch(/\sstyle=/i);
     expect(() => new HtmlHistoryRenderer().render(makeState(), makeContext({ nonce: "x'; script-src *" }))).toThrow();
@@ -599,9 +601,12 @@ describe("HtmlHistoryRenderer", () => {
     const html = render({ selectedOids: [MERGE] });
 
     expect(html).toContain('role="grid" aria-label="Commits" aria-multiselectable="true"');
-    for (const id of ["history-repository", "history-search", "history-branch", "history-base-input"]) {
+    for (const id of ["history-repository", "history-search", "history-branch-input", "history-branch-list", "history-base-input"]) {
       expect(html).toMatch(new RegExp(`id="${id}"[^>]*aria-label="[^"]+"`));
     }
+    expect(html).toContain('role="combobox"');
+    expect(html).toContain('aria-controls="history-branch-list"');
+    expect(html).toContain('<select id="history-branch" hidden>');
     expect(html).toContain('<button id="history-clear-selection" class="tool">Clear</button>');
     expect(html).toContain('<option value="" selected>All branches</option>');
   });

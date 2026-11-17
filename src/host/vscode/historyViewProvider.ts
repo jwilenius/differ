@@ -609,6 +609,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
           scriptUri: this.mediaUri(view, "history.js"),
           cspSource: view.webview.cspSource,
         },
+        fuzzyMatchScriptUri: this.mediaUri(view, "fuzzyMatch.js"),
         nonce: randomBytes(NONCE_BYTES).toString("base64"),
       });
       view.webview.html = document.html;

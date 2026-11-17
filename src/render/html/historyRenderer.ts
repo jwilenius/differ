@@ -56,6 +56,8 @@ export interface HistoryPageContext {
 /** A page context plus what only a whole document needs. */
 export interface HistoryRenderContext extends HistoryPageContext {
   readonly assets: WebviewAssets;
+  /** `fuzzyMatch.js`, the branch filter's matcher, which the client script calls. */
+  readonly fuzzyMatchScriptUri: string;
   readonly nonce: string;
 }
 
@@ -239,6 +241,7 @@ ${regions["history-replay"]}
 ${regions["history-details"]}
 </aside>
 </main>
+<script nonce="${nonce}" src="${escapeHtml(context.fuzzyMatchScriptUri)}"></script>
 <script nonce="${nonce}" src="${escapeHtml(assets.scriptUri)}"></script>
 </body>
 </html>`;
@@ -380,12 +383,15 @@ function renderRegions(view: HistoryView, rows: HistoryRowSet, branchFilter: str
 
 // ---------------------------------------------------------------- toolbar
 
-/** The search box is never replaced, so text typed while an update arrives stays. */
+/**
+ * The search box and the branch filter's combobox are never replaced, so text typed and a list opened while an
+ * update arrives stay. The combobox picks from the hidden `#history-branch` select, the region the host renders.
+ */
 function renderToolbar(presentation: HistoryPresentation, regions: Regions): string {
   return `<header class="history-toolbar" role="toolbar" aria-label="History controls">
 <span class="toolbar-group">${regions["history-repository"]}<button id="history-choose-repository" class="tool" title="Open another repository folder">Open…</button><button id="history-refresh" class="tool" title="Reload history" aria-label="Refresh history">⟳</button></span>
 <input id="history-search" class="search" type="search" placeholder="Search subject or hash" aria-label="Search commits by subject or hash" value="${escapeHtml(presentation.search)}">
-${regions["history-branch"]}
+<span class="branch-filter"><input id="history-branch-input" class="branch-input" type="text" role="combobox" aria-label="Branch filter" aria-autocomplete="list" aria-expanded="false" aria-controls="history-branch-list" autocomplete="off" spellcheck="false"><ul id="history-branch-list" class="branch-list" role="listbox" aria-label="Branches" hidden></ul>${regions["history-branch"]}</span>
 <span class="toolbar-group base-control" role="group" aria-label="Comparison base">
 <span class="label">Base:</span>
 ${regions["history-base-automatic"]}
@@ -412,11 +418,16 @@ function renderBranchFilter(view: HistoryView): string {
   // so of several branches sharing a tip only the chosen one is marked.
   const options = (view.state.history?.refs ?? []).flatMap((ref) => {
     const value = branchFilterRef(ref);
-    return value !== null && view.commitOf(ref.oid) !== undefined ? [option(value, ref.name, value === selected)] : [];
+    return value !== null && view.commitOf(ref.oid) !== undefined ? [branchOption(value, ref, value === selected)] : [];
   });
   const fixedOptions = option("", "All branches", selected === null)
     + option(CHECKED_OUT_BRANCH, checkedOutLabel(view.state.history?.head ?? null), selected === CHECKED_OUT_BRANCH);
-  return `<select id="history-branch" aria-label="Branch filter">${fixedOptions}${options.join("")}</select>`;
+  return `<select id="history-branch" hidden>${fixedOptions}${options.join("")}</select>`;
+}
+
+/** A branch filter option for `ref`, with its kind for the client. */
+function branchOption(value: string, ref: HistoryRef, isSelected: boolean): string {
+  return `<option value="${escapeHtml(value)}" data-kind="${ref.kind}"${isSelected ? " selected" : ""}>${escapeHtml(ref.name)}</option>`;
 }
 
 /** Names the branch the checked-out option shows, or says HEAD is detached; just the option's name until known. */

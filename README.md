@@ -67,6 +67,10 @@ the left; changed files, replay order and commit details on the right.
   all branches. A branch you pick, or **All branches**, is kept per repository for the session and follows that branch
   as it moves; if the branch is deleted or no longer loaded, it shows all branches. Pick **Checked out branch** to
   follow HEAD again.
+- Click the branch filter (or focus it and press `Enter`, `Space` or `Alt`+`↓`) and type to narrow the list: a branch
+  matches when it contains the typed letters in order, ignoring case; they need not be adjacent (`fjl` finds
+  `feature/JIRA-1-cache-login`). Matched letters are highlighted; the list keeps its order. `↑`/`↓` move, `Enter` or a
+  click picks, `Escape` or a click elsewhere closes it and clears the typed text.
 - The table shows 200 commits at a time; **Load more** adds 200.
 - The panel loads at most `jwDiffer.historyMaxCommits` commits (default 20,000, minimum 100): the newest ones by commit
   date across local and remote branches, tags and a detached HEAD; the table then lists them in date order rather than

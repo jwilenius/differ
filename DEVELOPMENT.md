@@ -94,6 +94,16 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `src/host/vscode/syntaxHighlighting.ts`  | Finds grammars and the active theme among installed extensions |
 | `src/host/vscode/twoWayDiffPanel.ts`     | The reusable diff tab and its native-diff fallback             |
 | `media/`                                 | Webview stylesheet and client script                           |
+| `media/fuzzyMatch.js`                    | Branch filter matcher: in-order letters, marks (fzy ideas)     |
+
+`media/*.js` is plain browser script, not bundled: each loads by its own `<script nonce>` tag under the webview CSP, and
+tests run it in a `vm` context with a fake DOM (`src/test/historyClient.test.ts`). The history toolbar is static; host
+`update` messages replace marked regions by id. The branch filter is a combobox (`#history-branch-input` +
+`#history-branch-list`, both static) over the hidden `<select id="history-branch">` region, which carries the options
+(value, label, `data-kind` `localBranch`/`remoteBranch`); a region patch re-parses the options and refilters an open
+list, keeping its typed text, active option and focus. Options render 100 at a time as the list scrolls.
+`fuzzyMatch.js` (after [fzy](https://github.com/jhawthorn/fzy/blob/master/ALGORITHM.md), MIT) decides a match in one greedy pass per branch and
+picks the letters to mark (word starts, camelCase, runs) only for rendered options.
 
 The `core/`, `model/` and `render/` layers have no `vscode` import and are unit-tested on their own; `src/test/layering.test.ts` enforces it.
 

@@ -6,7 +6,9 @@ import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../render/html/historyRe
 import type { HistoryPage, HistoryPresentation, HistoryRenderContext, HistoryUpdate } from "../render/html/historyRenderer";
 import type { ComparisonFile, HistoryCommit, HistoryData, HistoryState } from "../model/historyTypes";
 
-const CLIENT_SOURCE = fs.readFileSync(path.join(__dirname, "..", "..", "media", "history.js"), "utf8");
+const MEDIA = path.join(__dirname, "..", "..", "media");
+/** The page loads the matcher before the client, which calls its functions. */
+const CLIENT_SOURCE = ["fuzzyMatch.js", "history.js"].map((file) => fs.readFileSync(path.join(MEDIA, file), "utf8")).join("\n");
 
 // ------------------------------------------------- minimal DOM fixture
 
@@ -25,6 +27,8 @@ interface EventInit {
   readonly ctrlKey?: boolean;
   readonly metaKey?: boolean;
   readonly shiftKey?: boolean;
+  readonly altKey?: boolean;
+  readonly isComposing?: boolean;
   readonly data?: unknown;
 }
 
@@ -34,6 +38,8 @@ class FakeEvent {
   readonly ctrlKey: boolean;
   readonly metaKey: boolean;
   readonly shiftKey: boolean;
+  readonly altKey: boolean;
+  readonly isComposing: boolean;
   readonly data: unknown;
 
   constructor(readonly type: string, readonly target: FakeElement, init: EventInit = {}) {
@@ -41,6 +47,8 @@ class FakeEvent {
     this.ctrlKey = init.ctrlKey ?? false;
     this.metaKey = init.metaKey ?? false;
     this.shiftKey = init.shiftKey ?? false;
+    this.altKey = init.altKey ?? false;
+    this.isComposing = init.isComposing ?? false;
     this.data = init.data;
   }
 
@@ -84,10 +92,25 @@ class FakeStyle {
   }
 }
 
+/** Text between tags, or a string a client appended. */
+class FakeText {
+  parent: FakeElement | null = null;
+
+  constructor(readonly textContent: string) {}
+}
+
+type FakeNode = FakeElement | FakeText;
+
+/** A laid-out box: every element is 100 × 20 at the panel's top left. */
+const FAKE_RECT = { top: 0, bottom: 20, left: 0, right: 100, width: 100, height: 20 };
+
 class FakeElement extends FakeEventTarget {
-  readonly children: FakeElement[] = [];
+  readonly childNodes: FakeNode[] = [];
   parent: FakeElement | null = null;
   scrollTop = 0;
+  readonly clientHeight = 0;
+  readonly scrollHeight = 0;
+  readonly offsetWidth = 0;
   /** `scrollIntoView` calls, as their options. */
   readonly scrolledIntoView: unknown[] = [];
   selectionStart = 0;
@@ -103,11 +126,84 @@ class FakeElement extends FakeEventTarget {
     return this.attributes.get("id") ?? "";
   }
 
+  set id(id: string) {
+    this.attributes.set("id", id);
+  }
+
+  set className(className: string) {
+    this.attributes.set("class", className);
+  }
+
+  get placeholder(): string {
+    return this.attributes.get("placeholder") ?? "";
+  }
+
+  set placeholder(placeholder: string) {
+    this.attributes.set("placeholder", placeholder);
+  }
+
+  get title(): string {
+    return this.attributes.get("title") ?? "";
+  }
+
+  set title(title: string) {
+    this.attributes.set("title", title);
+  }
+
+  get hidden(): boolean {
+    return this.attributes.has("hidden");
+  }
+
+  set hidden(isHidden: boolean) {
+    if (isHidden) {
+      this.attributes.set("hidden", "");
+    } else {
+      this.attributes.delete("hidden");
+    }
+  }
+
+  /** `data-*` attributes by camel-cased name, readable and writable. */
   get dataset(): Record<string, string> {
-    const entries = [...this.attributes]
-      .filter(([name]) => name.startsWith("data-"))
-      .map(([name, value]) => [name.slice(5).replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase()), value]);
-    return Object.fromEntries(entries);
+    const attributeName = (key: string): string => `data-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+    return new Proxy({}, {
+      get: (_target, key) => (typeof key === "string" ? this.attributes.get(attributeName(key)) : undefined),
+      set: (_target, key, value: string) => {
+        this.attributes.set(attributeName(String(key)), String(value));
+        return true;
+      },
+    });
+  }
+
+  get children(): FakeElement[] {
+    return this.childNodes.filter((node): node is FakeElement => node instanceof FakeElement);
+  }
+
+  get textContent(): string {
+    return this.childNodes.map((node) => node.textContent).join("");
+  }
+
+  set textContent(text: string) {
+    this.replaceChildren(text);
+  }
+
+  append(...nodes: (FakeNode | string)[]): void {
+    for (const node of nodes) {
+      const child = typeof node === "string" ? new FakeText(node) : node;
+      child.parent = this;
+      this.childNodes.push(child);
+    }
+  }
+
+  replaceChildren(...nodes: (FakeNode | string)[]): void {
+    for (const node of this.childNodes) {
+      node.parent = null;
+    }
+    this.childNodes.length = 0;
+    this.append(...nodes);
+  }
+
+  getBoundingClientRect(): typeof FAKE_RECT {
+    return FAKE_RECT;
   }
 
   get value(): string {
@@ -153,12 +249,12 @@ class FakeElement extends FakeEventTarget {
   /** Replaces this element with the parsed markup, as assigning `outerHTML` does. */
   set outerHTML(markup: string) {
     const parent = this.parent!;
-    const index = parent.children.indexOf(this);
-    const replacements = parseInto(new FakeElement(this.owner, "#fragment", new Map()), markup).children;
-    replacements.forEach((element) => {
-      element.parent = parent;
+    const index = parent.childNodes.indexOf(this);
+    const replacements = parseInto(new FakeElement(this.owner, "#fragment", new Map()), markup).childNodes;
+    replacements.forEach((node) => {
+      node.parent = parent;
     });
-    parent.children.splice(index, 1, ...replacements);
+    parent.childNodes.splice(index, 1, ...replacements);
     this.parent = null;
   }
 
@@ -166,11 +262,7 @@ class FakeElement extends FakeEventTarget {
     if (position !== "beforeend") {
       throw new Error(`Unsupported position in fixture: ${position}`);
     }
-    const added = parseInto(new FakeElement(this.owner, "#fragment", new Map()), markup).children;
-    added.forEach((element) => {
-      element.parent = this;
-    });
-    this.children.push(...added);
+    this.append(...parseInto(new FakeElement(this.owner, "#fragment", new Map()), markup).childNodes);
   }
 
   get classList(): { toggle(name: string, force: boolean): void; contains(name: string): boolean } {
@@ -216,14 +308,21 @@ class FakeElement extends FakeEventTarget {
     return this.children.flatMap((child) => [child, ...child.descendants()]);
   }
 
+  /** Takes the focus from the focused element, which hears `blur`. */
   focus(): void {
+    const previous = this.owner!.activeElement;
+    if (previous === this) {
+      return;
+    }
     this.owner!.activeElement = this;
+    previous?.notify(new FakeEvent("blur", previous));
     this.dispatch(new FakeEvent("focusin", this));
   }
 
   blur(): void {
     if (this.owner!.activeElement === this) {
       this.owner!.activeElement = null;
+      this.notify(new FakeEvent("blur", this));
     }
   }
 
@@ -254,13 +353,23 @@ class FakeDocument extends FakeElement {
   getElementById(id: string): FakeElement | null {
     return this.descendants().find((element) => element.id === id) ?? null;
   }
+
+  createElement(tagName: string): FakeElement {
+    return new FakeElement(this, tagName.toUpperCase(), new Map());
+  }
+}
+
+/** A panel 800 × 600 for the branch list to be placed in. */
+class FakeWindow extends FakeEventTarget {
+  readonly innerWidth = 800;
+  readonly innerHeight = 600;
 }
 
 function decodeEntities(text: string): string {
   return text.replace(/&quot;/g, "\"").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
-/** Parses the renderer's well-formed output: elements and double-quoted attributes only. */
+/** Parses the renderer's well-formed output: elements, double-quoted attributes and text. */
 function parseDocument(html: string): FakeDocument {
   const document = parseInto(new FakeDocument(), html);
   document.body = document.querySelector("body")!;
@@ -271,8 +380,13 @@ function parseDocument(html: string): FakeDocument {
 function parseInto<T extends FakeElement>(root: T, html: string): T {
   const document = root instanceof FakeDocument ? root : root.owner!;
   const stack: FakeElement[] = [root];
+  let textStart = 0;
   for (const token of html.matchAll(TOKEN_PATTERN)) {
     const [, closingTag, openingTag, attributeText, selfClosing] = token;
+    if (token.index > textStart) {
+      stack[stack.length - 1]!.append(decodeEntities(html.slice(textStart, token.index)));
+    }
+    textStart = token.index + token[0].length;
     if (closingTag) {
       const index = stack.map((element) => element.tagName).lastIndexOf(closingTag.toUpperCase());
       stack.length = Math.max(1, index);
@@ -283,8 +397,7 @@ function parseInto<T extends FakeElement>(root: T, html: string): T {
     }
     const attributes = new Map([...(attributeText ?? "").matchAll(ATTRIBUTE_PATTERN)].map((match) => [match[1]!, decodeEntities(match[2] ?? "")]));
     const element = new FakeElement(document, openingTag.toUpperCase(), attributes);
-    element.parent = stack[stack.length - 1]!;
-    element.parent.children.push(element);
+    stack[stack.length - 1]!.append(element);
     if (!selfClosing && !VOID_TAGS.has(openingTag.toLowerCase())) {
       stack.push(element);
     }
@@ -304,11 +417,11 @@ class FakeWebview {
   readonly posted: PostedMessage[] = [];
   state: unknown = undefined;
   document!: FakeDocument;
-  window!: FakeEventTarget;
+  window!: FakeWindow;
 
   load(html: string): this {
     this.document = parseDocument(html);
-    this.window = new FakeEventTarget();
+    this.window = new FakeWindow();
     this.run();
     return this;
   }
@@ -391,6 +504,32 @@ class FakeWebview {
     this.window.notify(new FakeEvent("message", this.document, { data }));
   }
 
+  /** Presses the mouse button on `target`, before any focus change or click; returns the event. */
+  press(target: FakeElement): FakeEvent {
+    const event = new FakeEvent("mousedown", target);
+    target.dispatch(event);
+    return event;
+  }
+
+  /** The branch list's entries as their text, the marked letters in brackets. */
+  branchOptions(): string[] {
+    return this.element("history-branch-list").querySelectorAll("li").map(marked);
+  }
+
+  /** The option `aria-activedescendant` names, as `branchOptions` shows it. */
+  activeBranch(): string | null {
+    const id = this.element("history-branch-input").getAttribute("aria-activedescendant");
+    return id === null ? null : marked(this.element(id));
+  }
+
+  /** Opens the branch list with a click, types `query` and picks the first match with Enter. */
+  pickBranch(query: string): void {
+    const input = this.element("history-branch-input");
+    this.click(input);
+    this.type(input, query);
+    this.key(input, "Enter");
+  }
+
   /** The most recent message. */
   last(): PostedMessage | undefined {
     return this.posted[this.posted.length - 1];
@@ -399,6 +538,10 @@ class FakeWebview {
   intents(): readonly PostedMessage[] {
     return this.posted.filter((message) => message.type !== "ready");
   }
+}
+
+function marked(element: FakeElement): string {
+  return element.childNodes.map((node) => (node instanceof FakeElement ? `[${node.textContent}]` : node.textContent)).join("");
 }
 
 // ------------------------------------------------------------------ fixture
@@ -415,6 +558,14 @@ function oid(index: number): string {
 }
 
 const [A, B, C, D, E] = [5, 4, 3, 2, 1].map(oid) as [string, string, string, string, string];
+
+/** Branches of several kinds and shapes, all at loaded commits. */
+const BRANCHES: HistoryData["refs"] = [
+  { kind: "localBranch", name: "main", oid: A },
+  { kind: "localBranch", name: "feature/branch-filter", oid: B },
+  { kind: "localBranch", name: "fix/bug", oid: C },
+  { kind: "remoteBranch", name: "origin/main", oid: A },
+];
 
 function commit(id: string, subject: string, parents: readonly string[]): HistoryCommit {
   return { oid: id, parents, author: "Ada", authoredDate: "2026-03-04T05:06:07+02:00", subject };
@@ -454,6 +605,8 @@ interface Publication {
   readonly repositoryId?: string;
   /** File of the listed snapshot the diff panel shows. */
   readonly openFileId?: string | null;
+  /** The history's refs, in place of `history`'s one branch. */
+  readonly refs?: HistoryData["refs"];
 }
 
 function publish(publication: Publication = {}): string {
@@ -465,7 +618,7 @@ function pageFor(publication: Publication): { readonly state: HistoryState; read
   const selectedOids = publication.selectedOids ?? [];
   const state: HistoryState = {
     revision: 1,
-    history,
+    history: publication.refs ? { ...history, refs: publication.refs } : history,
     selectedOids,
     base: { kind: "automatic" },
     mainlines: [],
@@ -478,6 +631,7 @@ function pageFor(publication: Publication): { readonly state: HistoryState; read
   const repositoryId = publication.repositoryId ?? REPOSITORY_ID;
   const context: HistoryRenderContext = {
     assets: { styleUri: "res://history.css", scriptUri: "res://history.js", cspSource: "res:" },
+    fuzzyMatchScriptUri: "res://fuzzyMatch.js",
     nonce: NONCE,
     repositories: [{ id: REPOSITORY_ID, name: "differ" }, { id: OTHER_REPOSITORY_ID, name: "other" }],
     activeRepositoryId: repositoryId,
@@ -734,6 +888,7 @@ describe("history client", () => {
       { revision: 1, history: many, selectedOids: [], base: { kind: "automatic" }, mainlines: [], comparison: null, operations: { isLoading: false, isResolvingBase: false, isComparing: false }, error: null },
       {
         assets: { styleUri: "s", scriptUri: "j", cspSource: "res:" },
+        fuzzyMatchScriptUri: "m",
         nonce: NONCE,
         repositories: [],
         activeRepositoryId: null,
@@ -747,20 +902,20 @@ describe("history client", () => {
     const webview = new FakeWebview().load(html);
 
     webview.click(webview.element("history-load-more"));
-    webview.change(webview.element("history-branch"), "refs/heads/main");
+    webview.pickBranch("checked");
 
     expect(webview.intents()).toEqual([
       { type: "presentation", revision: 3, search: "", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE * 2 },
-      { type: "presentation", revision: 3, search: "", branch: "refs/heads/main", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
+      { type: "presentation", revision: 3, search: "", branch: "checked-out", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
     ]);
   });
 
   it("sends the published branch ref with other presentation changes and shows it selected", () => {
     const webview = open({ branch: { ref: "refs/heads/main", tipOid: A }, rowLimit: 1 });
 
-    expect(webview.element("history-branch").value).toBe("refs/heads/main");
+    expect(webview.element("history-branch-input").placeholder).toBe("main");
     webview.click(webview.element("history-load-more"));
-    webview.change(webview.element("history-branch"), "");
+    webview.pickBranch("all");
 
     expect(webview.intents()).toEqual([
       { type: "presentation", revision: 7, search: "", branch: "refs/heads/main", focusedOid: null, rowLimit: 1 + HISTORY_PAGE_SIZE },
@@ -771,16 +926,225 @@ describe("history client", () => {
   it("sends the checked-out branch choice until a branch is picked, and can pick it again", () => {
     const webview = open({ branchChoice: "checked-out", branch: { ref: "refs/heads/main", tipOid: A }, rowLimit: 1 });
 
-    expect(webview.element("history-branch").value).toBe("checked-out");
+    expect(webview.element("history-branch-input").placeholder).toBe("Checked out branch");
     webview.click(webview.element("history-load-more"));
-    webview.change(webview.element("history-branch"), "refs/heads/main");
-    webview.change(webview.element("history-branch"), "checked-out");
+    webview.pickBranch("main");
+    webview.pickBranch("checked");
 
     expect(webview.intents()).toEqual([
       { type: "presentation", revision: 7, search: "", branch: "checked-out", focusedOid: null, rowLimit: 1 + HISTORY_PAGE_SIZE },
       { type: "presentation", revision: 7, search: "", branch: "refs/heads/main", focusedOid: null, rowLimit: 1 },
       { type: "presentation", revision: 7, search: "", branch: "checked-out", focusedOid: null, rowLimit: 1 },
     ]);
+  });
+
+  describe("branch filter", () => {
+    it("opens on a click with every branch, the chosen one active and checked", () => {
+      const webview = open({ refs: BRANCHES, branch: { ref: "refs/heads/fix/bug", tipOid: C } });
+      const input = webview.element("history-branch-input");
+
+      expect(input.placeholder).toBe("fix/bug");
+      webview.click(input);
+
+      expect(input.getAttribute("aria-expanded")).toBe("true");
+      expect(webview.element("history-branch-list").hidden).toBe(false);
+      expect(webview.branchOptions()).toEqual(["All branches", "Checked out branch", "main", "feature/branch-filter", "fix/bug", "origin/main"]);
+      expect(webview.activeBranch()).toBe("fix/bug");
+      expect(webview.document.querySelectorAll("li.is-chosen").map(marked)).toEqual(["fix/bug"]);
+      expect(webview.element("history-branch-option-4").getAttribute("aria-selected")).toBe("true");
+      expect(webview.element("history-branch-option-4").getAttribute("aria-posinset")).toBe("5");
+      expect(webview.element("history-branch-option-4").getAttribute("aria-setsize")).toBe("6");
+    });
+
+    it("opens with Enter, Space, Down and Alt+Down, and closes with Escape", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      const list = webview.element("history-branch-list");
+
+      for (const [key, init] of [["Enter", {}], [" ", {}], ["ArrowDown", {}], ["ArrowDown", { altKey: true }]] as const) {
+        expect(webview.key(input, key, init).defaultPrevented).toBe(true);
+        expect(list.hidden).toBe(false);
+        expect(webview.key(input, "Escape").defaultPrevented).toBe(true);
+        expect(list.hidden).toBe(true);
+        expect(input.getAttribute("aria-expanded")).toBe("false");
+      }
+      expect(webview.key(input, "a").defaultPrevented).toBe(false);
+      expect(webview.intents()).toEqual([]);
+    });
+
+    it("closes with Alt+Up and leaves keys composing text to the input method", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      const list = webview.element("history-branch-list");
+
+      expect(webview.key(input, "Enter", { isComposing: true }).defaultPrevented).toBe(false);
+      expect(list.hidden).toBe(true);
+      webview.click(input);
+      expect(webview.key(input, "Enter", { isComposing: true }).defaultPrevented).toBe(false);
+      expect(list.hidden).toBe(false);
+      expect(webview.key(input, "ArrowUp", { altKey: true }).defaultPrevented).toBe(true);
+      expect(list.hidden).toBe(true);
+      expect(webview.intents()).toEqual([]);
+    });
+
+    it("opens when typing, keeps the branches with the letters in order and marks them", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      input.focus();
+
+      webview.type(input, "FB");
+
+      expect(webview.element("history-branch-list").hidden).toBe(false);
+      expect(webview.branchOptions()).toEqual(["[f]eature/[b]ranch-filter", "[f]ix/[b]ug"]);
+      expect(webview.activeBranch()).toBe("[f]eature/[b]ranch-filter");
+      expect(input.getAttribute("aria-activedescendant")).toBe("history-branch-option-0");
+    });
+
+    it("matches the fixed entries by their labels and shows all for an empty query", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+
+      webview.type(input, "cob");
+      expect(webview.branchOptions()).toEqual(["[C]hecked [o]ut [b]ranch"]);
+      webview.type(input, "");
+      expect(webview.branchOptions()).toHaveLength(6);
+    });
+
+    it("closes without picking on Enter when no branch matches", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+
+      webview.type(input, "zz");
+      webview.key(input, "Enter");
+
+      expect(webview.branchOptions()).toEqual([]);
+      expect(webview.element("history-branch-list").hidden).toBe(true);
+      expect(webview.intents()).toEqual([]);
+    });
+
+    it("lists no match as a note, not an option", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+
+      webview.type(input, "zz");
+
+      expect(webview.document.querySelectorAll("li.branch-empty").map(marked)).toEqual(["No matching branches"]);
+      expect(input.hasAttribute("aria-activedescendant")).toBe(false);
+    });
+
+    it("moves the active option with the arrows, stopping at the ends, and picks it with Enter", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+      webview.type(input, "i");
+
+      webview.key(input, "ArrowUp");
+      expect(webview.activeBranch()).toBe("ma[i]n");
+      for (let step = 0; step < 10; step++) {
+        webview.key(input, "ArrowDown");
+      }
+      expect(webview.activeBranch()).toBe("or[i]gin/main");
+      webview.key(input, "ArrowUp");
+      expect(webview.element("history-branch-option-2").scrolledIntoView).toContainEqual({ block: "nearest" });
+      expect(webview.key(input, "Enter").defaultPrevented).toBe(true);
+
+      expect(webview.last()).toEqual({ type: "presentation", revision: 7, search: "", branch: "refs/heads/fix/bug", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
+      expect(webview.element("history-branch-list").hidden).toBe(true);
+      expect(input.value).toBe("");
+      expect(input.placeholder).toBe("fix/bug");
+      expect(input.hasAttribute("aria-activedescendant")).toBe(false);
+    });
+
+    it("clears the query when Escape closes the list", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+      webview.type(input, "fb");
+
+      webview.key(input, "Escape");
+      webview.click(input);
+
+      expect(input.value).toBe("");
+      expect(webview.branchOptions()).toHaveLength(6);
+      expect(webview.intents()).toEqual([]);
+    });
+
+    it("picks a clicked option without the press taking the focus", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+      webview.type(input, "fb");
+      const option = webview.find("li.branch-option", (element) => marked(element) === "[f]ix/[b]ug");
+
+      expect(webview.press(option).defaultPrevented).toBe(true);
+      webview.click(option);
+
+      expect(webview.last()).toMatchObject({ type: "presentation", branch: "refs/heads/fix/bug" });
+      expect(webview.element("history-branch-list").hidden).toBe(true);
+    });
+
+    it("closes without picking when the focus leaves", () => {
+      const webview = open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+      webview.type(input, "fb");
+
+      webview.element("history-search").focus();
+
+      expect(webview.element("history-branch-list").hidden).toBe(true);
+      expect(input.value).toBe("");
+      expect(webview.intents()).toEqual([]);
+    });
+
+    it("sends nothing when the chosen branch is picked again", () => {
+      const webview = open({ refs: BRANCHES });
+
+      webview.pickBranch("all");
+
+      expect(webview.intents()).toEqual([]);
+    });
+
+    it("places the list below the input, within the panel", () => {
+      const webview = open({ refs: BRANCHES });
+
+      webview.click(webview.element("history-branch-input"));
+
+      const style = webview.element("history-branch-list").style as unknown as Record<string, string>;
+      expect([style.top, style.bottom, style.left, style.minWidth, style.maxHeight]).toEqual(["22px", "auto", "2px", "100px", "576px"]);
+    });
+
+    it("shows branch names as text, never as markup", () => {
+      const hostile = "<img src=x onerror=alert(1)>";
+      const webview = open({ refs: [{ kind: "localBranch", name: hostile, oid: A }] });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+
+      webview.type(input, "img");
+
+      expect(webview.branchOptions()).toEqual(["<[img] src=x onerror=alert(1)>"]);
+      expect(webview.document.querySelectorAll("img")).toEqual([]);
+    });
+
+    it("adds options for thousands of branches a page at a time", () => {
+      const many = Array.from({ length: 5000 }, (_, index) => ({ kind: "remoteBranch" as const, name: `origin/feature-${index}`, oid: A }));
+      const webview = open({ refs: many });
+      const input = webview.element("history-branch-input");
+      const list = webview.element("history-branch-list");
+      webview.click(input);
+
+      expect(webview.branchOptions()).toHaveLength(100);
+      for (let step = 0; step < 100; step++) {
+        webview.key(input, "ArrowDown");
+      }
+      expect(webview.branchOptions()).toHaveLength(200);
+      expect(webview.activeBranch()).toBe("origin/feature-98");
+      list.dispatch(new FakeEvent("scroll", list));
+      expect(webview.branchOptions()).toHaveLength(300);
+      expect(webview.element("history-branch-option-0").getAttribute("aria-setsize")).toBe("5002");
+    });
   });
 
   it("debounces search by 150 ms", () => {
@@ -1182,14 +1546,63 @@ describe("history client", () => {
       ]);
     });
 
-    it("shows the host's choice again in a select whose change it did not take", () => {
+    it("shows the host's branch choice again when it did not take a pick", () => {
       const host = new FakeHost();
       const webview = host.open();
-      webview.change(webview.element("history-branch"), "refs/heads/main");
+      webview.pickBranch("main");
+      expect(webview.element("history-branch-input").placeholder).toBe("main");
 
       webview.receive(host.update({ selectedOids: [B], focusedOid: B, revision: 8 }));
 
-      expect(webview.element("history-branch").value).toBe("");
+      expect(webview.element("history-branch-input").placeholder).toBe("All branches");
+    });
+
+    it("keeps an open branch list, its query, active option and focus across an update", () => {
+      const host = new FakeHost();
+      const webview = host.open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      const list = webview.element("history-branch-list");
+      webview.click(input);
+      webview.type(input, "mn");
+      webview.key(input, "ArrowDown");
+
+      webview.receive(host.update({ refs: BRANCHES, selectedOids: [B], focusedOid: B, revision: 8 }));
+
+      expect(webview.element("history-branch-input")).toBe(input);
+      expect(webview.document.activeElement).toBe(input);
+      expect(input.value).toBe("mn");
+      expect(list.hidden).toBe(false);
+      expect(webview.branchOptions()).toEqual(["[m]ai[n]", "origin/[m]ai[n]"]);
+      expect(webview.activeBranch()).toBe("origin/[m]ai[n]");
+    });
+
+    it("keeps the chosen branch marked when an update replaces the branches under an open list", () => {
+      const host = new FakeHost();
+      const webview = host.open({ refs: BRANCHES });
+      const select = webview.element("history-branch");
+      webview.click(webview.element("history-branch-input"));
+      const chosen = webview.document.querySelectorAll("li.is-chosen").map(marked);
+
+      webview.receive(host.update({ refs: [...BRANCHES, { kind: "localBranch", name: "new", oid: B }], revision: 8 }));
+
+      expect(webview.element("history-branch")).not.toBe(select);
+      expect(chosen).toHaveLength(1);
+      expect(webview.document.querySelectorAll("li.is-chosen").map(marked)).toEqual(chosen);
+    });
+
+    it("refilters an open branch list when an update changes the branches, keeping the active one", () => {
+      const host = new FakeHost();
+      const webview = host.open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+      webview.type(input, "mn");
+      webview.key(input, "ArrowDown");
+
+      webview.receive(host.update({ refs: [{ kind: "localBranch", name: "maintenance", oid: B }, ...BRANCHES.slice(2)], revision: 8 }));
+      webview.key(input, "Enter");
+
+      expect(webview.branchOptions()).toEqual([]);
+      expect(webview.last()).toMatchObject({ type: "presentation", revision: 8, branch: "refs/remotes/origin/main" });
     });
 
     it("forgets anchor, scroll and drafts when the update shows another repository", () => {

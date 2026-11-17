@@ -349,6 +349,24 @@ describe("SyntaxHighlighting", () => {
       expect(firstColors(highlighted)).toEqual(["#333333"]);
     });
 
+    it("give way to an installed injection grammar with the same scope", async () => {
+      const installedInjection: FakeExtension = {
+        id: "test.jsdoc-injection",
+        extensionPath: FIXTURES,
+        packageJSON: {
+          contributes: {
+            grammars: [{ scopeName: "documentation.injection.ts", path: "./installed-jsdoc.injection.tmLanguage.json", injectTo: ["source.ts"] }],
+          },
+        },
+      };
+      vscodeMock.extensions = [GRAMMAR_EXTENSION, THEME_EXTENSION, installedInjection];
+
+      const highlighted = await highlighting.highlight("/** @param x */", "typescript");
+
+      const colors = highlighted.lines[0].map((token) => highlighted.styles[token.styleIndex]?.color);
+      expect(colors).toContain("#333333");
+    });
+
     it("colour code a default grammar embeds from another default grammar", async () => {
       // Only the TypeScript grammar scopes `let` so; markdown includes it without adding its root scope.
       vscodeMock.configuration.set("editor.tokenColorCustomizations", { textMateRules: [{ scope: "storage.type.ts", settings: { foreground: "#444444" } }] });

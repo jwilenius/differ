@@ -1,0 +1,5 @@
+{
+  "scopeName": "documentation.injection.ts",
+  "injectionSelector": "L:comment.block.documentation",
+  "patterns": [{ "match": "@param", "name": "keyword.installed" }]
+}

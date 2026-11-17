@@ -255,19 +255,19 @@ async function defaultGrammars(directory: string): Promise<readonly GrammarContr
 }
 
 /**
- * Installed grammars, preceded by the default grammars. Listing the defaults first lets {@link scopesByLanguage} prefer
- * an installed grammar for a language; a default grammar it displaces stays available to grammars that embed its scope.
- * A default grammar whose scope is installed only keeps its language, mapped to the installed grammar's file.
+ * Installed grammars, preceded by the default grammars. Later contributions win, so an installed grammar replaces a
+ * default one for its language in {@link scopesByLanguage} and for its scope in the highlighter's grammar files; a
+ * default grammar it displaces for a language stays available to grammars that embed its scope. A default grammar whose
+ * scope is installed keeps its language but drops its `injectTo`, so that scope is not injected twice.
  */
 function withDefaultGrammars(installed: readonly GrammarContribution[], defaults: readonly GrammarContribution[]): readonly GrammarContribution[] {
-  // Later contributions win, as in scopesByLanguage.
-  const installedPaths = new Map(installed.map((grammar) => [grammar.scopeName, grammar.path]));
-  const fallbacks = defaults.flatMap((grammar): GrammarContribution[] => {
-    const installedPath = installedPaths.get(grammar.scopeName);
-    if (installedPath === undefined) {
-      return [grammar];
+  const installedScopes = new Set(installed.map((grammar) => grammar.scopeName));
+  const fallbacks = defaults.map((grammar): GrammarContribution => {
+    if (!installedScopes.has(grammar.scopeName)) {
+      return grammar;
     }
-    return grammar.language === undefined ? [] : [{ scopeName: grammar.scopeName, path: installedPath, language: grammar.language }];
+    const { injectTo: _injectTo, ...uninjected } = grammar;
+    return uninjected;
   });
   return [...fallbacks, ...installed];
 }

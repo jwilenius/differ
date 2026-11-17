@@ -137,7 +137,7 @@ describe("history branch filter", () => {
 
     expect(webview.last()).toEqual({ type: "presentation", revision: 7, search: "", branch: "refs/heads/fix/bug", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
     expect(webview.element("history-branch-list").hidden).toBe(true);
-    expect(input.value).toBe("");
+    expect(input.value).toBe("fix/bug");
     expect(input.placeholder).toBe("fix/bug");
     expect(input.hasAttribute("aria-activedescendant")).toBe(false);
   });
@@ -156,6 +156,68 @@ describe("history branch filter", () => {
     expect(webview.intents()).toEqual([]);
   });
 
+  it("names the chosen branch in the value while closed and clears it on opening", () => {
+    const webview = open({ refs: BRANCHES, branch: { ref: "refs/heads/fix/bug", tipOid: C } });
+    const input = webview.element("history-branch-input");
+
+    expect(input.value).toBe("fix/bug");
+    webview.key(input, "ArrowDown");
+
+    expect(input.value).toBe("");
+    expect(input.placeholder).toBe("fix/bug");
+    expect(webview.activeBranch()).toBe("fix/bug");
+  });
+
+  it("restores the chosen branch's name when Escape closes the list on a query", () => {
+    const webview = open({ refs: BRANCHES, branch: { ref: "refs/heads/fix/bug", tipOid: C } });
+    const input = webview.element("history-branch-input");
+    webview.click(input);
+    webview.type(input, "mn");
+
+    webview.key(input, "Escape");
+
+    expect(input.value).toBe("fix/bug");
+    expect(webview.intents()).toEqual([]);
+  });
+
+  it("starts a fresh query with text typed into the closed input", () => {
+    const webview = open({ refs: BRANCHES, branch: { ref: "refs/heads/fix/bug", tipOid: C } });
+    const input = webview.element("history-branch-input");
+
+    input.value = "fix/bugo";
+    input.dispatch(new FakeEvent("input", input, { inputType: "insertText", data: "o" }));
+
+    expect(input.value).toBe("o");
+    expect(webview.branchOptions()).toEqual(["Checked [o]ut branch", "[o]rigin/main"]);
+    expect(webview.activeBranch()).toBe("Checked [o]ut branch");
+  });
+
+  it("opens every branch on the chosen one when a deletion edits the closed input", () => {
+    const webview = open({ refs: BRANCHES, branch: { ref: "refs/heads/fix/bug", tipOid: C } });
+    const input = webview.element("history-branch-input");
+
+    input.value = "fix/bu";
+    input.dispatch(new FakeEvent("input", input, { inputType: "deleteContentBackward", data: null }));
+
+    expect(input.value).toBe("");
+    expect(webview.branchOptions()).toHaveLength(6);
+    expect(webview.activeBranch()).toBe("fix/bug");
+  });
+
+  it("starts a fresh query with text composed into the closed input once the input method commits it", () => {
+    const webview = open({ refs: BRANCHES, branch: { ref: "refs/heads/fix/bug", tipOid: C } });
+    const input = webview.element("history-branch-input");
+    const list = webview.element("history-branch-list");
+
+    input.value = "fix/bugo";
+    input.dispatch(new FakeEvent("input", input, { inputType: "insertCompositionText", data: "o", isComposing: true }));
+    expect(list.hidden).toBe(true);
+    input.dispatch(new FakeEvent("compositionend", input, { data: "o" }));
+
+    expect(input.value).toBe("o");
+    expect(webview.branchOptions()).toEqual(["Checked [o]ut branch", "[o]rigin/main"]);
+  });
+
   it("picks a clicked option without the press taking the focus", () => {
     const webview = open({ refs: BRANCHES });
     const input = webview.element("history-branch-input");
@@ -168,6 +230,7 @@ describe("history branch filter", () => {
 
     expect(webview.last()).toMatchObject({ type: "presentation", branch: "refs/heads/fix/bug" });
     expect(webview.element("history-branch-list").hidden).toBe(true);
+    expect(input.value).toBe("fix/bug");
   });
 
   it("closes without picking when the focus leaves", () => {
@@ -179,7 +242,7 @@ describe("history branch filter", () => {
     webview.element("history-search").focus();
 
     expect(webview.element("history-branch-list").hidden).toBe(true);
-    expect(input.value).toBe("");
+    expect(input.value).toBe("All branches");
     expect(webview.intents()).toEqual([]);
   });
 

@@ -103,7 +103,10 @@ tests run it in a `vm` context with a fake DOM (`src/test/historyClientFixture.t
 `update` messages replace marked regions by id. The branch filter is a combobox (`#history-branch-input` +
 `#history-branch-list`, both static) over the hidden `<select id="history-branch">` region, which carries the options
 (value, label, `data-kind` `localBranch`/`remoteBranch`/`head`); a region patch re-parses the options and refilters an
-open list, keeping its typed text, active option and focus. Options render 100 at a time as the list scrolls. The
+open list, keeping its typed text, active option and focus. Closed, the input's value is the chosen branch's label
+(announced like a select's value); opening clears it for the query (placeholder keeps the label), typing into the closed
+input starts the query with the inserted text only (`InputEvent.data`; IME text on `compositionend`), and closing
+restores the label. Options render 100 at a time as the list scrolls. The
 static `#history-branch-local-only` toggle (`aria-pressed`) drops `remoteBranch` options from the list on the client
 only, with no host message; its state lives in the webview view state (`setState`), kept across updates, repository
 switches and a recreated document. `branchFilter.js` exposes one global, `createBranchFilter({ input, list,

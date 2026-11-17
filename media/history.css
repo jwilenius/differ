@@ -199,12 +199,6 @@ input::placeholder {
   cursor: text;
 }
 
-/* Closed, the placeholder shows the chosen branch as a select shows its value. */
-.branch-input[aria-expanded="false"]::placeholder {
-  color: inherit;
-  opacity: 1;
-}
-
 .branch-list {
   position: fixed;
   z-index: 10;

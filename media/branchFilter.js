@@ -3,7 +3,8 @@
 // first.
 //
 // The input and its list are never replaced, so an open list, its query and the focus survive updates. The input
-// holds the query while the list is open; closed, it is empty and its placeholder names the chosen branch.
+// holds the query while the list is open, its placeholder naming the chosen branch; closed, its value names the chosen
+// branch, as a select's does, so screen readers announce it.
 (function () {
   "use strict";
 
@@ -36,11 +37,17 @@
     let activeBranchIndex = -1;
 
     input.addEventListener("click", () => openBranches());
-    input.addEventListener("input", () => {
+    input.addEventListener("input", (event) => {
       if (isBranchListOpen()) {
         filterBranches(null);
-      } else {
-        openBranches();
+      } else if (!event.isComposing) {
+        openBranches(insertedText(event));
+      }
+    });
+    // Text composed while the list is closed opens it once the input method commits the text.
+    input.addEventListener("compositionend", (event) => {
+      if (!isBranchListOpen()) {
+        openBranches(event.data || "");
       }
     });
     input.addEventListener("keydown", (event) => {
@@ -124,17 +131,24 @@
       shownBranch = branch;
       input.placeholder = branch.label;
       input.title = branch.label;
+      if (!isBranchListOpen()) {
+        input.value = branch.label;
+      }
     }
 
     function isBranchListOpen() {
       return !list.hidden;
     }
 
-    /** Opens the list on the chosen branch, or, when typing opened it, on the first match. */
-    function openBranches() {
+    /**
+     * Opens the list with `query` replacing the chosen branch's name in the input: on the chosen branch for no query,
+     * else on the first match.
+     */
+    function openBranches(query = "") {
       if (isBranchListOpen()) {
         return;
       }
+      input.value = query;
       list.hidden = false;
       input.setAttribute("aria-expanded", "true");
       filterBranches(initialActiveValue());
@@ -145,7 +159,13 @@
       return input.value === "" ? shownBranch.value : null;
     }
 
-    /** Closing forgets the query. */
+    /** Typing into the closed input starts a fresh query with the typed text; a deletion starts an empty one. */
+    function insertedText(event) {
+      const isInsertion = typeof event.inputType === "string" && event.inputType.startsWith("insert");
+      return isInsertion && event.data ? event.data : "";
+    }
+
+    /** Closing forgets the query and names the shown branch again. */
     function closeBranches() {
       if (!isBranchListOpen()) {
         return;
@@ -154,7 +174,7 @@
       list.replaceChildren();
       input.setAttribute("aria-expanded", "false");
       input.removeAttribute("aria-activedescendant");
-      input.value = "";
+      input.value = shownBranch.label;
       matchingBranches = [];
       shownBranchCount = 0;
       activeBranchIndex = -1;

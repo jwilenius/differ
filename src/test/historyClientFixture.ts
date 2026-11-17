@@ -31,6 +31,7 @@ interface EventInit {
   readonly shiftKey?: boolean;
   readonly altKey?: boolean;
   readonly isComposing?: boolean;
+  readonly inputType?: string;
   readonly data?: unknown;
 }
 
@@ -42,6 +43,7 @@ export class FakeEvent {
   readonly shiftKey: boolean;
   readonly altKey: boolean;
   readonly isComposing: boolean;
+  readonly inputType: string;
   readonly data: unknown;
 
   constructor(readonly type: string, readonly target: FakeElement, init: EventInit = {}) {
@@ -51,6 +53,7 @@ export class FakeEvent {
     this.shiftKey = init.shiftKey ?? false;
     this.altKey = init.altKey ?? false;
     this.isComposing = init.isComposing ?? false;
+    this.inputType = init.inputType ?? "";
     this.data = init.data;
   }
 
@@ -489,11 +492,11 @@ export class FakeWebview {
     return event;
   }
 
-  /** Replaces the text, leaving the caret at its end as typing does. */
+  /** Replaces the text, leaving the caret at its end as typing does; `text` is the inserted data. */
   type(input: FakeElement, text: string): void {
     input.value = text;
     input.setSelectionRange(text.length, text.length);
-    input.dispatch(new FakeEvent("input", input));
+    input.dispatch(new FakeEvent("input", input, { inputType: "insertText", data: text }));
   }
 
   change(select: FakeElement, value: string): void {

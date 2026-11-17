@@ -426,6 +426,8 @@ export class FakeWebview {
   state: unknown = undefined;
   document!: FakeDocument;
   window!: FakeWindow;
+  /** The client's global scope, so a test can wrap what one script exposes to the others. */
+  globals!: Record<string, unknown>;
 
   load(html: string): this {
     this.document = parseDocument(html);
@@ -450,14 +452,15 @@ export class FakeWebview {
         },
       };
     };
-    vm.runInNewContext(CLIENT_SOURCE, {
+    this.globals = {
       acquireVsCodeApi,
       document: this.document,
       window: this.window,
       setTimeout: (callback: () => void, delay: number) => setTimeout(callback, delay),
       clearTimeout: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
       requestAnimationFrame: (callback: () => void) => setTimeout(callback, FRAME_MS),
-    });
+    };
+    vm.runInNewContext(CLIENT_SOURCE, this.globals);
   }
 
   element(id: string): FakeElement {

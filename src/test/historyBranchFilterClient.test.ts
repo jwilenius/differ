@@ -14,6 +14,29 @@ import {
   publish,
 } from "./historyClientFixture";
 
+interface FuzzyMatch {
+  readonly isFuzzyMatch: (...args: unknown[]) => boolean;
+  readonly fuzzyMatchRanges: (...args: unknown[]) => unknown;
+}
+
+/** Wraps the client's `fuzzyMatch` global to count the match tests and the mark searches. */
+function countFuzzyMatchCalls(webview: FakeWebview): { isFuzzyMatch: number; fuzzyMatchRanges: number } {
+  const calls = { isFuzzyMatch: 0, fuzzyMatchRanges: 0 };
+  const fuzzyMatch = webview.globals.fuzzyMatch as FuzzyMatch;
+  webview.globals.fuzzyMatch = {
+    ...fuzzyMatch,
+    isFuzzyMatch: (...args: unknown[]) => {
+      calls.isFuzzyMatch++;
+      return fuzzyMatch.isFuzzyMatch(...args);
+    },
+    fuzzyMatchRanges: (...args: unknown[]) => {
+      calls.fuzzyMatchRanges++;
+      return fuzzyMatch.fuzzyMatchRanges(...args);
+    },
+  };
+  return calls;
+}
+
 describe("history branch filter", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -291,6 +314,21 @@ describe("history branch filter", () => {
     list.dispatch(new FakeEvent("scroll", list));
     expect(webview.branchOptions()).toHaveLength(300);
     expect(webview.element("history-branch-option-0").getAttribute("aria-setsize")).toBe("5002");
+  });
+
+  it("tests each offered branch once per query and marks only the shown options", () => {
+    const many = Array.from({ length: 10_000 }, (_, index) => ({ kind: "remoteBranch" as const, name: `origin/feature-${index}`, oid: A }));
+    const webview = open({ refs: many });
+    const input = webview.element("history-branch-input");
+    const calls = countFuzzyMatchCalls(webview);
+    webview.click(input);
+    calls.isFuzzyMatch = 0;
+    calls.fuzzyMatchRanges = 0;
+
+    webview.type(input, "f9");
+
+    expect(calls).toEqual({ isFuzzyMatch: 10_002, fuzzyMatchRanges: 100 });
+    expect(webview.branchOptions()).toHaveLength(100);
   });
 
   it("leaves the list alone when scrolling finds every match already shown", () => {

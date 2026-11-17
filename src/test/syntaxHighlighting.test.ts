@@ -3,7 +3,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SyntaxHighlighting } from "../host/vscode/syntaxHighlighting";
+import { TOKENIZE_TIME_BUDGET_MS, type HighlightOptions } from "../highlight/textMateHighlighter";
+import { BUILD_TIMEOUT_MS, SyntaxHighlighting } from "../host/vscode/syntaxHighlighting";
 import type { HighlightedText } from "../model/syntaxTokens";
 import {
   ColorThemeKind,
@@ -19,6 +20,9 @@ const FIXTURES = path.join(__dirname, "fixtures", "highlight");
 const WASM_PATH = path.join(__dirname, "..", "..", "node_modules", "vscode-oniguruma", "release", "onig.wasm");
 const DEFAULT_THEMES_DIRECTORY = path.join(__dirname, "..", "..", "media", "themes");
 const DEFAULT_GRAMMARS_DIRECTORY = path.join(__dirname, "..", "..", "media", "grammars");
+/** Twice the production limits: they only stop a stalled test, and a busy machine must not trip them. */
+const TEST_BUILD_TIMEOUT_MS = 2 * BUILD_TIMEOUT_MS;
+const TEST_TOKENIZE_BUDGET_MS = 2 * TOKENIZE_TIME_BUDGET_MS;
 
 const GRAMMAR_EXTENSION: FakeExtension = {
   id: "test.demo-language",
@@ -54,6 +58,11 @@ const RENAMED_THEME_EXTENSION: FakeExtension = {
   packageJSON: { contributes: { themes: [{ id: "Light Modern", uiTheme: "vs", path: "./base.json" }] } },
 };
 
+/** For texts in heavy grammars, such as markdown embedding TypeScript, which could otherwise run out of time. */
+function withTestDeadline(): HighlightOptions {
+  return { deadline: performance.now() + TEST_TOKENIZE_BUDGET_MS };
+}
+
 /** Colour of the first token on each line. */
 function firstColors(highlighted: HighlightedText): (string | null)[] {
   return highlighted.lines.map((tokens) => highlighted.styles[tokens[0]?.styleIndex ?? 0]?.color ?? null);
@@ -68,7 +77,13 @@ describe("SyntaxHighlighting", () => {
     vscodeMock.extensions = [GRAMMAR_EXTENSION, THEME_EXTENSION];
     vscodeMock.configuration.set("workbench.colorTheme", "Top Theme");
     problems = [];
-    highlighting = new SyntaxHighlighting(WASM_PATH, DEFAULT_THEMES_DIRECTORY, DEFAULT_GRAMMARS_DIRECTORY, (message) => problems.push(message));
+    highlighting = new SyntaxHighlighting(
+      WASM_PATH,
+      DEFAULT_THEMES_DIRECTORY,
+      DEFAULT_GRAMMARS_DIRECTORY,
+      (message) => problems.push(message),
+      TEST_BUILD_TIMEOUT_MS,
+    );
   });
 
   afterEach(() => highlighting.dispose());
@@ -318,7 +333,7 @@ describe("SyntaxHighlighting", () => {
     });
 
     it("colour a language no installed extension has a grammar for in a remote window", async () => {
-      const highlighted = await highlighting.highlight("let", "typescript");
+      const highlighted = await highlighting.highlight("let", "typescript", withTestDeadline());
 
       expect(firstColors(highlighted)).toEqual(["#111111"]);
       expect(problems).toEqual([]);
@@ -371,7 +386,7 @@ describe("SyntaxHighlighting", () => {
       };
       vscodeMock.extensions = [GRAMMAR_EXTENSION, THEME_EXTENSION, installedInjection];
 
-      const highlighted = await highlighting.highlight("/** @param x */", "typescript");
+      const highlighted = await highlighting.highlight("/** @param x */", "typescript", withTestDeadline());
 
       const colors = highlighted.lines[0].map((token) => highlighted.styles[token.styleIndex]?.color);
       expect(colors).toContain("#333333");
@@ -381,7 +396,7 @@ describe("SyntaxHighlighting", () => {
       // Only the TypeScript grammar scopes `let` so; markdown includes it without adding its root scope.
       vscodeMock.configuration.set("editor.tokenColorCustomizations", { textMateRules: [{ scope: "storage.type.ts", settings: { foreground: "#444444" } }] });
 
-      const highlighted = await highlighting.highlight("```ts\nlet x = 1;\n```", "markdown");
+      const highlighted = await highlighting.highlight("```ts\nlet x = 1;\n```", "markdown", withTestDeadline());
 
       const embeddedLineColors = highlighted.lines[1].map((token) => highlighted.styles[token.styleIndex]?.color);
       expect(embeddedLineColors).toContain("#444444");

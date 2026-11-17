@@ -47,7 +47,7 @@ const THEME_SETTINGS: readonly string[] = [
 const LANGUAGES_WITHOUT_GRAMMAR: readonly string[] = ["plaintext"];
 
 /** How long reading the theme may take; a build that fails this way is forgotten like any failed build. */
-const BUILD_TIMEOUT_MS = 2_000;
+export const BUILD_TIMEOUT_MS = 2_000;
 
 /** `editor.tokenColorCustomizations` keys that are applied, or that do not affect TextMate colours. */
 const SUPPORTED_CUSTOMIZATION_KEYS: readonly string[] = ["textMateRules", "semanticHighlighting"];

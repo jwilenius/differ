@@ -56,8 +56,10 @@ export interface HistoryPageContext {
 /** A page context plus what only a whole document needs. */
 export interface HistoryRenderContext extends HistoryPageContext {
   readonly assets: WebviewAssets;
-  /** `fuzzyMatch.js`, the branch filter's matcher, which the client script calls. */
+  /** `fuzzyMatch.js`, the branch filter's matcher, which `branchFilter.js` calls. */
   readonly fuzzyMatchScriptUri: string;
+  /** `branchFilter.js`, the branch filter's combobox, which the client script creates. */
+  readonly branchFilterScriptUri: string;
   readonly nonce: string;
 }
 
@@ -244,6 +246,7 @@ ${regions["history-details"]}
 </aside>
 </main>
 <script nonce="${nonce}" src="${escapeHtml(context.fuzzyMatchScriptUri)}"></script>
+<script nonce="${nonce}" src="${escapeHtml(context.branchFilterScriptUri)}"></script>
 <script nonce="${nonce}" src="${escapeHtml(assets.scriptUri)}"></script>
 </body>
 </html>`;

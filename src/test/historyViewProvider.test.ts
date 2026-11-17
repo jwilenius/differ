@@ -311,6 +311,7 @@ describe("HistoryViewProvider", () => {
     expect(view.webview.options).toEqual({ enableScripts: true, localResourceRoots: [vscode.Uri.file("/extension/media")] });
     expect(shownHtml(view)).toContain("Third change");
     expect(shownHtml(view)).toContain("history.js");
+    expect(shownHtml(view)).toContain("branchFilter.js");
     expect(publicState(view).repositoryId).toMatch(/^[0-9a-f-]{36}$/);
     expect(repositories.get(ROOT_A)?.loadCount).toBe(1);
   });

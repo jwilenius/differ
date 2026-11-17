@@ -52,6 +52,7 @@ function makeContext(overrides: Partial<HistoryRenderContext> = {}): HistoryRend
   return {
     assets: { styleUri: "res://history.css", scriptUri: "res://history.js", cspSource: "res:" },
     fuzzyMatchScriptUri: "res://fuzzyMatch.js",
+    branchFilterScriptUri: "res://branchFilter.js",
     nonce: NONCE,
     repositories: [{ id: "repo-1", name: "differ" }],
     activeRepositoryId: "repo-1",
@@ -590,8 +591,9 @@ describe("HtmlHistoryRenderer", () => {
 
     expect(html).toContain(`content="default-src 'none'; style-src res:; script-src 'nonce-${NONCE}'"`);
     expect(html).toContain(`<script nonce="${NONCE}" src="res://fuzzyMatch.js"></script>
+<script nonce="${NONCE}" src="res://branchFilter.js"></script>
 <script nonce="${NONCE}" src="res://history.js"></script>`);
-    expect(html.match(/<script/g)).toHaveLength(2);
+    expect(html.match(/<script/g)).toHaveLength(3);
     expect(html).not.toMatch(/\son[a-z]+=/i);
     expect(html).not.toMatch(/\sstyle=/i);
     expect(() => new HtmlHistoryRenderer().render(makeState(), makeContext({ nonce: "x'; script-src *" }))).toThrow();

@@ -95,16 +95,21 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `src/host/vscode/twoWayDiffPanel.ts`     | The reusable diff tab and its native-diff fallback             |
 | `media/`                                 | Webview stylesheet and client script                           |
 | `media/fuzzyMatch.js`                    | Branch filter matcher: in-order letters, marks (fzy ideas)     |
+| `media/branchFilter.js`                  | Branch filter combobox: `createBranchFilter`, used by history  |
 
 `media/*.js` is plain browser script, not bundled: each loads by its own `<script nonce>` tag under the webview CSP, and
-tests run it in a `vm` context with a fake DOM (`src/test/historyClient.test.ts`). The history toolbar is static; host
+tests run it in a `vm` context with a fake DOM (`src/test/historyClientFixture.ts`). The history page loads
+`fuzzyMatch.js`, `branchFilter.js`, `history.js`, in that order. The history toolbar is static; host
 `update` messages replace marked regions by id. The branch filter is a combobox (`#history-branch-input` +
 `#history-branch-list`, both static) over the hidden `<select id="history-branch">` region, which carries the options
 (value, label, `data-kind` `localBranch`/`remoteBranch`/`head`); a region patch re-parses the options and refilters an
 open list, keeping its typed text, active option and focus. Options render 100 at a time as the list scrolls. The
 static `#history-branch-local-only` toggle (`aria-pressed`) drops `remoteBranch` options from the list on the client
 only, with no host message; its state lives in the webview view state (`setState`), kept across updates, repository
-switches and a recreated document.
+switches and a recreated document. `branchFilter.js` exposes one global, `createBranchFilter({ input, list,
+isLocalBranchesOnly, onPick })` → `{ refresh(select) }`; `history.js` owns the toggle, its persistence and the
+presentation message, and calls `refresh` at load and after every update. Tests:
+`src/test/historyBranchFilterClient.test.ts`.
 `fuzzyMatch.js` (after [fzy](https://github.com/jhawthorn/fzy/blob/master/ALGORITHM.md), MIT) decides a match in one greedy pass per branch and
 picks the letters to mark (word starts, camelCase, runs) only for rendered options.
 

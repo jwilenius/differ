@@ -126,7 +126,8 @@ The `core/`, `model/` and `render/` layers have no `vscode` import and are unit-
 ### Updating bundled VS Code defaults
 
 Copies of VS Code's built-in themes and grammar-only extensions, which a remote extension host cannot see (VS Code runs
-them in the local window); used where jw-differ finds no installed theme or grammar, and installed contributions win.
+them in the local window). Themes stand in for any theme that is not installed, grammars only in a remote window, for
+languages and scopes no installed extension contributes; installed contributions win.
 Source: VS Code 1.146.0 (tag `1.146.0`, commit `69047191fc427f2f92828279aae1d90d8eeda7ab`). Update
 both folders from one version, together with the version, commit and notices in `ThirdPartyNotices.txt`.
 

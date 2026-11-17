@@ -313,14 +313,24 @@ describe("SyntaxHighlighting", () => {
     ];
 
     beforeEach(() => {
+      vscodeMock.remoteName = "ssh-remote";
       vscodeMock.configuration.set("editor.tokenColorCustomizations", { textMateRules: ROOT_SCOPE_RULES });
     });
 
-    it("colour a language no installed extension has a grammar for", async () => {
+    it("colour a language no installed extension has a grammar for in a remote window", async () => {
       const highlighted = await highlighting.highlight("let", "typescript");
 
       expect(firstColors(highlighted)).toEqual(["#111111"]);
       expect(problems).toEqual([]);
+    });
+
+    it("are not used in a local window, where the editor shows such a language uncoloured too", async () => {
+      vscodeMock.remoteName = undefined;
+
+      const highlighted = await highlighting.highlight("let", "typescript");
+
+      expect(firstColors(highlighted)).toEqual([null]);
+      expect(problems).toEqual(["No grammar for language 'typescript' among installed extensions; showing it without syntax colours."]);
     });
 
     it("give way to an installed grammar for the same language", async () => {

@@ -37,8 +37,8 @@ resources/app/extensions folder of the VS Code 1.146.0 release build, which
 ships them minified. That build is made from
 https://github.com/microsoft/vscode/tree/1.146.0 (commit
 69047191fc427f2f92828279aae1d90d8eeda7ab), whose extensions folder holds the
-grammars' sources. They are used for languages whose grammar is not available
-to jw-differ, such as in a remote window. media/grammars/grammars.json is
+grammars' sources. In a remote window, they are used for languages whose
+grammar is not available to jw-differ. media/grammars/grammars.json is
 derived from those extensions' package.json files, which are covered by VS
 Code's MIT License above, as is the grammar of prompt-basics, which VS Code
 wrote itself.

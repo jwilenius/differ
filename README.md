@@ -18,7 +18,8 @@ Two workflows: review the combined changes of any set of commits, and resolve me
 > - A colour theme jw-differ cannot see falls back to VS Code's default theme of the same kind (light, dark or high
 >   contrast), with one notice per theme.
 > - A language with no grammar on the remote uses the bundled grammar. Language extensions with code run on the
->   remote, so their grammars are used.
+>   remote, so their grammars are used. Locally the bundled grammars are not used: a language VS Code has no enabled
+>   grammar for stays uncoloured, as in the editor.
 > - Output → **jw-differ History** logs each theme replaced by a default and each language that had no grammar.
 
 ## Git commit history and diff viewing

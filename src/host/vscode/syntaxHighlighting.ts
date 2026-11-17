@@ -104,8 +104,9 @@ const DEFAULT_GRAMMARS_MANIFEST = "grammars.json";
 /**
  * Highlights text the way VS Code's editor would: grammars contributed by installed extensions and the active colour
  * theme with the user's `editor.tokenColorCustomizations` `textMateRules`. The engine is rebuilt lazily after any of them changes.
- * A theme that is not installed falls back to VS Code's bundled default themes, and a language or grammar scope no
- * installed extension contributes to VS Code's bundled default grammars.
+ * A theme that is not installed falls back to VS Code's bundled default themes. In a remote window, a language or grammar
+ * scope no installed extension contributes falls back to VS Code's bundled default grammars; locally, VS Code's own
+ * grammars are installed extensions, and one that is missing or disabled leaves the editor uncoloured too.
  */
 export class SyntaxHighlighting implements vscode.Disposable {
   private current: Promise<LanguageHighlighter> | null = null;
@@ -175,7 +176,7 @@ export class SyntaxHighlighting implements vscode.Disposable {
 
   private async build(): Promise<LanguageHighlighter> {
     const { grammars: installedGrammars, themes: installedThemes } = collectContributions(vscode.extensions.all);
-    const grammars = withDefaultGrammars(installedGrammars, await defaultGrammars(this.defaultGrammarsDirectory));
+    const grammars = isRemote() ? withDefaultGrammars(installedGrammars, await defaultGrammars(this.defaultGrammarsDirectory)) : installedGrammars;
     const themes = [...installedThemes, ...defaultThemes(this.defaultThemesDirectory)];
     const { requestedId, isRequestedMissing, theme } = activeTheme(themes);
     // For a theme that is not installed, VS Code itself shows an installed default theme, so using that one matches the editor.
@@ -211,8 +212,8 @@ export class SyntaxHighlighting implements vscode.Disposable {
       return;
     }
     this.reportedMissingGrammars.add(languageId);
-    const location = isRemote() ? "installed extensions on the remote" : "installed extensions";
-    this.onProblem(`No grammar for language '${languageId}' among ${location} or VS Code's default grammars; showing it without syntax colours.`);
+    const location = isRemote() ? "installed extensions on the remote or VS Code's default grammars" : "installed extensions";
+    this.onProblem(`No grammar for language '${languageId}' among ${location}; showing it without syntax colours.`);
   }
 
   /** Once per session: only `textMateRules` customizations are applied, not `comments`, `strings` and the like. */

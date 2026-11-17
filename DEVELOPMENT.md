@@ -76,7 +76,7 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `src/model/historyController.ts`         | Selection, base, merge parents, cancellable comparisons        |
 | `src/model/historyGraph.ts`              | Branch graph lanes and edges per commit row                    |
 | `src/model/historyVisibility.ts`         | Search and branch filtering of loaded commits                  |
-| `src/model/historyBranchFilter.ts`       | Branch filter kept by ref name; HEAD's branch by default       |
+| `src/model/historyBranchFilter.ts`       | Branch filter by ref name; the checked-out option follows HEAD |
 | `src/model/historyRefNames.ts`           | Ref namespaces (`refs/heads/`, …) and the ref kinds they give  |
 | `src/git/historyGitCommand.ts`           | Binary-safe, bounded, cancellable `git` subprocess runner      |
 | `src/git/gitHistoryRepository.ts`        | Commits, refs and pinned ref resolution                        |

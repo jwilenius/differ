@@ -416,7 +416,7 @@ describe("HistoryViewProvider", () => {
       type: "presentation",
       revision: staleRevision,
       search: "feature",
-      branch: null,
+      branch: "checked-out",
       focusedOid: C3,
       rowLimit: 200,
     });
@@ -431,7 +431,7 @@ describe("HistoryViewProvider", () => {
     const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1];
     await send({ type: "repository", repositoryId: betaId });
 
-    view.webview.fireDidReceiveMessage({ type: "presentation", revision: alphaRevision, search: "", branch: null, focusedOid: C3, rowLimit: 200 });
+    view.webview.fireDidReceiveMessage({ type: "presentation", revision: alphaRevision, search: "", branch: "checked-out", focusedOid: C3, rowLimit: 200 });
     await settle();
 
     expect(publicState(view)).toMatchObject({ repositoryId: betaId, focusedOid: null });
@@ -440,11 +440,11 @@ describe("HistoryViewProvider", () => {
   it("does not republish a selection or presentation that changes nothing", async () => {
     await open();
     await send({ type: "select", oids: [C2, C3], focusedOid: C3 });
-    await send({ type: "presentation", search: "", branch: null, focusedOid: C3, rowLimit: 200 });
+    await send({ type: "presentation", search: "", branch: "checked-out", focusedOid: C3, rowLimit: 200 });
     const revision = publicState(view).revision;
 
     await send({ type: "select", oids: [C3, C2], focusedOid: C3 });
-    await send({ type: "presentation", search: "", branch: null, focusedOid: C3, rowLimit: 200 });
+    await send({ type: "presentation", search: "", branch: "checked-out", focusedOid: C3, rowLimit: 200 });
 
     expect(publicState(view).revision).toBe(revision);
   });
@@ -601,7 +601,7 @@ describe("HistoryViewProvider", () => {
     await open();
     expect(shownRows(view)).toHaveLength(HISTORY_PAGE_SIZE);
 
-    await send({ type: "presentation", search: "", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE * 2 });
+    await send({ type: "presentation", search: "", branch: "checked-out", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE * 2 });
 
     const update = updates(view).at(-1)!;
     expect(update.regions["history-commits"]).toBeUndefined();
@@ -615,7 +615,7 @@ describe("HistoryViewProvider", () => {
   it("replaces the rows when a search or branch filter changes them", async () => {
     await open();
 
-    await send({ type: "presentation", search: "second", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
+    await send({ type: "presentation", search: "second", branch: "checked-out", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
     const searched = updates(view).at(-1)!;
     await send({ type: "presentation", search: "", branch: "refs/heads/feature", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
     const filtered = updates(view).at(-1)!;
@@ -670,7 +670,7 @@ describe("HistoryViewProvider", () => {
     expect(updates(view)).toEqual([]);
 
     // Sent before any update could arrive.
-    view.webview.fireDidReceiveMessage({ type: "presentation", revision: shownRevision, search: "c3", branch: null, focusedOid: null, rowLimit: 200 });
+    view.webview.fireDidReceiveMessage({ type: "presentation", revision: shownRevision, search: "c3", branch: "checked-out", focusedOid: null, rowLimit: 200 });
     await settle();
 
     expect(publicState(view).search).toBe("c3");
@@ -679,7 +679,7 @@ describe("HistoryViewProvider", () => {
   it("accepts a selection from a document older only by presentation changes", async () => {
     await open();
     const olderRevision = publicState(view).revision;
-    await send({ type: "presentation", search: "", branch: null, focusedOid: C3, rowLimit: 200 });
+    await send({ type: "presentation", search: "", branch: "checked-out", focusedOid: C3, rowLimit: 200 });
 
     view.webview.fireDidReceiveMessage({ type: "select", revision: olderRevision, oids: [C3], focusedOid: C3 });
     await settle();
@@ -747,7 +747,7 @@ describe("HistoryViewProvider", () => {
 
     await send({ type: "presentation", search: "third", branch: "refs/heads/gone", focusedOid: C3, rowLimit: 200 });
 
-    expect(publicState(view)).toMatchObject({ branch: null, search: "", focusedOid: C3 });
+    expect(publicState(view)).toMatchObject({ branch: "checked-out", search: "", focusedOid: C3 });
   });
 
   describe("default branch filter", () => {
@@ -775,50 +775,77 @@ describe("HistoryViewProvider", () => {
       return /<option value="([^"]*)" selected>/.exec(filter)?.[1];
     }
 
-    it("preselects the checked-out branch on the first load without first showing every branch", async () => {
+    it("selects the checked-out branch on the first load without first showing every branch", async () => {
       initialHistory = onBranch("feature", F1);
 
       await open();
 
-      expect(publicState(view).branch).toBe("refs/heads/feature");
-      expect(selectedOption()).toBe("refs/heads/feature");
+      expect(publicState(view).branch).toBe("checked-out");
+      expect(selectedOption()).toBe("checked-out");
+      expect(shownHtml(view)).toContain(`<option value="checked-out" selected>Checked out branch (feature)</option>`);
       expect(shownRows(view)).toEqual([F1, C1]);
       const tables = [view.webview.html, ...updates(view).map((update) => update.regions["history-commits"] ?? "")];
       expect(tables.filter((table) => table.includes(`data-oid="${C3}"`))).toEqual([]);
     });
 
-    it("follows HEAD on refresh while the user has not picked a branch", async () => {
+    it("follows HEAD to another branch on refresh while the checked-out branch is selected", async () => {
       initialHistory = onBranch("feature", F1);
       await open();
 
       await refresh(featureMoved({ oid: F2, branch: "feature" }));
-      expect(publicState(view).branch).toBe("refs/heads/feature");
+      expect(publicState(view).branch).toBe("checked-out");
       expect(shownRows(view)).toEqual([F2, F1, C1]);
 
       await refresh(featureMoved({ oid: C3, branch: "main" }));
-      expect(publicState(view).branch).toBe("refs/heads/main");
+      expect(publicState(view).branch).toBe("checked-out");
+      expect(shownRows(view)).toEqual([C3, C2, C1]);
+      expect(shownHtml(view)).toContain(`<option value="checked-out" selected>Checked out branch (main)</option>`);
+    });
+
+    it("keeps following HEAD across presentations that echo the checked-out branch", async () => {
+      initialHistory = onBranch("feature", F1);
+      await open();
+
+      await send({ type: "presentation", search: "work", branch: "checked-out", focusedOid: F1, rowLimit: 400 });
+      await send({ type: "presentation", search: "", branch: "checked-out", focusedOid: null, rowLimit: 200 });
+      await refresh(featureMoved({ oid: C3, branch: "main" }));
+
+      expect(publicState(view).branch).toBe("checked-out");
       expect(shownRows(view)).toEqual([C3, C2, C1]);
     });
 
-    it("shows every branch for a detached HEAD and still offers HEAD", async () => {
+    it("shows a detached HEAD's commit history and says HEAD is detached", async () => {
       initialHistory = onBranch("feature", F1);
       await open();
 
       await refresh({ ...HISTORY, refs: [...HISTORY.refs, { kind: "head", name: "HEAD", oid: C2 }], head: { oid: C2, branch: null } });
 
-      expect(publicState(view).branch).toBeNull();
-      expect(selectedOption()).toBe("");
+      expect(publicState(view).branch).toBe("checked-out");
+      expect(shownHtml(view)).toContain(`<option value="checked-out" selected>Checked out (detached HEAD)</option>`);
       expect(shownHtml(view)).toContain(`<option value="HEAD">HEAD</option>`);
-      expect(shownRows(view)).toEqual([F1, C3, C2, C1]);
+      expect(shownRows(view)).toEqual([C2, C1]);
     });
 
-    it("shows every branch when HEAD's commit is older than the loaded ones", async () => {
+    it("shows every branch while HEAD's commit is older than the loaded ones", async () => {
       initialHistory = { ...HISTORY, refs: [...HISTORY.refs, { kind: "localBranch", name: "old", oid: OLD }], head: { oid: OLD, branch: "old" }, isTruncated: true };
 
       await open();
 
-      expect(publicState(view).branch).toBeNull();
+      expect(publicState(view).branch).toBe("checked-out");
       expect(shownRows(view)).toEqual([F1, C3, C2, C1]);
+    });
+
+    it("follows HEAD again once the checked-out branch is picked after another branch", async () => {
+      initialHistory = onBranch("main", C3);
+      await open();
+      await send({ type: "presentation", search: "", branch: "refs/heads/feature", focusedOid: null, rowLimit: 200 });
+
+      await send({ type: "presentation", search: "", branch: "checked-out", focusedOid: null, rowLimit: 200 });
+      expect(shownRows(view)).toEqual([C3, C2, C1]);
+      await refresh(featureMoved({ oid: F2, branch: "feature" }));
+
+      expect(publicState(view).branch).toBe("checked-out");
+      expect(shownRows(view)).toEqual([F2, F1, C1]);
     });
 
     it("keeps a picked branch across refreshes and HEAD changes, following it as it moves", async () => {
@@ -864,9 +891,11 @@ describe("HistoryViewProvider", () => {
       await send({ type: "presentation", search: "", branch: null, focusedOid: null, rowLimit: 200 });
 
       await send({ type: "repository", repositoryId: betaId });
-      expect(publicState(view)).toMatchObject({ repositoryId: betaId, branch: "refs/heads/feature" });
+      expect(publicState(view)).toMatchObject({ repositoryId: betaId, branch: "checked-out" });
+      expect(shownRows(view)).toEqual([F1, C1]);
       await refresh(onBranch("main", C3), ROOT_B);
-      expect(publicState(view).branch).toBe("refs/heads/main");
+      expect(publicState(view).branch).toBe("checked-out");
+      expect(shownRows(view)).toEqual([C3, C2, C1]);
 
       await send({ type: "repository", repositoryId: alphaId });
       expect(publicState(view)).toMatchObject({ repositoryId: alphaId, branch: null });
@@ -903,7 +932,7 @@ describe("HistoryViewProvider", () => {
   it("restores selection and presentation in a recreated view", async () => {
     await open();
     await selectAndCompare([C2, C3]);
-    await send({ type: "presentation", search: "change", branch: null, focusedOid: C3, rowLimit: 200 });
+    await send({ type: "presentation", search: "change", branch: "checked-out", focusedOid: C3, rowLimit: 200 });
 
     view.fireDidDispose();
     const recreated = createFakeWebviewView();
@@ -937,7 +966,7 @@ describe("HistoryViewProvider", () => {
     await open();
     await send({ type: "select", oids: [C2], focusedOid: C2 });
 
-    await send({ type: "presentation", search: "THIRD", branch: null, focusedOid: C2, rowLimit: 200 });
+    await send({ type: "presentation", search: "THIRD", branch: "checked-out", focusedOid: C2, rowLimit: 200 });
     expect(shownRows(view)).toEqual([C3]);
     expect(publicState(view)).toMatchObject({ selectedOids: [C2], search: "THIRD" });
     expect(shownHtml(view)).toContain("1 hidden by filters");

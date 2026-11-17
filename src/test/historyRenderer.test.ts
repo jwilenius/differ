@@ -54,7 +54,7 @@ function makeContext(overrides: Partial<HistoryRenderContext> = {}): HistoryRend
     nonce: NONCE,
     repositories: [{ id: "repo-1", name: "differ" }],
     activeRepositoryId: "repo-1",
-    presentation: { search: "", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
+    presentation: { search: "", branchChoice: null, branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
     visibleOids: history.commits.map((entry) => entry.oid),
     hiddenSelectedCount: 0,
     wireRevision: 7,
@@ -100,7 +100,7 @@ function renderAll(data: HistoryData): string {
   const visibleOids = data.commits.map((entry) => entry.oid);
   return render({ history: data }, {
     visibleOids,
-    presentation: { search: "", branch: null, focusedOid: null, rowLimit: visibleOids.length },
+    presentation: { search: "", branchChoice: null, branch: null, focusedOid: null, rowLimit: visibleOids.length },
   });
 }
 
@@ -119,7 +119,7 @@ function rowFor(html: string, id: string): string {
 describe("HtmlHistoryRenderer", () => {
   it("distinguishes selected rows from the focused row", () => {
     const html = render({ selectedOids: [MIDDLE, SIDE] }, {
-      presentation: { search: "", branch: null, focusedOid: ROOT, rowLimit: HISTORY_PAGE_SIZE },
+      presentation: { search: "", branchChoice: null, branch: null, focusedOid: ROOT, rowLimit: HISTORY_PAGE_SIZE },
     });
 
     expect(rowFor(html, MIDDLE)).toContain('aria-selected="true"');
@@ -313,7 +313,7 @@ describe("HtmlHistoryRenderer", () => {
     const renderer = new HtmlHistoryRenderer();
     const contextFor = (rowLimit: number): HistoryRenderContext => makeContext({
       visibleOids,
-      presentation: { search: "", branch: null, focusedOid: null, rowLimit },
+      presentation: { search: "", branchChoice: null, branch: null, focusedOid: null, rowLimit },
     });
     const deepestRead = (): number => Math.max(...parentReads.keys());
     const totalReads = (): number => [...parentReads.values()].reduce((sum, count) => sum + count, 0);
@@ -385,12 +385,12 @@ describe("HtmlHistoryRenderer", () => {
       expect(refReads).toBe(readsAfterRender);
 
       const branch = { ref: "refs/heads/main", tipOid: MERGE };
-      const filtered = renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, branch } }, selected.page);
+      const filtered = renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, branchChoice: branch.ref, branch } }, selected.page);
       expect(refReads).toBeGreaterThan(readsAfterRender);
       expect(filtered.update.regions["history-branch"]).toContain(`<option value="refs/heads/main" selected>main</option>`);
       const readsAfterFilter = refReads;
 
-      renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, branch: { ...branch } } }, filtered.page);
+      renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, branchChoice: branch.ref, branch: { ...branch } } }, filtered.page);
       expect(refReads).toBe(readsAfterFilter);
     });
 
@@ -426,7 +426,7 @@ describe("HtmlHistoryRenderer", () => {
     it("replaces the table when the added rows widen the graph", () => {
       const renderer = new HtmlHistoryRenderer();
       const data = wideHistory(3);
-      const context = makeContext({ visibleOids: data.commits.map((entry) => entry.oid), presentation: { search: "", branch: null, focusedOid: null, rowLimit: 1 } });
+      const context = makeContext({ visibleOids: data.commits.map((entry) => entry.oid), presentation: { search: "", branchChoice: null, branch: null, focusedOid: null, rowLimit: 1 } });
       const { page } = renderer.render(makeState({ history: data }), context);
 
       const { update } = renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, rowLimit: 3 } }, page);
@@ -492,7 +492,7 @@ describe("HtmlHistoryRenderer", () => {
       { kind: "remoteBranch", name: "origin/old", oid: unloadedTip },
       { kind: "localBranch", name: "side", oid: SIDE },
     ];
-    const presentation = { search: "", branch: { ref: "refs/heads/side", tipOid: SIDE }, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
+    const presentation = { search: "", branchChoice: "refs/heads/side", branch: { ref: "refs/heads/side", tipOid: SIDE }, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
 
     const html = render({ history: { ...history, refs, isTruncated: true } }, { presentation });
 
@@ -510,21 +510,40 @@ describe("HtmlHistoryRenderer", () => {
       { kind: "head", name: "HEAD", oid: SIDE },
       { kind: "tag", name: "v2", oid: MERGE },
     ];
-    const presentation = { search: "", branch: { ref: "refs/heads/origin/main", tipOid: MERGE }, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
+    const presentation = { search: "", branchChoice: "refs/heads/origin/main", branch: { ref: "refs/heads/origin/main", tipOid: MERGE }, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
 
     const html = render({ history: { ...history, refs } }, { presentation });
 
     const options = [...html.matchAll(/<option value="([^"]*)"( selected)?>([^<]*)<\/option>/g)]
-      .filter((match) => match[1] === "" || match[1]!.startsWith("refs/") || match[1] === "HEAD")
+      .filter((match) => ["", "checked-out", "HEAD"].includes(match[1]!) || match[1]!.startsWith("refs/"))
       .map(([, value, selected, label]) => `${value}${selected ?? ""} ${label}`);
     expect(options).toEqual([
       " All branches",
+      "checked-out Checked out branch",
       "refs/heads/main main",
       "refs/remotes/origin/main origin/main",
       "refs/heads/origin/main selected origin/main",
       "HEAD HEAD",
     ]);
     expect(publicState(html).branch).toBe("refs/heads/origin/main");
+  });
+
+  it("selects the checked-out branch option, named after HEAD's branch", () => {
+    const presentation = { search: "", branchChoice: "checked-out", branch: { ref: "refs/heads/main", tipOid: MERGE }, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
+
+    const html = render({ history: { ...history, head: { branch: "main", oid: MERGE } } }, { presentation });
+
+    expect(html).toContain(`<option value="">All branches</option><option value="checked-out" selected>Checked out branch (main)</option>`);
+    expect(html).toContain(`<option value="refs/heads/main">main</option>`);
+    expect(publicState(html).branch).toBe("checked-out");
+  });
+
+  it("says the checked-out option shows a detached HEAD's commit", () => {
+    const presentation = { search: "", branchChoice: "checked-out", branch: { ref: "HEAD", tipOid: SIDE }, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
+
+    const html = render({ history: { ...history, head: { branch: null, oid: SIDE } } }, { presentation });
+
+    expect(html).toContain(`<option value="checked-out" selected>Checked out (detached HEAD)</option>`);
   });
 
   it("selects All branches without a branch filter", () => {
@@ -554,7 +573,7 @@ describe("HtmlHistoryRenderer", () => {
       { history: hostileHistory, selectedOids: [ROOT], error: { operation: "compare", message: hostile } },
       {
         repositories: [{ id: "repo-1", name: hostile }],
-        presentation: { search: hostile, branch: null, focusedOid: ROOT, rowLimit: HISTORY_PAGE_SIZE },
+        presentation: { search: hostile, branchChoice: null, branch: null, focusedOid: ROOT, rowLimit: HISTORY_PAGE_SIZE },
         visibleOids: [ROOT],
       },
     );

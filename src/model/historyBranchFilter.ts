@@ -11,6 +11,12 @@ export interface BranchFilter {
   readonly tipOid: string;
 }
 
+/**
+ * The branch filter option that follows HEAD: the checked-out branch, or HEAD's commit when detached. It is no filter
+ * ref, so it never names a branch the user picked.
+ */
+export const CHECKED_OUT_BRANCH = "checked-out";
+
 const DETACHED_HEAD_REF = "HEAD";
 /** Tags are not offered as branches. */
 const BRANCH_PREFIXES = REF_NAMESPACES.filter((namespace) => namespace.kind !== "tag");
@@ -35,6 +41,31 @@ export function isBranchFilterRef(value: string): boolean {
   return parseBranchFilterRef(value) !== null;
 }
 
+/** Whether `value` is a branch filter option other than All branches: the checked-out branch or a filter ref. */
+export function isBranchChoice(value: string): boolean {
+  return value === CHECKED_OUT_BRANCH || isBranchFilterRef(value);
+}
+
+/** Whether `choice` names a branch the user picked, rather than All branches or the checked-out branch. */
+export function isPickedBranch(choice: string | null): choice is string {
+  return choice !== null && choice !== CHECKED_OUT_BRANCH;
+}
+
+/**
+ * The filter `choice` names in `history`: `CHECKED_OUT_BRANCH` follows HEAD, any other value is a filter ref. Null for
+ * all branches (`choice` null), and when the ref is missing or its tip is not loaded.
+ */
+export function resolveBranchChoice(
+  history: HistoryData | null,
+  choice: string | null,
+  isLoaded: (oid: string) => boolean,
+): BranchFilter | null {
+  if (choice === CHECKED_OUT_BRANCH) {
+    return headBranchFilter(history, isLoaded);
+  }
+  return choice === null ? null : resolveBranchFilter(history, choice, isLoaded);
+}
+
 /** The filter for `ref` when `history` has it and `isLoaded` reports its tip as loaded; otherwise null. */
 export function resolveBranchFilter(
   history: HistoryData | null,
@@ -46,10 +77,17 @@ export function resolveBranchFilter(
   return match && isLoaded(match.oid) ? { ref, tipOid: match.oid } : null;
 }
 
-/** The filter for HEAD's branch while its tip is loaded; null for a detached, unborn or missing HEAD. */
+/**
+ * The filter for HEAD's branch, or for HEAD's commit when detached, while its tip is loaded; null for an unborn or
+ * missing HEAD.
+ */
 export function headBranchFilter(history: HistoryData | null, isLoaded: (oid: string) => boolean): BranchFilter | null {
-  const branch = history?.head?.branch;
-  return branch ? resolveBranchFilter(history, `${LOCAL_BRANCH_PREFIX}${branch}`, isLoaded) : null;
+  const head = history?.head;
+  if (!head) {
+    return null;
+  }
+  const ref = head.branch === null ? DETACHED_HEAD_REF : `${LOCAL_BRANCH_PREFIX}${head.branch}`;
+  return resolveBranchFilter(history, ref, isLoaded);
 }
 
 function parseBranchFilterRef(value: string): RefKey | null {

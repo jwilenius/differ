@@ -22,6 +22,7 @@ const VALID_MESSAGES: readonly HistoryMessage[] = [
   { type: "presentation", revision: 3, search: "fix", branch: "refs/heads/jimw/foo-branch", focusedOid: null, rowLimit: 400 },
   { type: "presentation", revision: 3, search: "", branch: "refs/remotes/origin/main", focusedOid: OID, rowLimit: 200 },
   { type: "presentation", revision: 3, search: "", branch: "HEAD", focusedOid: null, rowLimit: 200 },
+  { type: "presentation", revision: 3, search: "", branch: "checked-out", focusedOid: null, rowLimit: 200 },
 ];
 
 /** Stands in for the host: only parsed messages reach the handler. */

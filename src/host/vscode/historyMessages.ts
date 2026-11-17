@@ -1,4 +1,4 @@
-import { isBranchFilterRef } from "../../model/historyBranchFilter";
+import { isBranchChoice } from "../../model/historyBranchFilter";
 
 /**
  * Intents posted by `media/history.js`. Every message echoes the wire revision
@@ -26,7 +26,7 @@ export type HistoryMessage =
     readonly type: "presentation";
     readonly revision: number;
     readonly search: string;
-    /** Filter ref: `refs/heads/…`, `refs/remotes/…` or `HEAD`; null shows all branches. */
+    /** `CHECKED_OUT_BRANCH` or a filter ref (`refs/heads/…`, `refs/remotes/…`, `HEAD`); null shows all branches. */
     readonly branch: string | null;
     readonly focusedOid: string | null;
     readonly rowLimit: number;
@@ -138,7 +138,7 @@ function isOidOrNull(value: unknown): value is string | null {
 }
 
 function isBranchOrNull(value: unknown): value is string | null {
-  return value === null || (isBoundedText(value) && !CONTROL_CHARACTER_PATTERN.test(value) && isBranchFilterRef(value));
+  return value === null || (isBoundedText(value) && !CONTROL_CHARACTER_PATTERN.test(value) && isBranchChoice(value));
 }
 
 function isUuid(value: unknown): value is string {

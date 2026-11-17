@@ -1,4 +1,4 @@
-import { branchFilterRef } from "../../model/historyBranchFilter";
+import { branchFilterRef, CHECKED_OUT_BRANCH } from "../../model/historyBranchFilter";
 import type { BranchFilter } from "../../model/historyBranchFilter";
 import { HistoryGraphLayout, visibleGraphRows } from "../../model/historyGraph";
 import type { GraphSegment, HistoryGraphRow, VisibleGraphRow } from "../../model/historyGraph";
@@ -9,6 +9,7 @@ import type {
   FileStatus,
   HistoryCommit,
   HistoryData,
+  HistoryHead,
   HistoryOperation,
   HistoryRef,
   HistoryRefKind,
@@ -29,7 +30,9 @@ export interface HistoryRepositoryOption {
 /** View-only choices that never change the selection or comparison. */
 export interface HistoryPresentation {
   readonly search: string;
-  /** Limits the list to this branch's loaded history; null shows all branches. */
+  /** The branch filter option picked: `CHECKED_OUT_BRANCH`, a filter ref, or null for all branches. */
+  readonly branchChoice: string | null;
+  /** Limits the list to this branch's loaded history, as resolved from `branchChoice`; null shows all branches. */
   readonly branch: BranchFilter | null;
   readonly focusedOid: string | null;
   readonly rowLimit: number;
@@ -67,7 +70,7 @@ export interface HistoryPublicState {
   readonly selectedOids: readonly string[];
   readonly focusedOid: string | null;
   readonly search: string;
-  /** Ref of the branch filter, as its option value; null for all branches. */
+  /** The branch filter choice, as its option value; null for all branches. */
   readonly branch: string | null;
   readonly rowLimit: number;
   /** Snapshot whose files are listed; null unless the comparison is ready. */
@@ -188,7 +191,7 @@ const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string;
  *
  * Client contract: controls `#history-repository` (select, root IDs),
  * `#history-choose-repository`, `#history-refresh`, `#history-search`,
- * `#history-branch` (select, branch ref or `""` = all), `#history-base-automatic`,
+ * `#history-branch` (select, `CHECKED_OUT_BRANCH`, branch ref or `""` = all), `#history-base-automatic`,
  * `#history-base-input` + `#history-base-pin`, `#history-clear-selection`,
  * `#history-load-more[data-row-limit]`; rows `#history-commits tr.commit-row[data-oid]`;
  * `select.mainline-select[data-oid]` (value = one-based parent);
@@ -279,7 +282,7 @@ ${regions["history-details"]}
 
   private branchFilterOf(view: HistoryView): string {
     const { history } = view.state;
-    const branch = view.context.presentation.branch?.ref ?? null;
+    const branch = view.context.presentation.branchChoice;
     const cached = this.branchFilter;
     if (cached?.history === history && cached.branch === branch) {
       return cached.markup;
@@ -333,7 +336,7 @@ function createPublicState(state: HistoryState, context: HistoryPageContext): Hi
     selectedOids: state.selectedOids,
     focusedOid: presentation.focusedOid,
     search: presentation.search,
-    branch: presentation.branch?.ref ?? null,
+    branch: presentation.branchChoice,
     rowLimit: rowLimit(context),
     snapshotId,
     openFileId: openedFile !== null && openedFile.snapshotId === snapshotId ? openedFile.fileId : null,
@@ -404,14 +407,24 @@ function renderRepositorySelect(context: HistoryPageContext): string {
 }
 
 function renderBranchFilter(view: HistoryView): string {
-  const selected = view.context.presentation.branch?.ref ?? null;
+  const selected = view.context.presentation.branchChoice;
   // A truncated history may not reach a stale branch's tip, and filtering by it would show nothing. Refs are unique,
   // so of several branches sharing a tip only the chosen one is marked.
   const options = (view.state.history?.refs ?? []).flatMap((ref) => {
     const value = branchFilterRef(ref);
     return value !== null && view.commitOf(ref.oid) !== undefined ? [option(value, ref.name, value === selected)] : [];
   });
-  return `<select id="history-branch" aria-label="Branch filter">${option("", "All branches", selected === null)}${options.join("")}</select>`;
+  const fixedOptions = option("", "All branches", selected === null)
+    + option(CHECKED_OUT_BRANCH, checkedOutLabel(view.state.history?.head ?? null), selected === CHECKED_OUT_BRANCH);
+  return `<select id="history-branch" aria-label="Branch filter">${fixedOptions}${options.join("")}</select>`;
+}
+
+/** Names the branch the checked-out option shows, or says HEAD is detached; just the option's name until known. */
+function checkedOutLabel(head: HistoryHead | null): string {
+  if (head === null) {
+    return "Checked out branch";
+  }
+  return head.branch === null ? "Checked out (detached HEAD)" : `Checked out branch (${head.branch})`;
 }
 
 function renderBaseControls(view: HistoryView): Pick<Regions, "history-base-automatic" | "history-base-input" | "history-base-current"> {

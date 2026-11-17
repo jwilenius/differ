@@ -448,6 +448,8 @@ interface Publication {
   readonly search?: string;
   readonly rowLimit?: number;
   readonly branch?: HistoryPresentation["branch"];
+  /** The published branch choice; the branch filter's ref by default. */
+  readonly branchChoice?: string;
   readonly revision?: number;
   readonly repositoryId?: string;
   /** File of the listed snapshot the diff panel shows. */
@@ -481,6 +483,7 @@ function pageFor(publication: Publication): { readonly state: HistoryState; read
     activeRepositoryId: repositoryId,
     presentation: {
       search: publication.search ?? "",
+      branchChoice: publication.branchChoice ?? publication.branch?.ref ?? null,
       branch: publication.branch ?? null,
       focusedOid: publication.focusedOid ?? null,
       rowLimit: publication.rowLimit ?? HISTORY_PAGE_SIZE,
@@ -734,7 +737,7 @@ describe("history client", () => {
         nonce: NONCE,
         repositories: [],
         activeRepositoryId: null,
-        presentation: { search: "", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
+        presentation: { search: "", branchChoice: null, branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
         visibleOids: many.commits.map((entry) => entry.oid),
         hiddenSelectedCount: 0,
         wireRevision: 3,
@@ -762,6 +765,21 @@ describe("history client", () => {
     expect(webview.intents()).toEqual([
       { type: "presentation", revision: 7, search: "", branch: "refs/heads/main", focusedOid: null, rowLimit: 1 + HISTORY_PAGE_SIZE },
       { type: "presentation", revision: 7, search: "", branch: null, focusedOid: null, rowLimit: 1 },
+    ]);
+  });
+
+  it("sends the checked-out branch choice until a branch is picked, and can pick it again", () => {
+    const webview = open({ branchChoice: "checked-out", branch: { ref: "refs/heads/main", tipOid: A }, rowLimit: 1 });
+
+    expect(webview.element("history-branch").value).toBe("checked-out");
+    webview.click(webview.element("history-load-more"));
+    webview.change(webview.element("history-branch"), "refs/heads/main");
+    webview.change(webview.element("history-branch"), "checked-out");
+
+    expect(webview.intents()).toEqual([
+      { type: "presentation", revision: 7, search: "", branch: "checked-out", focusedOid: null, rowLimit: 1 + HISTORY_PAGE_SIZE },
+      { type: "presentation", revision: 7, search: "", branch: "refs/heads/main", focusedOid: null, rowLimit: 1 },
+      { type: "presentation", revision: 7, search: "", branch: "checked-out", focusedOid: null, rowLimit: 1 },
     ]);
   });
 

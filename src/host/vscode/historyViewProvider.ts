@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { GitComparisonRepository } from "../../git/gitComparisonRepository";
 import { HistoryGitError } from "../../git/historyGitCommand";
-import { headBranchFilter, resolveBranchFilter } from "../../model/historyBranchFilter";
+import { CHECKED_OUT_BRANCH, isPickedBranch, resolveBranchChoice } from "../../model/historyBranchFilter";
 import type { BranchFilter } from "../../model/historyBranchFilter";
 import { HistoryController } from "../../model/historyController";
 import { shortHash } from "../../model/historyLabels";
@@ -64,8 +64,6 @@ interface HistorySession {
   readonly repository: ClosableHistoryRepository;
   readonly controller: HistoryController;
   presentation: HistoryPresentation;
-  /** The user picked a branch filter, or All branches; until then the filter follows HEAD's branch on every load. */
-  isBranchChosen: boolean;
   compareTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
@@ -82,7 +80,13 @@ interface Publication {
   readonly sessionWireRevision: number;
 }
 
-const INITIAL_PRESENTATION: HistoryPresentation = { search: "", branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE };
+const INITIAL_PRESENTATION: HistoryPresentation = {
+  search: "",
+  branchChoice: CHECKED_OUT_BRANCH,
+  branch: null,
+  focusedOid: null,
+  rowLimit: HISTORY_PAGE_SIZE,
+};
 
 const EMPTY_STATE: HistoryState = {
   revision: 0,
@@ -273,7 +277,6 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       repository,
       controller: new HistoryController(withErrorLogging(repository, (error) => this.logError(root, error))),
       presentation: INITIAL_PRESENTATION,
-      isBranchChosen: false,
       compareTimer: undefined,
     };
     this.sessions.push(session);
@@ -339,21 +342,22 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Drops a focus the loaded history lacks and resolves the branch filter against it. Until the user picks one, the
-   * filter is HEAD's branch, or all branches when HEAD is detached or older than the loaded commits. A picked branch is
-   * kept by ref, so it follows the branch; once deleted or cut off by the cap it becomes All branches and stays a
-   * choice, so the filter never jumps to another branch the user did not pick.
+   * Drops a focus the loaded history lacks and resolves the branch choice against it. The checked-out branch choice
+   * follows HEAD: its branch, or its commit when detached, and all branches while HEAD's commit is not loaded. A picked
+   * branch is kept by ref, so it follows the branch; once deleted or cut off by the cap it becomes All branches, so the
+   * filter never jumps to another branch the user did not pick.
    */
   private revalidatePresentation(session: HistorySession): void {
     const { history } = session.controller.getState();
     const isLoaded = (oid: string): boolean => session.controller.hasCommit(oid);
-    const { focusedOid, branch } = session.presentation;
+    const { focusedOid, branchChoice } = session.presentation;
+    const branch = resolveBranchChoice(history, branchChoice, isLoaded);
+    const isPickedBranchGone = branch === null && isPickedBranch(branchChoice);
     session.presentation = {
       ...session.presentation,
       focusedOid: focusedOid !== null && isLoaded(focusedOid) ? focusedOid : null,
-      branch: session.isBranchChosen
-        ? branch && resolveBranchFilter(history, branch.ref, isLoaded)
-        : headBranchFilter(history, isLoaded),
+      branchChoice: isPickedBranchGone ? null : branchChoice,
+      branch,
     };
   }
 
@@ -499,33 +503,35 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const { search, focusedOid, rowLimit } = message;
+    const { search, focusedOid, rowLimit, branch: branchChoice } = message;
     const current = session.presentation;
-    const branch = this.branchFilterOf(session, message.branch);
+    const branch = this.branchFilterOf(session, branchChoice);
     const isApplied = isCurrent && branch !== undefined;
-    const next: HistoryPresentation = isApplied ? { search, branch, focusedOid, rowLimit } : { ...current, focusedOid };
-    const isUnchanged = next.search === current.search && next.branch === current.branch
+    const next: HistoryPresentation = isApplied
+      ? { search, branchChoice, branch, focusedOid, rowLimit }
+      : { ...current, focusedOid };
+    const isUnchanged = next.search === current.search && next.branchChoice === current.branchChoice
       && next.focusedOid === current.focusedOid && next.rowLimit === current.rowLimit;
     if (isUnchanged) {
       return;
     }
-    // A current page sends the filter it shows, so a different one is the user's pick, All branches included.
-    session.isBranchChosen ||= next.branch !== current.branch;
     session.presentation = next;
     this.publish();
   }
 
   /**
-   * The filter for `ref`: the current one when it names the same ref, so most messages skip the lookup; null for all
-   * branches; undefined when the loaded history has no such branch.
+   * The filter for `choice`: the current one when the choice is unchanged, so most messages skip the lookup; null for
+   * all branches or a checked-out branch that is not loaded; undefined when the loaded history has no such branch.
    */
-  private branchFilterOf(session: HistorySession, ref: string | null): BranchFilter | null | undefined {
-    const current = session.presentation.branch;
-    if (ref === (current?.ref ?? null)) {
-      return current;
+  private branchFilterOf(session: HistorySession, choice: string | null): BranchFilter | null | undefined {
+    const { branchChoice, branch } = session.presentation;
+    if (choice === branchChoice) {
+      return branch;
     }
     const history = session.controller.getState().history;
-    return ref === null ? null : resolveBranchFilter(history, ref, (oid) => session.controller.hasCommit(oid)) ?? undefined;
+    const filter = resolveBranchChoice(history, choice, (oid) => session.controller.hasCommit(oid));
+    const isMissingBranch = filter === null && isPickedBranch(choice);
+    return isMissingBranch ? undefined : filter;
   }
 
   /** The session the last publication showed, if it is still the active one. */

@@ -61,10 +61,12 @@ the left; changed files, replay order and commit details on the right.
 
 - **Search** filters by subject or hash (literal, case-insensitive); the branch filter shows commits reachable from
   that branch. Filtering never changes the selection — selected commits it hides are counted next to the selection.
-- The branch filter starts on the checked-out branch (each worktree's own) and follows HEAD on every refresh until you
-  pick one: a new commit, or checking out another branch, moves it along. It shows all branches while HEAD is detached
-  or older than the loaded commits. A branch you pick, or **All branches**, is kept across refreshes and repository
-  switches and follows that branch as it moves; if the branch is deleted or no longer loaded, it shows all branches.
+- The branch filter starts on **Checked out branch** (each worktree's own, named in the option), which follows HEAD on
+  every load and refresh: a new commit, or checking out another branch, moves it along. While HEAD is detached it shows
+  HEAD's commit history, labelled **Checked out (detached HEAD)**; while HEAD is older than the loaded commits it shows
+  all branches. A branch you pick, or **All branches**, is kept per repository for the session and follows that branch
+  as it moves; if the branch is deleted or no longer loaded, it shows all branches. Pick **Checked out branch** to
+  follow HEAD again.
 - The table shows 200 commits at a time; **Load more** adds 200.
 - The panel loads at most `jwDiffer.historyMaxCommits` commits (default 20,000, minimum 100): the newest ones by commit
   date across local and remote branches, tags and a detached HEAD; the table then lists them in date order rather than

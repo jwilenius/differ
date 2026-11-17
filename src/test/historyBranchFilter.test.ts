@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { branchFilterRef, headBranchFilter, isBranchFilterRef, resolveBranchFilter } from "../model/historyBranchFilter";
+import {
+  branchFilterRef,
+  CHECKED_OUT_BRANCH,
+  headBranchFilter,
+  isBranchChoice,
+  isBranchFilterRef,
+  isPickedBranch,
+  resolveBranchChoice,
+  resolveBranchFilter,
+} from "../model/historyBranchFilter";
 import type { HistoryData } from "../model/historyTypes";
 
 const MAIN = "a".repeat(40);
@@ -68,10 +77,47 @@ describe("headBranchFilter", () => {
     expect(headBranchFilter(history, isLoaded)).toEqual({ ref: "refs/heads/origin/main", tipOid: MAIN });
   });
 
-  it("is null for a detached, unborn or unloaded HEAD", () => {
-    expect(headBranchFilter({ ...HISTORY, head: { oid: DETACHED, branch: null } }, isLoaded)).toBeNull();
+  it("filters a detached HEAD by its commit", () => {
+    const history: HistoryData = { ...HISTORY, head: { oid: DETACHED, branch: null } };
+
+    expect(headBranchFilter(history, isLoaded)).toEqual({ ref: "HEAD", tipOid: DETACHED });
+  });
+
+  it("is null for an unborn or unloaded HEAD", () => {
     expect(headBranchFilter({ ...HISTORY, head: null }, isLoaded)).toBeNull();
     expect(headBranchFilter({ ...HISTORY, head: { oid: UNLOADED, branch: "stale" } }, isLoaded)).toBeNull();
     expect(headBranchFilter(null, isLoaded)).toBeNull();
+  });
+});
+
+describe("isBranchChoice", () => {
+  it.each([CHECKED_OUT_BRANCH, "HEAD", "refs/heads/main"])("accepts %s", (value) => {
+    expect(isBranchChoice(value)).toBe(true);
+  });
+
+  it.each(["", "main", "checked"])("rejects %j", (value) => {
+    expect(isBranchChoice(value)).toBe(false);
+  });
+});
+
+describe("isPickedBranch", () => {
+  it("tells a picked ref from All branches and the checked-out branch", () => {
+    expect(isPickedBranch("refs/heads/main")).toBe(true);
+    expect(isPickedBranch(CHECKED_OUT_BRANCH)).toBe(false);
+    expect(isPickedBranch(null)).toBe(false);
+  });
+});
+
+describe("resolveBranchChoice", () => {
+  const history: HistoryData = { ...HISTORY, head: { oid: MAIN, branch: "main" } };
+
+  it("follows HEAD for the checked-out branch and resolves any other choice as a filter ref", () => {
+    expect(resolveBranchChoice(history, CHECKED_OUT_BRANCH, isLoaded)).toEqual({ ref: "refs/heads/main", tipOid: MAIN });
+    expect(resolveBranchChoice(history, "refs/remotes/origin/main", isLoaded)).toEqual({ ref: "refs/remotes/origin/main", tipOid: ORIGIN });
+    expect(resolveBranchChoice(history, "refs/heads/gone", isLoaded)).toBeNull();
+  });
+
+  it("is null for All branches", () => {
+    expect(resolveBranchChoice(history, null, isLoaded)).toBeNull();
   });
 });

@@ -32,13 +32,16 @@ SOFTWARE.
 =========================================================
 
 media/grammars/ holds the TextMate grammars of VS Code 1.146.0's built-in
-language extensions that contain no code (commit
-69047191fc427f2f92828279aae1d90d8eeda7ab), copied unmodified from
-https://github.com/microsoft/vscode/tree/1.146.0/extensions. They are used for
-languages whose grammar is not available to jw-differ, such as in a remote
-window. media/grammars/grammars.json is derived from those extensions'
-package.json files, which are covered by VS Code's MIT License above, as is the
-grammar of prompt-basics, which VS Code wrote itself.
+language extensions that contain no code, copied unmodified from the
+resources/app/extensions folder of the VS Code 1.146.0 release build, which
+ships them minified. That build is made from
+https://github.com/microsoft/vscode/tree/1.146.0 (commit
+69047191fc427f2f92828279aae1d90d8eeda7ab), whose extensions folder holds the
+grammars' sources. They are used for languages whose grammar is not available
+to jw-differ, such as in a remote window. media/grammars/grammars.json is
+derived from those extensions' package.json files, which are covered by VS
+Code's MIT License above, as is the grammar of prompt-basics, which VS Code
+wrote itself.
 
 The other grammars come from the following projects, under these licenses:
 

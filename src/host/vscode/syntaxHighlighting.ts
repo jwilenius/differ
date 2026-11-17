@@ -21,7 +21,9 @@ interface Contributions {
 /** The theme the settings ask VS Code to show, and the theme jw-differ uses for it. */
 interface ActiveThemeResult {
   readonly requestedId: string | undefined;
-  /** The requested theme, else VS Code's default for the active kind, else the configured theme; null when none is found. */
+  /** A theme id is requested and no theme, installed or bundled, has it. */
+  readonly isRequestedMissing: boolean;
+  /** The requested theme, else VS Code's default for the active kind; null when none is found. */
   readonly theme: ThemeContribution | null;
 }
 
@@ -175,10 +177,9 @@ export class SyntaxHighlighting implements vscode.Disposable {
     const { grammars: installedGrammars, themes: installedThemes } = collectContributions(vscode.extensions.all);
     const grammars = withDefaultGrammars(installedGrammars, await defaultGrammars(this.defaultGrammarsDirectory));
     const themes = [...installedThemes, ...defaultThemes(this.defaultThemesDirectory)];
-    const { requestedId, theme } = activeTheme(themes);
+    const { requestedId, isRequestedMissing, theme } = activeTheme(themes);
     // For a theme that is not installed, VS Code itself shows an installed default theme, so using that one matches the editor.
-    const isRequestedThemeMissing = requestedId !== undefined && findTheme(themes, requestedId) === null;
-    const isEditorThemeUnavailable = theme === null || (isRequestedThemeMissing && !installedThemes.includes(theme));
+    const isEditorThemeUnavailable = theme === null || (isRequestedMissing && !installedThemes.includes(theme));
     if (isEditorThemeUnavailable) {
       this.reportMissingTheme(requestedId, theme !== null);
     }
@@ -341,15 +342,22 @@ function activeTheme(themes: readonly ThemeContribution[]): ActiveThemeResult {
   const isConfiguredActive = configured !== null && UI_THEME_KINDS[configured.uiTheme ?? ""] === kind;
   const preferred = PREFERRED_THEMES[kind];
   if ((isConfiguredActive && !isAutoDetected) || preferred === undefined) {
-    return { requestedId: configuredId, theme: configured };
+    return themeRequest(configuredId, configured, configured);
   }
 
   const [preferredSetting, fallbackTheme] = preferred;
   const preferredId = workbench.get<string>(preferredSetting) ?? fallbackTheme;
-  const theme = findTheme(themes, preferredId) ?? findTheme(themes, fallbackTheme) ?? configured;
+  const preferredTheme = findTheme(themes, preferredId);
+  // Every fallback theme is among the bundled defaults, so a theme is found here.
+  const theme = preferredTheme ?? findTheme(themes, fallbackTheme);
   // A configured theme that is not found is still the one asked for; the default for the kind only stands in for it.
   const isPreferredRequested = isAutoDetected || configured !== null;
-  return { requestedId: isPreferredRequested ? preferredId : configuredId, theme };
+  return isPreferredRequested ? themeRequest(preferredId, preferredTheme, theme) : themeRequest(configuredId, configured, theme);
+}
+
+/** `theme` standing in for the theme `requestedId` names, which is `requestedTheme` when found. */
+function themeRequest(requestedId: string | undefined, requestedTheme: ThemeContribution | null, theme: ThemeContribution | null): ActiveThemeResult {
+  return { requestedId, isRequestedMissing: requestedId !== undefined && requestedTheme === null, theme };
 }
 
 /** Built-in theme ids that newer VS Code renamed; it still accepts the old ids in settings and maps them like this. */

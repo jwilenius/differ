@@ -17,3 +17,4 @@ media/differ-icon.svg
 .node/**
 .node.*/**
 .node-version
+DEVELOPMENT.md

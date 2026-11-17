@@ -32,7 +32,7 @@
     /** Branches matching the query, in list order; the first `shownBranchCount` have options in the list. */
     let matchingBranches = [];
     let shownBranchCount = 0;
-    /** Index into `matchingBranches` of the active option; -1 when nothing matches. */
+    /** Index into `matchingBranches` of the active option; -1 when none is active. */
     let activeBranchIndex = -1;
 
     input.addEventListener("click", () => openBranches());
@@ -114,7 +114,7 @@
       }
       if (isReplaced) {
         const active = matchingBranches[activeBranchIndex];
-        filterBranches(active ? active.value : null);
+        filterBranches(active ? active.value : initialActiveValue());
       } else {
         placeBranchList();
       }
@@ -137,7 +137,12 @@
       }
       list.hidden = false;
       input.setAttribute("aria-expanded", "true");
-      filterBranches(input.value === "" ? shownBranch.value : null);
+      filterBranches(initialActiveValue());
+    }
+
+    /** With no query, the chosen branch's option; with one, null for the first match. */
+    function initialActiveValue() {
+      return input.value === "" ? shownBranch.value : null;
     }
 
     /** Closing forgets the query. */
@@ -155,7 +160,11 @@
       activeBranchIndex = -1;
     }
 
-    /** Lists the offered branches matching the query and makes `activeValue`'s option active, else the first. */
+    /**
+     * Lists the offered branches matching the query and makes `activeValue`'s option active, or the first for null.
+     * When `activeValue` is not among them, as a chosen remote branch is not while local branches only are offered, no
+     * option is active: Enter then closes the list without picking a branch the user never moved to.
+     */
     function filterBranches(activeValue) {
       const query = foldForMatch(input.value);
       matchingBranches = branches.filter((branch) => isOfferedBranch(branch) && isFuzzyMatch(query, branch.folded));
@@ -174,6 +183,11 @@
         return;
       }
       showMoreBranches(PAGE_SIZE);
+      const isActiveLeftOut = activeValue !== null && kept < 0;
+      if (isActiveLeftOut) {
+        input.removeAttribute("aria-activedescendant");
+        return;
+      }
       setActiveBranch(Math.max(kept, 0));
     }
 
@@ -217,8 +231,9 @@
       return option;
     }
 
+    /** With no option active, either arrow makes the first one active. */
     function moveActiveBranch(step) {
-      if (activeBranchIndex < 0) {
+      if (matchingBranches.length === 0) {
         return;
       }
       setActiveBranch(Math.min(Math.max(activeBranchIndex + step, 0), matchingBranches.length - 1));

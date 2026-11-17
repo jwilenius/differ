@@ -289,6 +289,57 @@ describe("history branch filter", () => {
       expect(webview.intents()).toEqual([]);
     });
 
+    it("opens with no option active when it leaves out the chosen branch, so Enter, Enter picks nothing", () => {
+      const webview = open({ refs: BRANCHES, branch: { ref: "refs/remotes/origin/main", tipOid: A } });
+      const input = webview.element("history-branch-input");
+      const list = webview.element("history-branch-list");
+      webview.click(webview.element("history-branch-local-only"));
+      input.focus();
+
+      webview.key(input, "Enter");
+      expect(list.hidden).toBe(false);
+      expect(webview.activeBranch()).toBeNull();
+      expect(webview.document.querySelectorAll("li.is-active")).toEqual([]);
+      webview.key(input, "Enter");
+
+      expect(list.hidden).toBe(true);
+      expect(input.placeholder).toBe("origin/main");
+      expect(webview.intents()).toEqual([]);
+    });
+
+    it("makes the first option active with either arrow when none is", () => {
+      const webview = open({ refs: BRANCHES, branch: { ref: "refs/remotes/origin/main", tipOid: A } });
+      const input = webview.element("history-branch-input");
+      webview.click(webview.element("history-branch-local-only"));
+
+      webview.click(input);
+      webview.key(input, "ArrowDown");
+      expect(webview.activeBranch()).toBe("All branches");
+      webview.key(input, "Escape");
+      webview.click(input);
+      webview.key(input, "ArrowUp");
+      expect(webview.activeBranch()).toBe("All branches");
+      webview.key(input, "ArrowDown");
+      webview.key(input, "Enter");
+
+      expect(webview.last()).toMatchObject({ type: "presentation", branch: "checked-out" });
+    });
+
+    it("makes the first match active once text is typed, and moves on from it with the arrows", () => {
+      const webview = open({ refs: BRANCHES, branch: { ref: "refs/remotes/origin/main", tipOid: A } });
+      const input = webview.element("history-branch-input");
+      webview.click(webview.element("history-branch-local-only"));
+      webview.click(input);
+
+      webview.type(input, "i");
+      expect(webview.activeBranch()).toBe("ma[i]n");
+      webview.key(input, "ArrowDown");
+      expect(webview.activeBranch()).toBe("feature/branch-f[i]lter");
+      webview.key(input, "Enter");
+
+      expect(webview.last()).toMatchObject({ type: "presentation", branch: "refs/heads/feature/branch-filter" });
+    });
+
     it("stays pressed in a document recreated after the panel was hidden", () => {
       const first = open({ refs: BRANCHES });
       first.click(first.element("history-branch-local-only"));
@@ -372,6 +423,38 @@ describe("history branch filter", () => {
 
       expect(webview.branchOptions()).toEqual([]);
       expect(webview.last()).toMatchObject({ type: "presentation", revision: 8, branch: "refs/remotes/origin/main" });
+    });
+
+    it("keeps no option active when an update replaces the branches under a list leaving out the chosen one", () => {
+      const host = new FakeHost();
+      const remoteChoice = { refs: BRANCHES, branch: { ref: "refs/remotes/origin/main", tipOid: A } };
+      const webview = host.open(remoteChoice);
+      const input = webview.element("history-branch-input");
+      webview.click(webview.element("history-branch-local-only"));
+      webview.click(input);
+
+      webview.receive(host.update({ ...remoteChoice, refs: [...BRANCHES, { kind: "localBranch", name: "new", oid: B }], revision: 8 }));
+      expect(webview.branchOptions()).toContain("new");
+      expect(webview.activeBranch()).toBeNull();
+      webview.key(input, "Enter");
+
+      expect(webview.intents()).toEqual([]);
+    });
+
+    it("leaves no option active when an update removes the active one", () => {
+      const host = new FakeHost();
+      const webview = host.open({ refs: BRANCHES });
+      const input = webview.element("history-branch-input");
+      webview.click(input);
+      webview.type(input, "mn");
+      webview.key(input, "ArrowDown");
+
+      webview.receive(host.update({ refs: BRANCHES.slice(0, 3), revision: 8 }));
+      expect(webview.branchOptions()).toEqual(["[m]ai[n]"]);
+      expect(webview.activeBranch()).toBeNull();
+      webview.key(input, "Enter");
+
+      expect(webview.intents()).toEqual([]);
     });
 
     it("keeps local branches only across an update that replaces the branches under an open list", () => {

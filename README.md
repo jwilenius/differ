@@ -74,7 +74,8 @@ the left; changed files, replay order and commit details on the right.
 - The funnel button next to the branch filter (**Show local branches only**) leaves remote branches out of the list;
   **All branches**, **Checked out branch** and typed narrowing still apply. It changes the list only, never the shown
   history: **All branches** still means every branch, and a remote branch already picked stays picked until you pick
-  another. The button stays on across refreshes, repositories and hiding the panel; it starts off.
+  another; the list then opens with no entry highlighted, so `Enter` just closes it. The button stays on across
+  refreshes, repositories and hiding the panel; it starts off.
 - The table shows 200 commits at a time; **Load more** adds 200.
 - The panel loads at most `jwDiffer.historyMaxCommits` commits (default 20,000, minimum 100): the newest ones by commit
   date across local and remote branches, tags and a detached HEAD; the table then lists them in date order rather than

@@ -97,6 +97,7 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `media/fuzzyMatch.js`                    | Branch filter matcher: in-order letters, marks (fzy ideas)     |
 | `media/branchFilter.js`                  | Branch filter combobox: `createBranchFilter`, used by history  |
 | `media/grammars/`                        | Fallback grammars: VS Code's grammar-only built-ins + manifest |
+| `media/themes/`                          | Fallback colour themes: VS Code's `theme-defaults` themes      |
 
 `media/*.js` is plain browser script, not bundled: each loads by its own `<script nonce>` tag under the webview CSP, and
 tests run it in a `vm` context with a fake DOM (`src/test/historyClientFixture.ts`). The history page loads
@@ -121,6 +122,25 @@ passes compare the same per-character lower-cased code points (`İ` folds to two
 listed exactly when its marks can be found.
 
 The `core/`, `model/` and `render/` layers have no `vscode` import and are unit-tested on their own; `src/test/layering.test.ts` enforces it.
+
+### Updating bundled VS Code defaults
+
+Copies of VS Code's built-in themes and grammar-only extensions, which a remote extension host cannot see (VS Code runs
+them in the local window); used where jw-differ finds no installed theme or grammar, and installed contributions win.
+Source: VS Code 1.146.0 (tag `1.146.0`, commit `69047191fc427f2f92828279aae1d90d8eeda7ab`). Update
+both folders from one version, together with the version, commit and notices in `ThirdPartyNotices.txt`.
+
+- `media/themes/`: `extensions/theme-defaults/themes/*.json` from the source tag, unmodified. `DEFAULT_THEMES` in
+  `src/host/vscode/syntaxHighlighting.ts` lists each file with its settings id and `uiTheme` from
+  `theme-defaults/package.json`: keep it in sync with the folder, and keep every `PREFERRED_THEMES` default id
+  (directly or via `RENAMED_THEME_IDS`) among them.
+- `media/grammars/`: grammars of the built-in extensions without code (no `main`/`browser` in `package.json`), copied
+  from the release build's `resources/app/extensions` (minified as shipped). Extensions with a non-permissive upstream
+  licence are left out. `grammars.json` lists their `contributes.grammars` entries as
+  `{ scopeName, path, language?, injectTo? }`, `path` relative to `media/grammars/`.
+- Extraction: `~/projects/ai-config/tmp/script-library/extract-vscode-builtin-grammars.py` (run with `python3 -I`;
+  inputs: the build's extensions folder, each extension's `cgmanifest.json` from the source tag, VS Code's
+  `ThirdPartyNotices.txt`) writes `media/grammars/`, `grammars.json` and the per-component licence notices.
 
 ## Release
 

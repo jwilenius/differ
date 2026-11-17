@@ -96,6 +96,7 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `media/`                                 | Webview stylesheet and client script                           |
 | `media/fuzzyMatch.js`                    | Branch filter matcher: in-order letters, marks (fzy ideas)     |
 | `media/branchFilter.js`                  | Branch filter combobox: `createBranchFilter`, used by history  |
+| `media/grammars/`                        | Fallback grammars: VS Code's grammar-only built-ins + manifest |
 
 `media/*.js` is plain browser script, not bundled: each loads by its own `<script nonce>` tag under the webview CSP, and
 tests run it in a `vm` context with a fake DOM (`src/test/historyClientFixture.ts`). The history page loads

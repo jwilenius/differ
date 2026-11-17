@@ -1,0 +1,403 @@
+[
+ {
+  "scopeName": "source.batchfile",
+  "path": "bat/batchfile.tmLanguage.json",
+  "language": "bat"
+ },
+ {
+  "scopeName": "source.clojure",
+  "path": "clojure/clojure.tmLanguage.json",
+  "language": "clojure"
+ },
+ {
+  "scopeName": "source.coffee",
+  "path": "coffeescript/coffeescript.tmLanguage.json",
+  "language": "coffeescript"
+ },
+ {
+  "scopeName": "source.c",
+  "path": "cpp/c.tmLanguage.json",
+  "language": "c"
+ },
+ {
+  "scopeName": "source.cpp.embedded.macro",
+  "path": "cpp/cpp.embedded.macro.tmLanguage.json",
+  "language": "cpp"
+ },
+ {
+  "scopeName": "source.cpp",
+  "path": "cpp/cpp.tmLanguage.json",
+  "language": "cpp"
+ },
+ {
+  "scopeName": "source.c.platform",
+  "path": "cpp/platform.tmLanguage.json"
+ },
+ {
+  "scopeName": "source.cuda-cpp",
+  "path": "cpp/cuda-cpp.tmLanguage.json",
+  "language": "cuda-cpp"
+ },
+ {
+  "scopeName": "source.cs",
+  "path": "csharp/csharp.tmLanguage.json",
+  "language": "csharp"
+ },
+ {
+  "scopeName": "source.css",
+  "path": "css/css.tmLanguage.json",
+  "language": "css"
+ },
+ {
+  "scopeName": "source.dart",
+  "path": "dart/dart.tmLanguage.json",
+  "language": "dart"
+ },
+ {
+  "scopeName": "source.diff",
+  "path": "diff/diff.tmLanguage.json",
+  "language": "diff"
+ },
+ {
+  "scopeName": "source.dockerfile",
+  "path": "docker/docker.tmLanguage.json",
+  "language": "dockerfile"
+ },
+ {
+  "scopeName": "source.dotenv",
+  "path": "dotenv/dotenv.tmLanguage.json",
+  "language": "dotenv"
+ },
+ {
+  "scopeName": "source.fsharp",
+  "path": "fsharp/fsharp.tmLanguage.json",
+  "language": "fsharp"
+ },
+ {
+  "scopeName": "source.go",
+  "path": "go/go.tmLanguage.json",
+  "language": "go"
+ },
+ {
+  "scopeName": "source.groovy",
+  "path": "groovy/groovy.tmLanguage.json",
+  "language": "groovy"
+ },
+ {
+  "scopeName": "text.html.handlebars",
+  "path": "handlebars/Handlebars.tmLanguage.json",
+  "language": "handlebars"
+ },
+ {
+  "scopeName": "source.hlsl",
+  "path": "hlsl/hlsl.tmLanguage.json",
+  "language": "hlsl"
+ },
+ {
+  "scopeName": "text.html.basic",
+  "path": "html/html.tmLanguage.json"
+ },
+ {
+  "scopeName": "text.html.derivative",
+  "path": "html/html-derivative.tmLanguage.json",
+  "language": "html"
+ },
+ {
+  "scopeName": "source.ini",
+  "path": "ini/ini.tmLanguage.json",
+  "language": "ini"
+ },
+ {
+  "scopeName": "source.ini",
+  "path": "ini/ini.tmLanguage.json",
+  "language": "properties"
+ },
+ {
+  "scopeName": "source.java",
+  "path": "java/java.tmLanguage.json",
+  "language": "java"
+ },
+ {
+  "scopeName": "source.js.jsx",
+  "path": "javascript/JavaScriptReact.tmLanguage.json",
+  "language": "javascriptreact"
+ },
+ {
+  "scopeName": "source.js",
+  "path": "javascript/JavaScript.tmLanguage.json",
+  "language": "javascript"
+ },
+ {
+  "scopeName": "source.js.regexp",
+  "path": "javascript/Regular Expressions (JavaScript).tmLanguage"
+ },
+ {
+  "scopeName": "source.json",
+  "path": "json/JSON.tmLanguage.json",
+  "language": "json"
+ },
+ {
+  "scopeName": "source.json.comments",
+  "path": "json/JSONC.tmLanguage.json",
+  "language": "jsonc"
+ },
+ {
+  "scopeName": "source.json.lines",
+  "path": "json/JSONL.tmLanguage.json",
+  "language": "jsonl"
+ },
+ {
+  "scopeName": "source.json.comments.snippets",
+  "path": "json/snippets.tmLanguage.json",
+  "language": "snippets"
+ },
+ {
+  "scopeName": "source.julia",
+  "path": "julia/julia.tmLanguage.json",
+  "language": "julia"
+ },
+ {
+  "scopeName": "text.tex",
+  "path": "latex/TeX.tmLanguage.json",
+  "language": "tex"
+ },
+ {
+  "scopeName": "text.tex.latex",
+  "path": "latex/LaTeX.tmLanguage.json",
+  "language": "latex"
+ },
+ {
+  "scopeName": "text.bibtex",
+  "path": "latex/Bibtex.tmLanguage.json",
+  "language": "bibtex"
+ },
+ {
+  "scopeName": "text.tex.markdown_latex_combined",
+  "path": "latex/markdown-latex-combined.tmLanguage.json",
+  "language": "markdown_latex_combined"
+ },
+ {
+  "scopeName": "source.cpp.embedded.latex",
+  "path": "latex/cpp-grammar-bailout.tmLanguage.json",
+  "language": "cpp_embedded_latex"
+ },
+ {
+  "scopeName": "source.css.less",
+  "path": "less/less.tmLanguage.json",
+  "language": "less"
+ },
+ {
+  "scopeName": "text.log",
+  "path": "log/log.tmLanguage.json",
+  "language": "log"
+ },
+ {
+  "scopeName": "source.lua",
+  "path": "lua/lua.tmLanguage.json",
+  "language": "lua"
+ },
+ {
+  "scopeName": "source.makefile",
+  "path": "make/make.tmLanguage.json",
+  "language": "makefile"
+ },
+ {
+  "scopeName": "text.html.markdown",
+  "path": "markdown-basics/markdown.tmLanguage.json",
+  "language": "markdown"
+ },
+ {
+  "scopeName": "source.objc",
+  "path": "objective-c/objective-c.tmLanguage.json",
+  "language": "objective-c"
+ },
+ {
+  "scopeName": "source.objcpp",
+  "path": "objective-c/objective-c++.tmLanguage.json",
+  "language": "objective-cpp"
+ },
+ {
+  "scopeName": "source.perl",
+  "path": "perl/perl.tmLanguage.json",
+  "language": "perl"
+ },
+ {
+  "scopeName": "source.perl.6",
+  "path": "perl/perl6.tmLanguage.json",
+  "language": "raku"
+ },
+ {
+  "scopeName": "source.php",
+  "path": "php/php.tmLanguage.json",
+  "language": "php"
+ },
+ {
+  "scopeName": "text.html.php",
+  "path": "php/html.tmLanguage.json",
+  "language": "php"
+ },
+ {
+  "scopeName": "source.powershell",
+  "path": "powershell/powershell.tmLanguage.json",
+  "language": "powershell"
+ },
+ {
+  "scopeName": "text.html.markdown.prompt",
+  "path": "prompt-basics/prompt.tmLanguage.json",
+  "language": "prompt"
+ },
+ {
+  "scopeName": "text.html.markdown.prompt",
+  "path": "prompt-basics/prompt.tmLanguage.json",
+  "language": "instructions"
+ },
+ {
+  "scopeName": "text.html.markdown.prompt",
+  "path": "prompt-basics/prompt.tmLanguage.json",
+  "language": "chatagent"
+ },
+ {
+  "scopeName": "text.html.markdown.prompt",
+  "path": "prompt-basics/prompt.tmLanguage.json",
+  "language": "skill"
+ },
+ {
+  "scopeName": "text.pug",
+  "path": "pug/pug.tmLanguage.json",
+  "language": "jade"
+ },
+ {
+  "scopeName": "source.python",
+  "path": "python/MagicPython.tmLanguage.json",
+  "language": "python"
+ },
+ {
+  "scopeName": "source.regexp.python",
+  "path": "python/MagicRegExp.tmLanguage.json"
+ },
+ {
+  "scopeName": "source.r",
+  "path": "r/r.tmLanguage.json",
+  "language": "r"
+ },
+ {
+  "scopeName": "text.html.cshtml",
+  "path": "razor/cshtml.tmLanguage.json",
+  "language": "razor"
+ },
+ {
+  "scopeName": "source.rst",
+  "path": "restructuredtext/rst.tmLanguage.json",
+  "language": "restructuredtext"
+ },
+ {
+  "scopeName": "source.ruby",
+  "path": "ruby/ruby.tmLanguage.json",
+  "language": "ruby"
+ },
+ {
+  "scopeName": "source.rust",
+  "path": "rust/rust.tmLanguage.json",
+  "language": "rust"
+ },
+ {
+  "scopeName": "source.css.scss",
+  "path": "scss/scss.tmLanguage.json",
+  "language": "scss"
+ },
+ {
+  "scopeName": "source.sassdoc",
+  "path": "scss/sassdoc.tmLanguage.json"
+ },
+ {
+  "scopeName": "source.shaderlab",
+  "path": "shaderlab/shaderlab.tmLanguage.json",
+  "language": "shaderlab"
+ },
+ {
+  "scopeName": "source.shell",
+  "path": "shellscript/shell-unix-bash.tmLanguage.json",
+  "language": "shellscript"
+ },
+ {
+  "scopeName": "source.sql",
+  "path": "sql/sql.tmLanguage.json",
+  "language": "sql"
+ },
+ {
+  "scopeName": "source.swift",
+  "path": "swift/swift.tmLanguage.json",
+  "language": "swift"
+ },
+ {
+  "scopeName": "source.ts",
+  "path": "typescript-basics/TypeScript.tmLanguage.json",
+  "language": "typescript"
+ },
+ {
+  "scopeName": "source.tsx",
+  "path": "typescript-basics/TypeScriptReact.tmLanguage.json",
+  "language": "typescriptreact"
+ },
+ {
+  "scopeName": "documentation.injection.ts",
+  "path": "typescript-basics/jsdoc.ts.injection.tmLanguage.json",
+  "injectTo": [
+   "source.ts",
+   "source.tsx"
+  ]
+ },
+ {
+  "scopeName": "documentation.injection.js.jsx",
+  "path": "typescript-basics/jsdoc.js.injection.tmLanguage.json",
+  "injectTo": [
+   "source.js",
+   "source.js.jsx"
+  ]
+ },
+ {
+  "scopeName": "source.asp.vb.net",
+  "path": "vb/asp-vb-net.tmLanguage.json",
+  "language": "vb"
+ },
+ {
+  "scopeName": "text.xml",
+  "path": "xml/xml.tmLanguage.json",
+  "language": "xml"
+ },
+ {
+  "scopeName": "text.xml.xsl",
+  "path": "xml/xsl.tmLanguage.json",
+  "language": "xsl"
+ },
+ {
+  "scopeName": "source.yaml",
+  "path": "yaml/yaml.tmLanguage.json",
+  "language": "dockercompose"
+ },
+ {
+  "scopeName": "source.yaml.1.3",
+  "path": "yaml/yaml-1.3.tmLanguage.json"
+ },
+ {
+  "scopeName": "source.yaml.1.2",
+  "path": "yaml/yaml-1.2.tmLanguage.json"
+ },
+ {
+  "scopeName": "source.yaml.1.1",
+  "path": "yaml/yaml-1.1.tmLanguage.json"
+ },
+ {
+  "scopeName": "source.yaml.1.0",
+  "path": "yaml/yaml-1.0.tmLanguage.json"
+ },
+ {
+  "scopeName": "source.yaml.embedded",
+  "path": "yaml/yaml-embedded.tmLanguage.json"
+ },
+ {
+  "scopeName": "source.yaml",
+  "path": "yaml/yaml.tmLanguage.json",
+  "language": "yaml"
+ }
+]

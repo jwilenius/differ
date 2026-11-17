@@ -18,6 +18,7 @@ import {
 const FIXTURES = path.join(__dirname, "fixtures", "highlight");
 const WASM_PATH = path.join(__dirname, "..", "..", "node_modules", "vscode-oniguruma", "release", "onig.wasm");
 const DEFAULT_THEMES_DIRECTORY = path.join(__dirname, "..", "..", "media", "themes");
+const DEFAULT_GRAMMARS_DIRECTORY = path.join(__dirname, "..", "..", "media", "grammars");
 
 const GRAMMAR_EXTENSION: FakeExtension = {
   id: "test.demo-language",
@@ -67,7 +68,7 @@ describe("SyntaxHighlighting", () => {
     vscodeMock.extensions = [GRAMMAR_EXTENSION, THEME_EXTENSION];
     vscodeMock.configuration.set("workbench.colorTheme", "Top Theme");
     problems = [];
-    highlighting = new SyntaxHighlighting(WASM_PATH, DEFAULT_THEMES_DIRECTORY, (message) => problems.push(message));
+    highlighting = new SyntaxHighlighting(WASM_PATH, DEFAULT_THEMES_DIRECTORY, DEFAULT_GRAMMARS_DIRECTORY, (message) => problems.push(message));
   });
 
   afterEach(() => highlighting.dispose());
@@ -288,16 +289,76 @@ describe("SyntaxHighlighting", () => {
     expect(vscodeMock.messages).toEqual([]);
   });
 
-  it("logs once per language that has no grammar, without a notification", async () => {
+  it("logs once per language that has neither an installed nor a default grammar, without a notification", async () => {
     vscodeMock.remoteName = "ssh-remote";
 
-    await highlighting.highlight("fn", "rust");
+    await highlighting.highlight("fun", "kotlin");
     await highlighting.highlight("x", "plaintext");
-    changeExtensions([GRAMMAR_EXTENSION, THEME_EXTENSION]);
     await highlighting.highlight("fn", "rust");
+    changeExtensions([GRAMMAR_EXTENSION, THEME_EXTENSION]);
+    await highlighting.highlight("fun", "kotlin");
 
-    expect(problems).toEqual(["No grammar for language 'rust' among installed extensions on the remote; showing it without syntax colours."]);
+    expect(problems).toEqual([
+      "No grammar for language 'kotlin' among installed extensions on the remote or VS Code's default grammars; showing it without syntax colours.",
+    ]);
     expect(vscodeMock.messages).toEqual([]);
+  });
+
+  describe("bundled VS Code default grammars", () => {
+    /** Marks every token with the colour of the root scope its grammar gives it. */
+    const ROOT_SCOPE_RULES = [
+      { scope: "source.ts", settings: { foreground: "#111111" } },
+      { scope: "source.demo", settings: { foreground: "#222222" } },
+      { scope: "keyword.installed", settings: { foreground: "#333333" } },
+    ];
+
+    beforeEach(() => {
+      vscodeMock.configuration.set("editor.tokenColorCustomizations", { textMateRules: ROOT_SCOPE_RULES });
+    });
+
+    it("colour a language no installed extension has a grammar for", async () => {
+      const highlighted = await highlighting.highlight("let", "typescript");
+
+      expect(firstColors(highlighted)).toEqual(["#111111"]);
+      expect(problems).toEqual([]);
+    });
+
+    it("give way to an installed grammar for the same language", async () => {
+      const installedTypeScript: FakeExtension = {
+        id: "test.typescript-language",
+        extensionPath: FIXTURES,
+        packageJSON: { contributes: { grammars: [{ language: "typescript", scopeName: "source.demo", path: "./demo.tmLanguage.json" }] } },
+      };
+      vscodeMock.extensions = [GRAMMAR_EXTENSION, THEME_EXTENSION, installedTypeScript];
+
+      const highlighted = await highlighting.highlight("x", "typescript");
+
+      expect(firstColors(highlighted)).toEqual(["#222222"]);
+    });
+
+    it("give way to an installed grammar with the same scope", async () => {
+      const installedScope: FakeExtension = {
+        id: "test.typescript-grammar",
+        extensionPath: FIXTURES,
+        packageJSON: { contributes: { grammars: [{ scopeName: "source.ts", path: "./installed-typescript.tmLanguage.json" }] } },
+      };
+      vscodeMock.extensions = [GRAMMAR_EXTENSION, THEME_EXTENSION, installedScope];
+
+      const highlighted = await highlighting.highlight("let", "typescript");
+
+      expect(firstColors(highlighted)).toEqual(["#333333"]);
+    });
+
+    it("colour code a default grammar embeds from another default grammar", async () => {
+      // Only the TypeScript grammar scopes `let` so; markdown includes it without adding its root scope.
+      vscodeMock.configuration.set("editor.tokenColorCustomizations", { textMateRules: [{ scope: "storage.type.ts", settings: { foreground: "#444444" } }] });
+
+      const highlighted = await highlighting.highlight("```ts\nlet x = 1;\n```", "markdown");
+
+      const embeddedLineColors = highlighted.lines[1].map((token) => highlighted.styles[token.styleIndex]?.color);
+      expect(embeddedLineColors).toContain("#444444");
+      expect(problems).toEqual([]);
+    });
   });
 
   it("rebuilds after customizations, the colour theme or the installed extensions change", async () => {
@@ -368,7 +429,7 @@ describe("SyntaxHighlighting", () => {
     };
     vscodeMock.extensions = [GRAMMAR_EXTENSION, hungTheme, THEME_EXTENSION];
     vscodeMock.configuration.set("workbench.colorTheme", "Hung");
-    const timed = new SyntaxHighlighting(WASM_PATH, DEFAULT_THEMES_DIRECTORY, (message) => problems.push(message), 50);
+    const timed = new SyntaxHighlighting(WASM_PATH, DEFAULT_THEMES_DIRECTORY, DEFAULT_GRAMMARS_DIRECTORY, (message) => problems.push(message), 50);
 
     try {
       await expect(timed.highlight("let", "demo")).rejects.toThrow("timed out");

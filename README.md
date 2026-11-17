@@ -142,9 +142,9 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   available where jw-differ runs, code is shown in VS Code's default theme for the active kind (copies of VS Code's
   built-in themes ship with jw-differ) and a warning names the theme, once per theme and session. In a remote window
   (e.g. Remote-SSH) jw-differ runs on the remote: VS Code's built-in themes apply there, other themes fall back to the
-  default, and only grammars of extensions that run on the remote apply. The VS Code server ships few grammars and
-  runs grammar-only extensions locally, so many languages stay uncoloured there. Languages without a grammar are listed
-  in the **jw-differ History** output channel.
+  default. VS Code runs grammar-only extensions locally, so jw-differ ships copies of VS Code's built-in grammars and
+  uses them for languages no extension on the remote has a grammar for. Languages with neither are listed in the
+  **jw-differ History** output channel.
 - **Open in VS Code diff** shows the same comparison in the built-in diff editor. Set `jwDiffer.historyDiffViewer` to
   `native` to always use it. Opening another file reuses the same tab.
 

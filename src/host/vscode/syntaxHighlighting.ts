@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { TextMateHighlighter, unstyledText, type GrammarContribution, type HighlightOptions } from "../../highlight/textMateHighlighter";
@@ -92,9 +93,17 @@ const DEFAULT_THEMES: readonly DefaultTheme[] = [
 ];
 
 /**
+ * The manifest of VS Code's bundled default grammars: `[{ scopeName, path, language?, injectTo? }]`, paths relative to
+ * its directory, as VS Code's built-in extensions (1.146.0) without code contribute them. VS Code runs those extensions
+ * in the local window, so a remote extension host does not see their grammars.
+ */
+const DEFAULT_GRAMMARS_MANIFEST = "grammars.json";
+
+/**
  * Highlights text the way VS Code's editor would: grammars contributed by installed extensions and the active colour
  * theme with the user's `editor.tokenColorCustomizations` `textMateRules`. The engine is rebuilt lazily after any of them changes.
- * A theme that is not installed falls back to VS Code's bundled default themes.
+ * A theme that is not installed falls back to VS Code's bundled default themes, and a language or grammar scope no
+ * installed extension contributes to VS Code's bundled default grammars.
  */
 export class SyntaxHighlighting implements vscode.Disposable {
   private current: Promise<LanguageHighlighter> | null = null;
@@ -105,12 +114,14 @@ export class SyntaxHighlighting implements vscode.Disposable {
   private readonly subscriptions: readonly vscode.Disposable[];
 
   /**
-   * `wasmPath` is the bundled `onig.wasm`, `defaultThemesDirectory` holds the {@link DEFAULT_THEMES} files, and `onProblem`
-   * receives why a theme or grammar could not be used.
+   * `wasmPath` is the bundled `onig.wasm`, `defaultThemesDirectory` holds the {@link DEFAULT_THEMES} files,
+   * `defaultGrammarsDirectory` the {@link DEFAULT_GRAMMARS_MANIFEST} and its grammars, and `onProblem` receives why a
+   * theme or grammar could not be used.
    */
   constructor(
     private readonly wasmPath: string,
     private readonly defaultThemesDirectory: string,
+    private readonly defaultGrammarsDirectory: string,
     private readonly onProblem: (message: string) => void = () => undefined,
     private readonly buildTimeoutMs = BUILD_TIMEOUT_MS,
   ) {
@@ -161,7 +172,8 @@ export class SyntaxHighlighting implements vscode.Disposable {
   }
 
   private async build(): Promise<LanguageHighlighter> {
-    const { grammars, themes: installedThemes } = collectContributions(vscode.extensions.all);
+    const { grammars: installedGrammars, themes: installedThemes } = collectContributions(vscode.extensions.all);
+    const grammars = withDefaultGrammars(installedGrammars, await defaultGrammars(this.defaultGrammarsDirectory));
     const themes = [...installedThemes, ...defaultThemes(this.defaultThemesDirectory)];
     const { requestedId, theme } = activeTheme(themes);
     // For a theme that is not installed, VS Code itself shows an installed default theme, so using that one matches the editor.
@@ -199,7 +211,7 @@ export class SyntaxHighlighting implements vscode.Disposable {
     }
     this.reportedMissingGrammars.add(languageId);
     const location = isRemote() ? "installed extensions on the remote" : "installed extensions";
-    this.onProblem(`No grammar for language '${languageId}' among ${location}; showing it without syntax colours.`);
+    this.onProblem(`No grammar for language '${languageId}' among ${location} or VS Code's default grammars; showing it without syntax colours.`);
   }
 
   /** Once per session: only `textMateRules` customizations are applied, not `comments`, `strings` and the like. */
@@ -234,6 +246,29 @@ async function resolveTheme(theme: ThemeContribution | null): Promise<ThemeResol
 /** Listed after the installed themes, so {@link findTheme} prefers an installed theme with the same id. */
 function defaultThemes(directory: string): readonly ThemeContribution[] {
   return DEFAULT_THEMES.map(({ settingsId, uiTheme, file }) => ({ settingsId, uiTheme, path: path.join(directory, file) }));
+}
+
+async function defaultGrammars(directory: string): Promise<readonly GrammarContribution[]> {
+  const manifest: unknown = JSON.parse(await readFile(path.join(directory, DEFAULT_GRAMMARS_MANIFEST), "utf8"));
+  return Array.isArray(manifest) ? manifest.filter(isRecord).flatMap((entry) => toGrammar(entry, directory)) : [];
+}
+
+/**
+ * Installed grammars, preceded by the default grammars. Listing the defaults first lets {@link scopesByLanguage} prefer
+ * an installed grammar for a language; a default grammar it displaces stays available to grammars that embed its scope.
+ * A default grammar whose scope is installed only keeps its language, mapped to the installed grammar's file.
+ */
+function withDefaultGrammars(installed: readonly GrammarContribution[], defaults: readonly GrammarContribution[]): readonly GrammarContribution[] {
+  // Later contributions win, as in scopesByLanguage.
+  const installedPaths = new Map(installed.map((grammar) => [grammar.scopeName, grammar.path]));
+  const fallbacks = defaults.flatMap((grammar): GrammarContribution[] => {
+    const installedPath = installedPaths.get(grammar.scopeName);
+    if (installedPath === undefined) {
+      return [grammar];
+    }
+    return grammar.language === undefined ? [] : [{ scopeName: grammar.scopeName, path: installedPath, language: grammar.language }];
+  });
+  return [...fallbacks, ...installed];
 }
 
 function collectContributions(extensions: readonly vscode.Extension<unknown>[]): Contributions {

@@ -35,6 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const highlighter = new SyntaxHighlighting(
     path.join(context.extensionPath, "dist", "onig.wasm"),
     path.join(context.extensionPath, "media", "themes"),
+    path.join(context.extensionPath, "media", "grammars"),
     (message) => log.appendLine(message),
   );
   const conflictedFiles = new ConflictedFilesContext(scanConflictedFiles, (line) => log.appendLine(line));

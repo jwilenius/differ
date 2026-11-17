@@ -9,6 +9,18 @@ IntelliJ-style Git commit diff viewer and three-way merge conflict resolver for 
 
 Two workflows: review the combined changes of any set of commits, and resolve merge conflicts.
 
+> [!NOTE]
+> **Colour themes and syntax highlighting.** Locally, jw-differ's views use the active colour theme and the grammars of
+> your installed extensions. In a remote window (SSH, WSL, containers) jw-differ runs on the remote, but VS Code runs
+> colour themes and grammar-only extensions in the local window, so jw-differ cannot see them. jw-differ therefore
+> ships copies of VS Code's default themes and of the grammars of its built-in grammar-only language extensions:
+>
+> - A colour theme jw-differ cannot see falls back to VS Code's default theme of the same kind (light, dark or high
+>   contrast), with one notice per theme.
+> - A language with no grammar on the remote uses the bundled grammar. Language extensions with code run on the
+>   remote, so their grammars are used.
+> - Output → **jw-differ History** logs each theme replaced by a default and each language that had no grammar.
+
 ## Git commit history and diff viewing
 
 Select any subset of commits — including non-adjacent ones — and see exactly what those commits change, with nothing
@@ -138,13 +150,8 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
 - Syntax colouring uses the grammars of your installed VS Code extensions and the active colour theme (including
   `editor.tokenColorCustomizations` → `textMateRules`), and follows theme changes. Semantic colouring from language
   servers is not applied, so some identifiers can differ slightly from the editor. Files over 500 000 characters, or
-  that take more than about 2 seconds to colour, are shown partly or wholly uncoloured. When the colour theme is not
-  available where jw-differ runs, code is shown in VS Code's default theme for the active kind (copies of VS Code's
-  built-in themes ship with jw-differ) and a warning names the theme, once per theme and session. In a remote window
-  (e.g. Remote-SSH) jw-differ runs on the remote: VS Code's built-in themes apply there, other themes fall back to the
-  default. VS Code runs grammar-only extensions locally, so jw-differ ships copies of VS Code's built-in grammars and
-  uses them for languages no extension on the remote has a grammar for. Languages with neither are listed in the
-  **jw-differ History** output channel.
+  that take more than about 2 seconds to colour, are shown partly or wholly uncoloured. Remote windows: see the note
+  on colour themes and syntax highlighting at the top.
 - **Open in VS Code diff** shows the same comparison in the built-in diff editor. Set `jwDiffer.historyDiffViewer` to
   `native` to always use it. Opening another file reuses the same tab.
 

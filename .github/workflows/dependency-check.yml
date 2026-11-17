@@ -19,7 +19,8 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: npm run check:deps
+      # Stricter than the release gate: a high advisory in a dev tool fails here, so it still gets noticed.
+      - run: npm run check:deps:all
       # Signatures need installed packages; their install scripts never run in this job.
       - run: npm ci --ignore-scripts
       - run: scripts/check-signatures.sh

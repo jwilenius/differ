@@ -8,19 +8,26 @@ Project-local Node.js (version in `.node-version`; npm included), signature- and
 `scripts/install-node.sh`, then `export PATH="$PWD/.node/bin:$PATH"`.
 
 ```sh
-npm install         # deps
-npm run build       # bundle to dist/extension.js
-npm run watch       # rebuild on change
-npm run typecheck   # tsc --noEmit
-npm test            # vitest, core + view model
-npm run check:deps  # lockfile: npm audit (high+) and OSV malware advisories
+npm install             # deps
+npm run build           # bundle to dist/extension.js
+npm run watch           # rebuild on change
+npm run typecheck       # tsc --noEmit
+npm test                # vitest, core + view model
+npm run check:deps      # release gate: audit shipped deps (high+), warn of dev-tool advisories, OSV malware
+npm run check:deps:all  # strict: audit all deps (high+), OSV malware
 ```
+
+The release gate splits the audit by dependency group. `dependencies` are bundled into the VSIX, so a high or critical
+advisory in them blocks (`npm audit --omit=dev`). `devDependencies` are not shipped, so their high or critical
+advisories only print as `::warning::` annotations (`scripts/warn-dev-advisories.mjs`); a failure of `npm audit`
+itself, such as a registry error, still fails. Dev tools run in CI next to the publish credentials, so the OSV malware
+check and registry signature check cover every locked package, dev included, and always block.
 
 Tests run Git with only `src/test/fixtures/gitconfig` and no inherited `GIT_*` variables
 (`src/test/gitTestEnvironment.ts`), so machine or user Git configuration cannot change results.
 
-The [Dependency check](https://github.com/jwilenius/differ/actions/workflows/dependency-check.yml) workflow reruns
-`check:deps` and the registry signature check every Monday at 06:23 UTC, and on demand, because packages are often
+The [Dependency check](https://github.com/jwilenius/differ/actions/workflows/dependency-check.yml) workflow runs
+`check:deps:all` and the registry signature check every Monday at 06:23 UTC, and on demand, because packages are often
 reported malicious only days after release. GitHub sends failure notifications to the user who created the workflow or
 last changed its schedule. In a public repository GitHub disables the schedule after 60 days without repository
 activity; re-enable it on the workflow's page.
@@ -147,8 +154,9 @@ both folders from one version, together with the version, commit and notices in 
 
 Releases are automatic. Every push to `main` runs
 [Build and release VS Code installer](https://github.com/jwilenius/differ/actions/workflows/build-vsix.yml): lockfile
-malware and high-severity advisory checks, locked install without install scripts, registry signatures, install
-scripts, typecheck, tests. A missing-key signature error is retried once, with a fresh npm cache, against
+malware and high-severity advisory checks (`check:deps`; dev-tool advisories only warn), locked install without install
+scripts, registry signatures, install scripts, typecheck, tests. A missing-key signature error is retried once, with a
+fresh npm cache, against
 `registry.npmjs.com` (`scripts/check-signatures.sh`): registry.npmjs.org CDN edges can serve stale attestation
 documents, and the `.com` alias of the same registry is not CDN-cached. A failed signature check also logs registry
 keys, the failing package's attestations and npm's cached Sigstore TUF keys, and uploads npm's debug logs as artifact
@@ -214,7 +222,8 @@ Manual promotion of an existing GitHub Release; nothing is rebuilt.
   `vscode-v*`. Optional: a tag ruleset on `vscode-v*` that restricts creation to maintainers, since creating the tag
   publishes.
 - Do not promote `v0.5.0` or earlier (publisher `local`). The dependency checks read the release's lockfile at
-  promotion time: a newly published high-severity advisory blocks promotion until a newer release.
+  promotion time: a newly published high-severity advisory in a shipped dependency, or malware in any, blocks promotion
+  until a newer release.
 - A failed run can be re-run; a version already on the Marketplace fails the publish step. To drop a promotion that
   cannot succeed, delete its `vscode-vX.Y.Z` tag locally and on `origin`: it otherwise counts as promoted.
 

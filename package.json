@@ -289,7 +289,8 @@
     "watch": "npm run build -- --sourcemap --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check:deps": "npm audit --audit-level=high && node scripts/check-osv-malware.mjs",
+    "check:deps": "npm audit --omit=dev --audit-level=high && node scripts/warn-dev-advisories.mjs && node scripts/check-osv-malware.mjs",
+    "check:deps:all": "npm audit --include=dev --audit-level=high && node scripts/check-osv-malware.mjs",
     "check:signatures": "npm audit signatures"
   },
   "dependencies": {

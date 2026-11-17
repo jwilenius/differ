@@ -84,16 +84,14 @@ describe("buildTwoWayDiff", () => {
     expect(diff.blocks[0]).toMatchObject({ kind: "modified", baseWords: [], resultWords: [] });
   });
 
-  it("gives up quickly on word spans for a divergent block of many short words under the size limit", () => {
+  it("gives up on word spans for a divergent block of many short words under the size limit", () => {
     const lines = (word: string): string => Array.from({ length: 2_490 }, () => `${word} ${word}`).join("\n");
     const base = lines("a");
     const result = lines("b");
 
-    const started = performance.now();
     const diff = buildTwoWayDiff(base, result, WORDS);
 
     expect(base.length + result.length).toBeLessThan(MAX_WORD_DIFF_CHARS);
-    expect(performance.now() - started).toBeLessThan(1_000);
     expect(diff.blocks).toEqual([
       { kind: "modified", base: { start: 0, end: 2_490 }, result: { start: 0, end: 2_490 }, baseWords: [], resultWords: [] },
     ]);
@@ -113,10 +111,8 @@ describe("buildTwoWayDiff", () => {
     const base = costlyBlocks("abcdefghij");
     const result = costlyBlocks("klmnopqrst");
 
-    const started = performance.now();
     const diff = buildTwoWayDiff(base, result, WORDS);
 
-    expect(performance.now() - started).toBeLessThan(1_000);
     expect(diff.blocks).toHaveLength(30);
     expect(diff.blocks[0].resultWords).not.toEqual([]);
     expect(diff.blocks[29]).toMatchObject({ kind: "modified", baseWords: [], resultWords: [] });

@@ -17,6 +17,7 @@ import {
 
 const FIXTURES = path.join(__dirname, "fixtures", "highlight");
 const WASM_PATH = path.join(__dirname, "..", "..", "node_modules", "vscode-oniguruma", "release", "onig.wasm");
+const DEFAULT_THEMES_DIRECTORY = path.join(__dirname, "..", "..", "media", "themes");
 
 const GRAMMAR_EXTENSION: FakeExtension = {
   id: "test.demo-language",
@@ -66,7 +67,7 @@ describe("SyntaxHighlighting", () => {
     vscodeMock.extensions = [GRAMMAR_EXTENSION, THEME_EXTENSION];
     vscodeMock.configuration.set("workbench.colorTheme", "Top Theme");
     problems = [];
-    highlighting = new SyntaxHighlighting(WASM_PATH, (message) => problems.push(message));
+    highlighting = new SyntaxHighlighting(WASM_PATH, DEFAULT_THEMES_DIRECTORY, (message) => problems.push(message));
   });
 
   afterEach(() => highlighting.dispose());
@@ -131,31 +132,64 @@ describe("SyntaxHighlighting", () => {
     expect(problems).toEqual([]);
   });
 
-  describe("when no colour theme is found", () => {
-    const LOCAL_MESSAGE = "jw-differ shows code without syntax colours: the colour theme 'Missing Theme' was not found among installed extensions.";
-    const REMOTE_MESSAGE =
-      "jw-differ shows code without syntax colours: the colour theme 'Missing Theme' and VS Code's built-in language grammars are not installed on the remote.";
+  describe("when the colour theme is not installed", () => {
+    const LOCAL_MESSAGE = "jw-differ shows code in VS Code's default colours: the colour theme 'Missing Theme' was not found among installed extensions.";
+    const REMOTE_MESSAGE = "jw-differ shows code in VS Code's default colours: the colour theme 'Missing Theme' is not available on the remote.";
 
     beforeEach(() => {
       vscodeMock.extensions = [GRAMMAR_EXTENSION];
       vscodeMock.configuration.set("workbench.colorTheme", "Missing Theme");
     });
 
-    it("warns and logs that the configured theme is not installed, and still applies the grammar", async () => {
-      const highlighted = await highlighting.highlight("let", "demo");
+    it("warns and logs that it uses VS Code's default theme for the active kind, and applies it", async () => {
+      // Dark Modern: keyword.control from Dark+, strings from Dark (Visual Studio).
+      const highlighted = await highlighting.highlight("let\n\"s\"", "demo");
 
-      expect(firstColors(highlighted)).toEqual([null]);
+      expect(firstColors(highlighted)).toEqual(["#C586C0", "#CE9178"]);
       expect(vscodeMock.messages).toEqual([{ level: "warning", text: LOCAL_MESSAGE }]);
       expect(problems).toEqual([LOCAL_MESSAGE]);
     });
 
-    it("says the theme and the grammars are not installed on the remote in a remote window", async () => {
+    it("says the theme is not available on the remote in a remote window", async () => {
       vscodeMock.remoteName = "ssh-remote";
 
       await highlighting.highlight("let", "demo");
 
       expect(vscodeMock.messages).toEqual([{ level: "warning", text: REMOTE_MESSAGE }]);
       expect(problems).toEqual([REMOTE_MESSAGE]);
+    });
+
+    it("uses the default theme of the active high contrast kind", async () => {
+      vscodeMock.colorThemeKind = ColorThemeKind.HighContrastLight;
+
+      const highlighted = await highlighting.highlight("42", "demo");
+
+      expect(firstColors(highlighted)).toEqual(["#096D48"]);
+    });
+
+    it("uses the bundled theme the preferred theme setting names when the colour scheme is detected automatically", async () => {
+      vscodeMock.configuration.set("window.autoDetectColorScheme", true);
+      vscodeMock.configuration.set("workbench.preferredDarkColorTheme", "Dark 2026");
+
+      const highlighted = await highlighting.highlight("\"s\"", "demo");
+
+      expect(firstColors(highlighted)).toEqual(["#A5D6FF"]);
+      expect(vscodeMock.messages).toEqual([]);
+    });
+
+    it("names the preferred theme for the active kind when VS Code switches to high contrast", async () => {
+      vscodeMock.remoteName = "ssh-remote";
+      vscodeMock.extensions = [GRAMMAR_EXTENSION, THEME_EXTENSION];
+      vscodeMock.colorThemeKind = ColorThemeKind.HighContrast;
+      vscodeMock.configuration.set("workbench.colorTheme", "Top Theme");
+      vscodeMock.configuration.set("workbench.preferredHighContrastColorTheme", "Missing HC");
+
+      const highlighted = await highlighting.highlight("42", "demo");
+
+      expect(firstColors(highlighted)).toEqual(["#B5CEA8"]);
+      expect(vscodeMock.messages.map((message) => message.text)).toEqual([
+        "jw-differ shows code in VS Code's default colours: the colour theme 'Missing HC' is not available on the remote.",
+      ]);
     });
 
     it("names the preferred theme for the active kind when the colour scheme is detected automatically", async () => {
@@ -165,7 +199,7 @@ describe("SyntaxHighlighting", () => {
       await highlighting.highlight("let", "demo");
 
       expect(vscodeMock.messages.map((message) => message.text)).toEqual([
-        "jw-differ shows code without syntax colours: the colour theme 'Missing Dark' was not found among installed extensions.",
+        "jw-differ shows code in VS Code's default colours: the colour theme 'Missing Dark' was not found among installed extensions.",
       ]);
     });
 
@@ -180,9 +214,71 @@ describe("SyntaxHighlighting", () => {
 
       expect(vscodeMock.messages.map((message) => message.text)).toEqual([
         LOCAL_MESSAGE,
-        "jw-differ shows code without syntax colours: the colour theme 'Other Missing' was not found among installed extensions.",
+        "jw-differ shows code in VS Code's default colours: the colour theme 'Other Missing' was not found among installed extensions.",
       ]);
       expect(problems).toHaveLength(2);
+    });
+
+    it("shows code without colours, and says so, when the active theme kind has no default theme", async () => {
+      vscodeMock.colorThemeKind = 99 as ColorThemeKind;
+
+      const highlighted = await highlighting.highlight("let", "demo");
+
+      expect(firstColors(highlighted)).toEqual([null]);
+      expect(vscodeMock.messages.map((message) => message.text)).toEqual([
+        "jw-differ shows code without syntax colours: the colour theme 'Missing Theme' was not found among installed extensions.",
+      ]);
+    });
+  });
+
+  describe("bundled VS Code default themes", () => {
+    beforeEach(() => {
+      vscodeMock.extensions = [GRAMMAR_EXTENSION];
+    });
+
+    it.each([
+      ["Light 2026", ColorThemeKind.Light],
+      ["Dark 2026", ColorThemeKind.Dark],
+      ["Dark+", ColorThemeKind.Dark],
+      ["Dark Modern", ColorThemeKind.Dark],
+      ["Light+", ColorThemeKind.Light],
+      ["Light Modern", ColorThemeKind.Light],
+      ["Visual Studio Dark", ColorThemeKind.Dark],
+      ["Visual Studio Light", ColorThemeKind.Light],
+      ["Default High Contrast", ColorThemeKind.HighContrast],
+      ["Default High Contrast Light", ColorThemeKind.HighContrastLight],
+    ])("resolve '%s' with its includes and without a notification", async (themeId, kind) => {
+      vscodeMock.colorThemeKind = kind;
+      vscodeMock.configuration.set("workbench.colorTheme", themeId);
+
+      const highlighted = await highlighting.highlight("\"s\"", "demo");
+
+      expect(firstColors(highlighted)[0]).toMatch(/^#[0-9A-F]{6}$/);
+      expect(problems).toEqual([]);
+      expect(vscodeMock.messages).toEqual([]);
+    });
+
+    it("resolve a theme id older VS Code versions use", async () => {
+      vscodeMock.configuration.set("workbench.colorTheme", "Default Dark Modern");
+
+      const highlighted = await highlighting.highlight("let", "demo");
+
+      expect(firstColors(highlighted)).toEqual(["#C586C0"]);
+      expect(vscodeMock.messages).toEqual([]);
+    });
+
+    it("give way to an installed theme with the same id", async () => {
+      const installedTheme: FakeExtension = {
+        id: "test.dark-2026",
+        extensionPath: path.join(FIXTURES, "themes"),
+        packageJSON: { contributes: { themes: [{ id: "Dark 2026", uiTheme: "vs-dark", path: "./base.json" }] } },
+      };
+      vscodeMock.extensions = [GRAMMAR_EXTENSION, installedTheme];
+      vscodeMock.configuration.set("workbench.colorTheme", "Dark 2026");
+
+      const highlighted = await highlighting.highlight("let", "demo");
+
+      expect(firstColors(highlighted)).toEqual(["#569CD6"]);
     });
   });
 
@@ -272,7 +368,7 @@ describe("SyntaxHighlighting", () => {
     };
     vscodeMock.extensions = [GRAMMAR_EXTENSION, hungTheme, THEME_EXTENSION];
     vscodeMock.configuration.set("workbench.colorTheme", "Hung");
-    const timed = new SyntaxHighlighting(WASM_PATH, (message) => problems.push(message), 50);
+    const timed = new SyntaxHighlighting(WASM_PATH, DEFAULT_THEMES_DIRECTORY, (message) => problems.push(message), 50);
 
     try {
       await expect(timed.highlight("let", "demo")).rejects.toThrow("timed out");

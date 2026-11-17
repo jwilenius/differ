@@ -32,7 +32,11 @@ interface Services {
 export function activate(context: vscode.ExtensionContext): void {
   const mediaRoot = vscode.Uri.joinPath(context.extensionUri, "media");
   const log = vscode.window.createOutputChannel(HISTORY_OUTPUT_CHANNEL);
-  const highlighter = new SyntaxHighlighting(path.join(context.extensionPath, "dist", "onig.wasm"), (message) => log.appendLine(message));
+  const highlighter = new SyntaxHighlighting(
+    path.join(context.extensionPath, "dist", "onig.wasm"),
+    path.join(context.extensionPath, "media", "themes"),
+    (message) => log.appendLine(message),
+  );
   const conflictedFiles = new ConflictedFilesContext(scanConflictedFiles, (line) => log.appendLine(line));
   const services: Services = { mediaRoot, highlighter, log, conflictedFiles };
 

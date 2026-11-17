@@ -17,6 +17,13 @@ interface Contributions {
   readonly themes: readonly ThemeContribution[];
 }
 
+/** The theme the settings ask VS Code to show, and the theme jw-differ uses for it. */
+interface ActiveThemeResult {
+  readonly requestedId: string | undefined;
+  /** The requested theme, else VS Code's default for the active kind, else the configured theme; null when none is found. */
+  readonly theme: ThemeContribution | null;
+}
+
 interface LanguageHighlighter {
   readonly highlighter: TextMateHighlighter;
   readonly scopeByLanguage: ReadonlyMap<string, string>;
@@ -60,9 +67,34 @@ const PREFERRED_THEMES: Readonly<Partial<Record<vscode.ColorThemeKind, readonly 
   [vscode.ColorThemeKind.HighContrastLight]: ["preferredHighContrastLightColorTheme", "Default High Contrast Light"],
 };
 
+/** A theme file bundled under the default themes directory, contributed as VS Code's `theme-defaults` extension contributes it. */
+interface DefaultTheme {
+  readonly settingsId: string;
+  readonly uiTheme: string;
+  readonly file: string;
+}
+
+/**
+ * VS Code's own colour themes (`theme-defaults` 1.146.0), bundled because extensions cannot reach them where the
+ * workbench does not run them, as on a remote, whose server ships no themes. Installed themes take precedence.
+ */
+const DEFAULT_THEMES: readonly DefaultTheme[] = [
+  { settingsId: "Light 2026", uiTheme: "vs", file: "2026-light.json" },
+  { settingsId: "Dark 2026", uiTheme: "vs-dark", file: "2026-dark.json" },
+  { settingsId: "Dark+", uiTheme: "vs-dark", file: "dark_plus.json" },
+  { settingsId: "Dark Modern", uiTheme: "vs-dark", file: "dark_modern.json" },
+  { settingsId: "Light+", uiTheme: "vs", file: "light_plus.json" },
+  { settingsId: "Light Modern", uiTheme: "vs", file: "light_modern.json" },
+  { settingsId: "Visual Studio Dark", uiTheme: "vs-dark", file: "dark_vs.json" },
+  { settingsId: "Visual Studio Light", uiTheme: "vs", file: "light_vs.json" },
+  { settingsId: "Default High Contrast", uiTheme: "hc-black", file: "hc_black.json" },
+  { settingsId: "Default High Contrast Light", uiTheme: "hc-light", file: "hc_light.json" },
+];
+
 /**
  * Highlights text the way VS Code's editor would: grammars contributed by installed extensions and the active colour
  * theme with the user's `editor.tokenColorCustomizations` `textMateRules`. The engine is rebuilt lazily after any of them changes.
+ * A theme that is not installed falls back to VS Code's bundled default themes.
  */
 export class SyntaxHighlighting implements vscode.Disposable {
   private current: Promise<LanguageHighlighter> | null = null;
@@ -72,9 +104,13 @@ export class SyntaxHighlighting implements vscode.Disposable {
   private readonly reportedMissingGrammars = new Set<string>();
   private readonly subscriptions: readonly vscode.Disposable[];
 
-  /** `wasmPath` is the bundled `onig.wasm`; `onProblem` receives why a theme or grammar could not be used. */
+  /**
+   * `wasmPath` is the bundled `onig.wasm`, `defaultThemesDirectory` holds the {@link DEFAULT_THEMES} files, and `onProblem`
+   * receives why a theme or grammar could not be used.
+   */
   constructor(
     private readonly wasmPath: string,
+    private readonly defaultThemesDirectory: string,
     private readonly onProblem: (message: string) => void = () => undefined,
     private readonly buildTimeoutMs = BUILD_TIMEOUT_MS,
   ) {
@@ -125,10 +161,14 @@ export class SyntaxHighlighting implements vscode.Disposable {
   }
 
   private async build(): Promise<LanguageHighlighter> {
-    const { grammars, themes } = collectContributions(vscode.extensions.all);
-    const theme = activeTheme(themes);
-    if (theme === null) {
-      this.reportMissingTheme();
+    const { grammars, themes: installedThemes } = collectContributions(vscode.extensions.all);
+    const themes = [...installedThemes, ...defaultThemes(this.defaultThemesDirectory)];
+    const { requestedId, theme } = activeTheme(themes);
+    // For a theme that is not installed, VS Code itself shows an installed default theme, so using that one matches the editor.
+    const isRequestedThemeMissing = requestedId !== undefined && findTheme(themes, requestedId) === null;
+    const isEditorThemeUnavailable = theme === null || (isRequestedThemeMissing && !installedThemes.includes(theme));
+    if (isEditorThemeUnavailable) {
+      this.reportMissingTheme(requestedId, theme !== null);
     }
 
     this.reportUnsupportedCustomizations();
@@ -139,15 +179,14 @@ export class SyntaxHighlighting implements vscode.Disposable {
     return { highlighter, scopeByLanguage: scopesByLanguage(grammars) };
   }
 
-  /** Once per session per theme id, as a warning: every diff and merge view loses its syntax colours. */
-  private reportMissingTheme(): void {
-    const themeId = requestedThemeId();
+  /** Once per session per theme id, as a warning: every diff and merge view shows other colours than the editor, or none. */
+  private reportMissingTheme(themeId: string | undefined, hasFallback: boolean): void {
     const reportKey = themeId ?? "";
     if (this.reportedMissingThemes.has(reportKey)) {
       return;
     }
     this.reportedMissingThemes.add(reportKey);
-    const message = missingThemeMessage(themeId, isRemote());
+    const message = missingThemeMessage(themeId, { isRemoteHost: isRemote(), hasFallback });
     this.onProblem(message);
     void vscode.window.showWarningMessage(message);
   }
@@ -190,6 +229,11 @@ async function resolveTheme(theme: ThemeContribution | null): Promise<ThemeResol
     return { theme: UNTHEMED, problems: [] };
   }
   return resolveTextMateTheme(theme.path, textMateCustomizations(theme.settingsId));
+}
+
+/** Listed after the installed themes, so {@link findTheme} prefers an installed theme with the same id. */
+function defaultThemes(directory: string): readonly ThemeContribution[] {
+  return DEFAULT_THEMES.map(({ settingsId, uiTheme, file }) => ({ settingsId, uiTheme, path: path.join(directory, file) }));
 }
 
 function collectContributions(extensions: readonly vscode.Extension<unknown>[]): Contributions {
@@ -237,24 +281,15 @@ function isRemote(): boolean {
   return vscode.env.remoteName !== undefined;
 }
 
-/** Remote servers ship no colour themes and few grammars, so there the theme alone would not bring the colours back. */
-function missingThemeMessage(themeId: string | undefined, isRemoteHost: boolean): string {
+/**
+ * Why the colours differ from the editor's. A remote's extensions see neither VS Code's built-in themes nor themes
+ * installed locally, since VS Code runs theme extensions in the local window.
+ */
+function missingThemeMessage(themeId: string | undefined, { isRemoteHost, hasFallback }: { isRemoteHost: boolean; hasFallback: boolean }): string {
   const theme = themeId === undefined ? "the active colour theme" : `the colour theme '${themeId}'`;
-  const reason = isRemoteHost
-    ? `${theme} and VS Code's built-in language grammars are not installed on the remote`
-    : `${theme} was not found among installed extensions`;
-  return `jw-differ shows code without syntax colours: ${reason}.`;
-}
-
-/** The theme id the settings ask for, as {@link activeTheme} reads them: the preferred theme for the active kind when detected automatically. */
-function requestedThemeId(): string | undefined {
-  const workbench = vscode.workspace.getConfiguration("workbench");
-  const isAutoDetected = vscode.workspace.getConfiguration("window").get<boolean>("autoDetectColorScheme") === true;
-  const preferred = PREFERRED_THEMES[vscode.window.activeColorTheme.kind];
-  if (isAutoDetected && preferred !== undefined) {
-    return workbench.get<string>(preferred[0]) ?? preferred[1];
-  }
-  return workbench.get<string>("colorTheme");
+  const reason = isRemoteHost ? `${theme} is not available on the remote` : `${theme} was not found among installed extensions`;
+  const outcome = hasFallback ? "shows code in VS Code's default colours" : "shows code without syntax colours";
+  return `jw-differ ${outcome}: ${reason}.`;
 }
 
 /**
@@ -262,22 +297,24 @@ function requestedThemeId(): string | undefined {
  * `window.autoDetectColorScheme` on, or when the active theme's kind differs from the configured one (as
  * `window.autoDetectHighContrast` does), the preferred theme for the active kind is in use instead.
  */
-function activeTheme(themes: readonly ThemeContribution[]): ThemeContribution | null {
+function activeTheme(themes: readonly ThemeContribution[]): ActiveThemeResult {
   const workbench = vscode.workspace.getConfiguration("workbench");
   const kind = vscode.window.activeColorTheme.kind;
-  const configured = findTheme(themes, workbench.get<string>("colorTheme"));
+  const configuredId = workbench.get<string>("colorTheme");
+  const configured = findTheme(themes, configuredId);
   const isAutoDetected = vscode.workspace.getConfiguration("window").get<boolean>("autoDetectColorScheme") === true;
   const isConfiguredActive = configured !== null && UI_THEME_KINDS[configured.uiTheme ?? ""] === kind;
-  if (isConfiguredActive && !isAutoDetected) {
-    return configured;
+  const preferred = PREFERRED_THEMES[kind];
+  if ((isConfiguredActive && !isAutoDetected) || preferred === undefined) {
+    return { requestedId: configuredId, theme: configured };
   }
 
-  const preferred = PREFERRED_THEMES[kind];
-  if (preferred === undefined) {
-    return configured;
-  }
   const [preferredSetting, fallbackTheme] = preferred;
-  return findTheme(themes, workbench.get<string>(preferredSetting)) ?? findTheme(themes, fallbackTheme) ?? configured;
+  const preferredId = workbench.get<string>(preferredSetting) ?? fallbackTheme;
+  const theme = findTheme(themes, preferredId) ?? findTheme(themes, fallbackTheme) ?? configured;
+  // A configured theme that is not found is still the one asked for; the default for the kind only stands in for it.
+  const isPreferredRequested = isAutoDetected || configured !== null;
+  return { requestedId: isPreferredRequested ? preferredId : configuredId, theme };
 }
 
 /** Built-in theme ids that newer VS Code renamed; it still accepts the old ids in settings and maps them like this. */

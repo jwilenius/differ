@@ -131,13 +131,77 @@ describe("SyntaxHighlighting", () => {
     expect(problems).toEqual([]);
   });
 
-  it("reports a theme that is not installed and still applies the grammar", async () => {
-    vscodeMock.configuration.set("workbench.colorTheme", "Missing Theme");
+  describe("when no colour theme is found", () => {
+    const LOCAL_MESSAGE = "jw-differ shows code without syntax colours: the colour theme 'Missing Theme' was not found among installed extensions.";
+    const REMOTE_MESSAGE =
+      "jw-differ shows code without syntax colours: the colour theme 'Missing Theme' and VS Code's built-in language grammars are not installed on the remote.";
 
-    const highlighted = await highlighting.highlight("let", "demo");
+    beforeEach(() => {
+      vscodeMock.extensions = [GRAMMAR_EXTENSION];
+      vscodeMock.configuration.set("workbench.colorTheme", "Missing Theme");
+    });
 
-    expect(firstColors(highlighted)).toEqual([null]);
-    expect(problems).toEqual(["The active colour theme was not found among installed extensions."]);
+    it("warns and logs that the configured theme is not installed, and still applies the grammar", async () => {
+      const highlighted = await highlighting.highlight("let", "demo");
+
+      expect(firstColors(highlighted)).toEqual([null]);
+      expect(vscodeMock.messages).toEqual([{ level: "warning", text: LOCAL_MESSAGE }]);
+      expect(problems).toEqual([LOCAL_MESSAGE]);
+    });
+
+    it("says the theme and the grammars are not installed on the remote in a remote window", async () => {
+      vscodeMock.remoteName = "ssh-remote";
+
+      await highlighting.highlight("let", "demo");
+
+      expect(vscodeMock.messages).toEqual([{ level: "warning", text: REMOTE_MESSAGE }]);
+      expect(problems).toEqual([REMOTE_MESSAGE]);
+    });
+
+    it("names the preferred theme for the active kind when the colour scheme is detected automatically", async () => {
+      vscodeMock.configuration.set("window.autoDetectColorScheme", true);
+      vscodeMock.configuration.set("workbench.preferredDarkColorTheme", "Missing Dark");
+
+      await highlighting.highlight("let", "demo");
+
+      expect(vscodeMock.messages.map((message) => message.text)).toEqual([
+        "jw-differ shows code without syntax colours: the colour theme 'Missing Dark' was not found among installed extensions.",
+      ]);
+    });
+
+    it("tells once per theme across rebuilds, and again for another missing theme", async () => {
+      await highlighting.highlight("let", "demo");
+      changeColorThemeKind(ColorThemeKind.Light);
+      await highlighting.highlight("let", "demo");
+      changeConfiguration("workbench.colorTheme", "Other Missing");
+      await highlighting.highlight("let", "demo");
+      changeConfiguration("workbench.colorTheme", "Missing Theme");
+      await highlighting.highlight("let", "demo");
+
+      expect(vscodeMock.messages.map((message) => message.text)).toEqual([
+        LOCAL_MESSAGE,
+        "jw-differ shows code without syntax colours: the colour theme 'Other Missing' was not found among installed extensions.",
+      ]);
+      expect(problems).toHaveLength(2);
+    });
+  });
+
+  it("shows no notification when the theme is found", async () => {
+    await highlighting.highlight("let", "demo");
+
+    expect(vscodeMock.messages).toEqual([]);
+  });
+
+  it("logs once per language that has no grammar, without a notification", async () => {
+    vscodeMock.remoteName = "ssh-remote";
+
+    await highlighting.highlight("fn", "rust");
+    await highlighting.highlight("x", "plaintext");
+    changeExtensions([GRAMMAR_EXTENSION, THEME_EXTENSION]);
+    await highlighting.highlight("fn", "rust");
+
+    expect(problems).toEqual(["No grammar for language 'rust' among installed extensions on the remote; showing it without syntax colours."]);
+    expect(vscodeMock.messages).toEqual([]);
   });
 
   it("rebuilds after customizations, the colour theme or the installed extensions change", async () => {

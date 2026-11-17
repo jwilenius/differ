@@ -33,6 +33,9 @@ const THEME_SETTINGS: readonly string[] = [
   "editor.tokenColorCustomizations",
 ];
 
+/** VS Code languages that have no grammar by design, so a missing one is not worth reporting. */
+const LANGUAGES_WITHOUT_GRAMMAR: readonly string[] = ["plaintext"];
+
 /** How long reading the theme may take; a build that fails this way is forgotten like any failed build. */
 const BUILD_TIMEOUT_MS = 2_000;
 
@@ -64,6 +67,9 @@ const PREFERRED_THEMES: Readonly<Partial<Record<vscode.ColorThemeKind, readonly 
 export class SyntaxHighlighting implements vscode.Disposable {
   private current: Promise<LanguageHighlighter> | null = null;
   private hasReportedUnsupportedCustomizations = false;
+  /** Theme ids and language ids already reported this session; each is reported once. */
+  private readonly reportedMissingThemes = new Set<string>();
+  private readonly reportedMissingGrammars = new Set<string>();
   private readonly subscriptions: readonly vscode.Disposable[];
 
   /** `wasmPath` is the bundled `onig.wasm`; `onProblem` receives why a theme or grammar could not be used. */
@@ -87,7 +93,11 @@ export class SyntaxHighlighting implements vscode.Disposable {
   async highlight(text: string, languageId: string, options: HighlightOptions = {}): Promise<HighlightedText> {
     const { highlighter, scopeByLanguage } = await this.languageHighlighter();
     const scopeName = scopeByLanguage.get(languageId);
-    return scopeName === undefined ? unstyledText(text) : highlighter.highlight(text, scopeName, options);
+    if (scopeName === undefined) {
+      this.reportMissingGrammar(languageId);
+      return unstyledText(text);
+    }
+    return highlighter.highlight(text, scopeName, options);
   }
 
   dispose(): void {
@@ -118,7 +128,7 @@ export class SyntaxHighlighting implements vscode.Disposable {
     const { grammars, themes } = collectContributions(vscode.extensions.all);
     const theme = activeTheme(themes);
     if (theme === null) {
-      this.onProblem("The active colour theme was not found among installed extensions.");
+      this.reportMissingTheme();
     }
 
     this.reportUnsupportedCustomizations();
@@ -127,6 +137,30 @@ export class SyntaxHighlighting implements vscode.Disposable {
 
     const highlighter = new TextMateHighlighter({ wasmPath: this.wasmPath, grammars, theme: resolved.theme, onProblem: this.onProblem });
     return { highlighter, scopeByLanguage: scopesByLanguage(grammars) };
+  }
+
+  /** Once per session per theme id, as a warning: every diff and merge view loses its syntax colours. */
+  private reportMissingTheme(): void {
+    const themeId = requestedThemeId();
+    const reportKey = themeId ?? "";
+    if (this.reportedMissingThemes.has(reportKey)) {
+      return;
+    }
+    this.reportedMissingThemes.add(reportKey);
+    const message = missingThemeMessage(themeId, isRemote());
+    this.onProblem(message);
+    void vscode.window.showWarningMessage(message);
+  }
+
+  /** Once per session per language, to the log only: one language without colours is not worth interrupting for. */
+  private reportMissingGrammar(languageId: string): void {
+    const isReported = this.reportedMissingGrammars.has(languageId) || LANGUAGES_WITHOUT_GRAMMAR.includes(languageId);
+    if (isReported) {
+      return;
+    }
+    this.reportedMissingGrammars.add(languageId);
+    const location = isRemote() ? "installed extensions on the remote" : "installed extensions";
+    this.onProblem(`No grammar for language '${languageId}' among ${location}; showing it without syntax colours.`);
   }
 
   /** Once per session: only `textMateRules` customizations are applied, not `comments`, `strings` and the like. */
@@ -197,6 +231,30 @@ function toTheme(entry: Readonly<Record<string, unknown>>, extensionPath: string
 /** Later contributions win, so a user extension can replace a built-in grammar, as in VS Code. */
 function scopesByLanguage(grammars: readonly GrammarContribution[]): ReadonlyMap<string, string> {
   return new Map(grammars.flatMap((grammar) => (grammar.language === undefined ? [] : [[grammar.language, grammar.scopeName] as const])));
+}
+
+function isRemote(): boolean {
+  return vscode.env.remoteName !== undefined;
+}
+
+/** Remote servers ship no colour themes and few grammars, so there the theme alone would not bring the colours back. */
+function missingThemeMessage(themeId: string | undefined, isRemoteHost: boolean): string {
+  const theme = themeId === undefined ? "the active colour theme" : `the colour theme '${themeId}'`;
+  const reason = isRemoteHost
+    ? `${theme} and VS Code's built-in language grammars are not installed on the remote`
+    : `${theme} was not found among installed extensions`;
+  return `jw-differ shows code without syntax colours: ${reason}.`;
+}
+
+/** The theme id the settings ask for, as {@link activeTheme} reads them: the preferred theme for the active kind when detected automatically. */
+function requestedThemeId(): string | undefined {
+  const workbench = vscode.workspace.getConfiguration("workbench");
+  const isAutoDetected = vscode.workspace.getConfiguration("window").get<boolean>("autoDetectColorScheme") === true;
+  const preferred = PREFERRED_THEMES[vscode.window.activeColorTheme.kind];
+  if (isAutoDetected && preferred !== undefined) {
+    return workbench.get<string>(preferred[0]) ?? preferred[1];
+  }
+  return workbench.get<string>("colorTheme");
 }
 
 /**

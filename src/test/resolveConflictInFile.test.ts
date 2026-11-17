@@ -11,6 +11,7 @@ import {
   changeWindowFocus,
   changeWorkspaceFolders,
   type ExecutedCommand,
+  type FakeExtension,
   type FakeFileSystemWatcher,
   RelativePattern,
   resetVscodeMock,
@@ -31,6 +32,13 @@ interface Manifest {
 }
 
 const COMMAND = "jwDiffer.resolveConflictInFile";
+
+/** An installed colour theme, so opening a merge view raises no missing-theme warning. */
+const INSTALLED_THEME: FakeExtension = {
+  id: "test.theme",
+  extensionPath: path.join(__dirname, "fixtures", "highlight", "themes"),
+  packageJSON: { contributes: { themes: [{ id: "Test Theme", uiTheme: "vs-dark", path: "./base.json" }] } },
+};
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf8")) as Manifest;
 
 let repo: string;
@@ -350,6 +358,8 @@ describe("Resolve Conflict in jw-differ", () => {
     divergeBranches(repo, ["a.txt"]);
     mergeFeature(repo);
     vscodeMock.workspaceFolders = [workspaceFolder(repo)];
+    vscodeMock.extensions = [INSTALLED_THEME];
+    vscodeMock.configuration.set("workbench.colorTheme", "Test Theme");
     activateExtension();
   });
 

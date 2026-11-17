@@ -136,7 +136,11 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
 - Syntax colouring uses the grammars of your installed VS Code extensions and the active colour theme (including
   `editor.tokenColorCustomizations` → `textMateRules`), and follows theme changes. Semantic colouring from language
   servers is not applied, so some identifiers can differ slightly from the editor. Files over 500 000 characters, or
-  that take more than about 2 seconds to colour, are shown partly or wholly uncoloured.
+  that take more than about 2 seconds to colour, are shown partly or wholly uncoloured. When the colour theme is not
+  installed where jw-differ runs, code is shown uncoloured and a warning names the theme, once per theme and session.
+  In a remote window (e.g. Remote-SSH) jw-differ runs on the remote, whose VS Code server ships no colour themes and
+  few language grammars, so code there is usually uncoloured. Languages without a grammar are listed in the
+  **jw-differ History** output channel.
 - **Open in VS Code diff** shows the same comparison in the built-in diff editor. Set `jwDiffer.historyDiffViewer` to
   `native` to always use it. Opening another file reuses the same tab.
 

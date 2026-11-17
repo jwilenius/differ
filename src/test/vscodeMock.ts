@@ -270,6 +270,8 @@ export interface VscodeMockState {
   /** Settings by full key, such as `workbench.colorTheme`; read through `workspace.getConfiguration`. */
   readonly configuration: Map<string, unknown>;
   colorThemeKind: ColorThemeKind;
+  /** `env.remoteName`: the remote authority kind, such as `ssh-remote`; undefined in a local window. */
+  remoteName: string | undefined;
   /** `workspace.textDocuments`; `openTextDocument` adds to it and `fireDidCloseTextDocument` removes from it. */
   readonly textDocuments: vscode.TextDocument[];
   /** Language ids `openTextDocument` assigns by file extension, such as `.ts` → `typescript`; else `plaintext`. */
@@ -302,6 +304,7 @@ export const vscodeMock: VscodeMockState = {
   extensions: [],
   configuration: new Map(),
   colorThemeKind: ColorThemeKind.Dark,
+  remoteName: undefined,
   textDocuments: [],
   languageIds: new Map(),
   openFileDocument: undefined,
@@ -338,6 +341,7 @@ export function resetVscodeMock(): void {
   vscodeMock.extensions = [];
   vscodeMock.configuration.clear();
   vscodeMock.colorThemeKind = ColorThemeKind.Dark;
+  vscodeMock.remoteName = undefined;
   vscodeMock.textDocuments.length = 0;
   vscodeMock.languageIds.clear();
   vscodeMock.openFileDocument = undefined;
@@ -542,6 +546,12 @@ function createOutputChannel(name: string): FakeOutputChannel {
   vscodeMock.outputChannels.push(channel);
   return channel;
 }
+
+export const env = {
+  get remoteName(): string | undefined {
+    return vscodeMock.remoteName;
+  },
+};
 
 export const extensions = {
   get all(): readonly FakeExtension[] {

@@ -123,7 +123,17 @@ describe("HtmlTwoWayDiffRenderer", () => {
     });
     expect(html).toContain(`<svg id="connectors"`);
     expect(html).toMatch(/id="prev"[\s\S]*id="next"[\s\S]*id="open-native"/);
-    expect(html).toContain("2 differences");
+  });
+
+  it("numbers the change the view opens at in a polite live status", () => {
+    const status = (html: string) => /<span class="status"[^>]*>(.*?)<\/span>\n/.exec(html)![1];
+
+    expect(render("a\nold\nb", "a\nnew\nb\nc")).toContain(
+      `<span class="status" role="status" aria-live="polite"><span id="current-number">1</span> / 2 differences</span>`,
+    );
+    expect(status(render("a\nold\nb", "a\nnew\nb\nc", { startAt: "last" })))
+      .toBe(`<span id="current-number">2</span> / 2 differences`);
+    expect(status(render("a", "b"))).toBe(`<span id="current-number">1</span> / 1 difference`);
   });
 
   it("splits tokens at word-span edges so tags nest", () => {
@@ -187,8 +197,11 @@ describe("HtmlTwoWayDiffRenderer", () => {
     expect(styles).not.toContain("display:none");
   });
 
-  it("says when there are no differences", () => {
-    expect(render("same", "same")).toContain("No differences");
+  it("says when there are no differences, with no change number", () => {
+    const html = render("same", "same");
+
+    expect(html).toContain(`<span class="status" role="status" aria-live="polite">No differences</span>`);
+    expect(html).not.toContain("current-number");
   });
 
   it("publishes the neighbouring files and the change to start at when the diff belongs to a file list", () => {

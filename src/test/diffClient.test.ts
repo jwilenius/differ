@@ -261,6 +261,8 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
     "file-step",
     "current-base",
     "current-result",
+    // The renderer writes no change number when there are no differences.
+    ...(blocks.length > 0 ? ["current-number"] : []),
   ];
   const elements = Object.fromEntries(ids.map((id) => [id, new FakeElement()]));
   elements["current-base"].hidden = true;
@@ -274,7 +276,7 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
   }
   const document = Object.assign(new FakeElement(), {
     title: start.title ?? "app.ts (a ↔ b)",
-    getElementById: (id: string) => elements[id],
+    getElementById: (id: string) => elements[id] ?? null,
     createElementNS: () => new FakeElement(),
   });
   const messages: unknown[] = [];
@@ -555,6 +557,65 @@ describe("diff client current change", () => {
 
     expect(markedRows(after.elements, "result")).toBeNull();
     expect(markedRows(after.elements, "base")).toBeNull();
+  });
+
+  it("numbers the marked change in the status as F7, Shift+F7 and the buttons move it", () => {
+    const { elements, document } = startClient();
+    const currentNumber = elements["current-number"];
+    expect(currentNumber.textContent).toBe("1");
+
+    document.fire("keydown", { key: "F7" });
+    expect(currentNumber.textContent).toBe("2");
+
+    elements.next.fire("click");
+    expect(currentNumber.textContent).toBe("3");
+
+    elements.prev.fire("click");
+    expect(currentNumber.textContent).toBe("2");
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    expect(currentNumber.textContent).toBe("1");
+  });
+
+  it("keeps the number when there is no further change to go to", () => {
+    const { elements, document } = startClient(BLOCKS, { startAt: "last" });
+    expect(elements["current-number"].textContent).toBe("3");
+
+    document.fire("keydown", { key: "F7" });
+    elements.next.fire("click");
+
+    expect(elements["current-number"].textContent).toBe("3");
+  });
+
+  it("numbers the change stepped to from wherever the user scrolled", () => {
+    const { elements, document } = startClient();
+    elements["scroll-result"].scrollTop = 200;
+    elements["scroll-result"].fire("scroll");
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+
+    expect(elements["current-number"].textContent).toBe("3");
+  });
+
+  it("shows a dash for the number after restoring a re-render's scroll offsets", () => {
+    const before = startClient();
+    before.elements["scroll-result"].scrollTop = 80;
+    before.elements["scroll-result"].fire("scroll");
+
+    const after = startClient(BLOCKS, { state: before.savedState() });
+    expect(after.elements["current-number"].textContent).toBe("–");
+
+    after.document.fire("keydown", { key: "F7" });
+    expect(after.elements["current-number"].textContent).toBe("3");
+  });
+
+  it("restores a re-render of a diff without differences", () => {
+    const before = startClient([]);
+    before.elements["scroll-result"].fire("scroll");
+
+    const after = startClient([], { state: before.savedState() });
+
+    expect(after.messages).toEqual([{ type: "ready" }]);
   });
 
   it("outlines the current change's ribbon", () => {

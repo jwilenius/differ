@@ -15,6 +15,8 @@
   const SIDES = ["base", "result"];
   /** How long the hint at either end of a file shows and waits for the same key again. */
   const FILE_STEP_WINDOW_MS = 2500;
+  /** The status's number while no change is marked. */
+  const NO_CURRENT_NUMBER = "–";
 
   const vscode = acquireVsCodeApi();
   const diffElement = document.getElementById("diff");
@@ -23,6 +25,8 @@
   /** The neighbours in the comparison's file list, or null when this diff has no list and F7 stops at the ends. */
   const fileList = diffElement.dataset.files ? JSON.parse(diffElement.dataset.files) : null;
   const fileStepHint = document.getElementById("file-step");
+  /** The marked change's number in the status; absent when there are no differences. */
+  const currentNumber = document.getElementById("current-number");
   const anchors = buildAnchors(data.blocks, data.baseLineCount, data.resultLineCount);
   const scrollers = { base: document.getElementById("scroll-base"), result: document.getElementById("scroll-result") };
   const svg = document.getElementById("connectors");
@@ -204,6 +208,7 @@
     scroller.scrollTop = data.blocks[index].result[0] * lineHeight - scroller.clientHeight * NAVIGATION_OFFSET;
     currentIndex = index;
     markCurrent(data.blocks[index]);
+    showCurrentNumber();
     scheduleDraw();
   }
 
@@ -235,6 +240,13 @@
       fitMarker(side);
       marker.hidden = false;
     }
+  }
+
+  function showCurrentNumber() {
+    if (currentNumber === null) {
+      return;
+    }
+    currentNumber.textContent = currentIndex === -1 ? NO_CURRENT_NUMBER : String(currentIndex + 1);
   }
 
   /** Spans the marker across the visible width, so the text scrolling sideways leaves its sides in view. */
@@ -292,6 +304,8 @@
   const saved = vscode.getState();
   if (saved && saved.key === scrollStateKey) {
     restoreScroll(saved);
+    // A restored view marks no change.
+    showCurrentNumber();
   } else if (data.blocks.length > 0) {
     goTo(diffElement.dataset.startAt === "last" ? data.blocks.length - 1 : 0);
   }

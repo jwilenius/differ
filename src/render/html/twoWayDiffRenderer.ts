@@ -77,7 +77,8 @@ const LINE_SEPARATOR = "\n";
  * `#diff[data-files]` the optional {@link FileListNeighbours}; `#file-step`
  * is the live region showing the file-step hint. Each pane's `.lines` ends with
  * `#current-base` / `#current-result`, the hidden marker the client places over
- * the change navigated to.
+ * the change navigated to. While there are differences, `#current-number` in the
+ * status holds that change's 1-based number, which the client keeps up to date.
  */
 export class HtmlTwoWayDiffRenderer {
   render(input: TwoWayDiffInput, context: TwoWayDiffRenderContext): string {
@@ -104,7 +105,7 @@ export class HtmlTwoWayDiffRenderer {
 <title>${escapeHtml(context.title)}</title>
 </head>
 <body>
-${renderToolbar(diff)}
+${renderToolbar(diff, context.startAt ?? "first")}
 <main class="diff" id="diff" data-diff="${escapeHtml(JSON.stringify(clientData(diff)))}"${renderNavigationData(context)}>
 ${renderHeader("base", context.baseLabel, context.basePath)}
 <div class="strip-header"></div>
@@ -142,18 +143,24 @@ function renderNavigationData(context: TwoWayDiffRenderContext): string {
   return `${startAt}${fileList}`;
 }
 
-function renderToolbar(diff: TwoWayDiff): string {
-  const count = diff.blocks.length;
-  const status = count === 0 ? "No differences" : `${count} difference${count === 1 ? "" : "s"}`;
-
+function renderToolbar(diff: TwoWayDiff, startAt: StartChange): string {
   return `<header class="toolbar">
   <span class="nav">
     <button id="prev" class="tool" title="Previous Difference (Shift+F7)" aria-label="Previous difference">↑</button>
     <button id="next" class="tool" title="Next Difference (F7)" aria-label="Next difference">↓</button>
   </span>
-  <span class="status">${status}</span>
+  <span class="status" role="status" aria-live="polite">${renderStatus(diff.blocks.length, startAt)}</span>
   <button id="open-native" class="tool text" title="Show this comparison in VS Code's built-in diff editor">Open in VS Code diff</button>
 </header>`;
+}
+
+/** "No differences", or "1 / 7 differences" numbering the change the client marks on opening. */
+function renderStatus(count: number, startAt: StartChange): string {
+  if (count === 0) {
+    return "No differences";
+  }
+  const current = startAt === "last" ? count : 1;
+  return `<span id="current-number">${current}</span> / ${count} difference${count === 1 ? "" : "s"}`;
 }
 
 function renderHeader(side: PaneSide, label: string, filePath: string): string {

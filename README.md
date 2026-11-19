@@ -137,8 +137,8 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   changed words in a darker shade.
 - Both panes scroll together, keeping corresponding blocks level; `↑`/`↓` (or F7 / Shift+F7) jump between
   differences, and the difference jumped to is outlined in the focus colour on both sides, with its band, as the current one.
-  The toolbar numbers it: `2 / 7 differences` (`– / 7` after a re-render, such as a colour theme change, until the next
-  jump).
+  The toolbar numbers it: `2 / 7 differences` (`– / 7` after a re-render, such as a colour theme change, or when the same
+  comparison is reopened at its saved scroll position, until the next jump).
 - F7 at the last difference shows "Press F7 again to go to the next file"; pressing F7 again within 2.5 s opens the
   next file of the panel's **Changed files** list (same comparison) at its first difference. Shift+F7 at the first
   difference does the same towards the previous file, landing on its last difference. Files with no text difference to

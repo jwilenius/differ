@@ -7,6 +7,7 @@ import { HISTORY_DOCUMENT_SCHEME, HistoryDiffProvider } from "./historyDiffProvi
 import { candidateDirectories, discoverRepositoryRoots, findGitRepositoryRoot } from "./historyRepositoryDiscovery";
 import { HISTORY_VIEW_ID, HistoryViewProvider, OPEN_HISTORY_COMMAND } from "./historyViewProvider";
 import { MergeViewPanel } from "./mergeViewPanel";
+import { registerScmChangeCommands } from "./scmChangeCommands";
 import { SyntaxHighlighting } from "./syntaxHighlighting";
 import { TwoWayDiffPanels } from "./twoWayDiffPanel";
 
@@ -206,8 +207,9 @@ function forgetMergeView(key: string, opening: Promise<MergeViewPanel>): void {
 }
 
 /**
- * Registers the history panel, its diff documents and panels, and commands. `deactivate` runs before subscriptions are
- * disposed, so history cleanup finishes while its log is still open.
+ * Registers the history panel, its diff documents and panels, and commands, and the Source Control commands that share
+ * its diff tab. `deactivate` runs before subscriptions are disposed, so history cleanup finishes while its log is still
+ * open.
  */
 function activateHistory(context: vscode.ExtensionContext, { mediaRoot, highlighter, log }: Services): void {
   const diffPanels = new TwoWayDiffPanels({ mediaRoot, highlighter, log: (message) => log.appendLine(message) });
@@ -223,6 +225,7 @@ function activateHistory(context: vscode.ExtensionContext, { mediaRoot, highligh
     vscode.window.registerWebviewViewProvider(HISTORY_VIEW_ID, view),
     vscode.commands.registerCommand(OPEN_HISTORY_COMMAND, () => view.reveal()),
     vscode.commands.registerCommand(REFRESH_HISTORY_COMMAND, () => view.refresh()),
+    registerScmChangeCommands(diffPanels, (message) => log.appendLine(message)),
   );
 }
 

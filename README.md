@@ -168,6 +168,30 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   diff. History beyond `jwDiffer.historyMaxCommits` is not loaded, so it cannot be selected or searched; a history
   whose commit list exceeds 64 MiB of Git output still fails to load.
 
+## Uncommitted changes in Source Control
+
+Each file in Source Control's **Changes**, **Staged Changes** and **Merge Changes** gets a jw-differ icon next to Git's
+own; it is also in the file's right-click menu.
+
+| Group                      | Icon                         | Opens                                                       |
+| -------------------------- | ---------------------------- | ----------------------------------------------------------- |
+| Changes, Untracked Changes | jw-differ (panes and ribbon) | **Open Changes in jw-differ**: Index ↔ Working Tree         |
+| Staged Changes             | jw-differ (panes and ribbon) | **Open Staged Changes in jw-differ**: HEAD ↔ Index          |
+| Merge Changes              | merge                        | **Resolve Conflict in jw-differ**: the three-way merge view |
+
+- The diff opens in the same tab and view as the history's diffs (F7, F4, find, **Open in VS Code diff**). It is a
+  snapshot: later edits, staging or saves need another click.
+- Untracked and added files compare against an empty side, deleted files against one. A staged rename compares the
+  old path's HEAD version with the new path. A file with unsaved edits shows the editor's text. While only conflict
+  stages are in the index, Changes compares against HEAD. Line endings are compared as LF, so a CRLF checkout
+  (`core.autocrlf`) shows only real edits.
+- Binary, non-UTF-8, over-16-MiB, submodule and directory changes open in VS Code's diff instead, with a short note.
+- Multi-selection: the icon and menu open one diff, the clicked file's, or the first selected file when the clicked
+  file is part of the selection.
+- **jw-differ: Open Changes in jw-differ** in the Command Palette opens the active file's unstaged change.
+- jw-differ cannot replace VS Code's own click on a change: the Git extension opens its built-in diff or merge editor,
+  and VS Code offers extensions no supported way to take over Source Control diffs.
+
 ## Merge conflict resolution
 
 IntelliJ's merge dialog: your branch on the left, the editable result in the middle, the incoming version on the right,
@@ -189,7 +213,7 @@ _`src/inventory.ts` mid-merge: `main` left, result middle, `feature/sku` right; 
 - **jw-differ: Open Three-Way Merge View**, or the merge button in the title bar of a file with conflict markers, opens
   the active file.
 - **Resolve Conflict in jw-differ** in the right-click menu of a conflicted file opens that file: in the Explorer, on an
-  editor tab, and in Source Control's Merge Changes. The Explorer and tab entries track the files the picker lists
+  editor tab, and in Source Control's Merge Changes, where it is also an icon on each file. The Explorer and tab entries track the files the picker lists
   (including their paths through a workspace folder opened via a symbolic link); the list refreshes on activation, on
   window focus, on workspace folder changes, when the Git index of a repository it covers changes (including an index
   outside the workspace folder: a linked worktree's, a submodule's, or that of a repository above the folder), and when

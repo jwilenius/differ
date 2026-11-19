@@ -61,6 +61,8 @@ describe("extension activation", () => {
     expect([...vscodeMock.commands.keys()].sort()).toEqual([
       "jwDiffer.openHistory",
       "jwDiffer.openMergeView",
+      "jwDiffer.openStagedChange",
+      "jwDiffer.openWorkingTreeChange",
       "jwDiffer.refreshHistory",
       "jwDiffer.resolveConflictInFile",
       "jwDiffer.resolveConflicts",

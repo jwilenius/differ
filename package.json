@@ -39,7 +39,26 @@
       {
         "command": "jwDiffer.resolveConflictInFile",
         "title": "Resolve Conflict in jw-differ",
-        "category": "jw-differ"
+        "category": "jw-differ",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "jwDiffer.openWorkingTreeChange",
+        "title": "Open Changes in jw-differ",
+        "category": "jw-differ",
+        "icon": {
+          "light": "media/differ-history-light.svg",
+          "dark": "media/differ-history-dark.svg"
+        }
+      },
+      {
+        "command": "jwDiffer.openStagedChange",
+        "title": "Open Staged Changes in jw-differ",
+        "category": "jw-differ",
+        "icon": {
+          "light": "media/differ-history-light.svg",
+          "dark": "media/differ-history-dark.svg"
+        }
       },
       {
         "command": "jwDiffer.openHistory",
@@ -99,6 +118,31 @@
       ],
       "scm/resourceState/context": [
         {
+          "command": "jwDiffer.openWorkingTreeChange",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup == untracked)",
+          "group": "inline"
+        },
+        {
+          "command": "jwDiffer.openStagedChange",
+          "when": "scmProvider == git && scmResourceGroup == index",
+          "group": "inline"
+        },
+        {
+          "command": "jwDiffer.resolveConflictInFile",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "inline"
+        },
+        {
+          "command": "jwDiffer.openWorkingTreeChange",
+          "when": "scmProvider == git && (scmResourceGroup == workingTree || scmResourceGroup == untracked)",
+          "group": "navigation"
+        },
+        {
+          "command": "jwDiffer.openStagedChange",
+          "when": "scmProvider == git && scmResourceGroup == index",
+          "group": "navigation"
+        },
+        {
           "command": "jwDiffer.resolveConflictInFile",
           "when": "scmProvider == git && scmResourceGroup == merge",
           "group": "navigation"
@@ -133,6 +177,14 @@
         },
         {
           "command": "jwDiffer.resolveConflictInFile",
+          "when": "false"
+        },
+        {
+          "command": "jwDiffer.openWorkingTreeChange",
+          "when": "resourceScheme == file"
+        },
+        {
+          "command": "jwDiffer.openStagedChange",
           "when": "false"
         },
         {

@@ -400,11 +400,16 @@ describe("Resolve Conflict in jw-differ", () => {
     expect(vscodeMock.messages[0].text).toContain("jw-differ could not open gone.txt.");
   });
 
-  it("is offered on conflicted files in the Explorer, editor tabs and Git's merge changes, not in the palette", () => {
+  it("is offered on conflicted files in the Explorer, editor tabs and as an icon on Git's merge changes, not in the palette", () => {
     const { commands, menus } = manifest.contributes;
     const entriesOf = (menu: string): readonly MenuEntry[] => menus[menu].filter((entry) => entry.command === COMMAND);
 
-    expect(commands.find((entry) => entry.command === COMMAND)).toEqual({ command: COMMAND, title: "Resolve Conflict in jw-differ", category: "jw-differ" });
+    expect(commands.find((entry) => entry.command === COMMAND)).toEqual({
+      command: COMMAND,
+      title: "Resolve Conflict in jw-differ",
+      category: "jw-differ",
+      icon: "$(git-merge)",
+    });
     expect(entriesOf("explorer/context")).toEqual([
       { command: COMMAND, when: "!explorerResourceIsFolder && resourcePath in jwDiffer.conflictedFiles", group: "navigation" },
     ]);
@@ -412,6 +417,7 @@ describe("Resolve Conflict in jw-differ", () => {
     // VS Code builds Source Control resource menus without the resource's context keys (checked in 1.90 and on main,
     // November 2026), so `resourcePath` there is not the clicked file's and cannot narrow the entry to mergeable files.
     expect(entriesOf("scm/resourceState/context")).toEqual([
+      { command: COMMAND, when: "scmProvider == git && scmResourceGroup == merge", group: "inline" },
       { command: COMMAND, when: "scmProvider == git && scmResourceGroup == merge", group: "navigation" },
     ]);
     expect(entriesOf("commandPalette")).toEqual([{ command: COMMAND, when: "false" }]);

@@ -100,6 +100,8 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `src/highlight/`                         | TextMate tokenizing and theme resolution (no VS Code import)   |
 | `src/host/vscode/syntaxHighlighting.ts`  | Finds grammars and the active theme among installed extensions |
 | `src/host/vscode/twoWayDiffPanel.ts`     | The reusable diff tab and its native-diff fallback             |
+| `src/git/gitWorkingChanges.ts`           | Index ↔ working tree and HEAD ↔ index versions of a file       |
+| `src/host/vscode/scmChangeCommands.ts`   | Source Control commands opening uncommitted changes in the tab |
 | `media/`                                 | Webview stylesheet and client script                           |
 | `media/fuzzyMatch.js`                    | Branch filter matcher: in-order letters, marks (fzy ideas)     |
 | `media/branchFilter.js`                  | Branch filter combobox: `createBranchFilter`, used by history  |

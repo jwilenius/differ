@@ -1,12 +1,15 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
+import { runHistoryGit } from "../git/historyGitCommand";
+import type { SpawnHistoryGit } from "../git/historyGitCommand";
 import { activate, deactivate } from "../host/vscode/extension";
 import type { HistoryDiffProvider } from "../host/vscode/historyDiffProvider";
 import type { ComparisonFile, HistoryRepository, ReadyResult } from "../model/historyTypes";
-import { resetVscodeMock, vscodeMock } from "./vscodeMock";
+import { gitExecutableOnPath } from "./gitHistoryFixture";
+import { EventEmitter, resetVscodeMock, vscodeMock } from "./vscodeMock";
 
 interface ConfigurationProperty {
   readonly type?: string;
@@ -93,6 +96,24 @@ describe("extension activation", () => {
     expect(vscodeMock.contentProviders.size).toBe(0);
     expect(vscodeMock.outputChannels.every((channel) => channel.isDisposed)).toBe(true);
     expect(vscodeMock.statusBarItems.every((item) => item.isDisposed)).toBe(true);
+  });
+
+  it("starts the Git VS Code's Git extension found while active, and Git on PATH once disposed", async () => {
+    const extensionGit = gitExecutableOnPath();
+    const exports = { enabled: true, onDidChangeEnablement: new EventEmitter<boolean>().event, getAPI: () => ({ git: { path: extensionGit } }) };
+    vscodeMock.extensions = [{ id: "vscode.git", extensionPath: "/extensions/git", packageJSON: {}, isActive: true, exports }];
+    const spawnProcess = vi.fn<SpawnHistoryGit>(() => {
+      throw new Error("Git is not started in this test.");
+    });
+    const startGit = (): Promise<unknown> => runHistoryGit({ cwd: os.tmpdir(), args: ["status"], spawnProcess }).catch(() => undefined);
+    const subscriptions = activateExtension();
+
+    await startGit();
+    await deactivate();
+    subscriptions.forEach((subscription) => subscription.dispose());
+    await startGit();
+
+    expect(spawnProcess.mock.calls.map(([, options]) => options.executable)).toEqual([extensionGit, "git"]);
   });
 
   it("contributes exactly the registered view and commands", () => {

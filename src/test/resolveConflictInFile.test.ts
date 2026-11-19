@@ -416,7 +416,7 @@ describe("Resolve Conflict in jw-differ", () => {
       command: COMMAND,
       title: "Resolve Conflict in jw-differ",
       category: "jw-differ",
-      icon: "$(git-merge)",
+      icon: { light: "media/differ-history-light.svg", dark: "media/differ-history-dark.svg" },
     });
     expect(entriesOf("explorer/context")).toEqual([
       { command: COMMAND, when: "!explorerResourceIsFolder && resourcePath in jwDiffer.conflictedFiles", group: "navigation" },

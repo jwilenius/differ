@@ -40,7 +40,10 @@
         "command": "jwDiffer.resolveConflictInFile",
         "title": "Resolve Conflict in jw-differ",
         "category": "jw-differ",
-        "icon": "$(git-merge)"
+        "icon": {
+          "light": "media/differ-history-light.svg",
+          "dark": "media/differ-history-dark.svg"
+        }
       },
       {
         "command": "jwDiffer.openWorkingTreeChange",

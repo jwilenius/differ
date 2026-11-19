@@ -179,7 +179,7 @@ own; it is also in the file's right-click menu.
 | -------------------------- | ---------------------------- | ----------------------------------------------------------- |
 | Changes, Untracked Changes | jw-differ (panes and ribbon) | **Open Changes in jw-differ**: Index ↔ Working Tree         |
 | Staged Changes             | jw-differ (panes and ribbon) | **Open Staged Changes in jw-differ**: HEAD ↔ Index          |
-| Merge Changes              | merge                        | **Resolve Conflict in jw-differ**: the three-way merge view |
+| Merge Changes              | jw-differ (panes and ribbon) | **Resolve Conflict in jw-differ**: the three-way merge view |
 
 - The diff opens in the same tab and view as the history's diffs (F7, F4, find, **Open in VS Code diff**). It is a
   snapshot: later edits, staging or saves need another click.

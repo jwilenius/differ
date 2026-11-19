@@ -35,10 +35,15 @@ const UNREADABLE_DESCRIPTIONS: Readonly<Record<UnreadableChangeReason, string>> 
  * Registers the commands that open the Source Control view's uncommitted changes in the jw-differ diff tab: the
  * unstaged change of a file in Changes, and the staged change of a file in Staged Changes. Each opens the first
  * change it is given, or without one, as from the Command Palette, the active editor's file. Only the latest request
- * opens, so a slow read never replaces a change clicked after it.
+ * opens, so a slow read never replaces a change clicked after it. `platform` decides whether file paths ignore case.
  */
-export function registerScmChangeCommands(diffPanels: ChangePanels, log: (message: string) => void): vscode.Disposable {
+export function registerScmChangeCommands(
+  diffPanels: ChangePanels,
+  log: (message: string) => void,
+  platform: NodeJS.Platform = process.platform,
+): vscode.Disposable {
   let latestRequest = 0;
+  const readWorkingTree: ChangeReader = (uri) => readWorkingTreeChange(uri.fsPath, unsavedText(uri, platform));
   const open = async (read: ChangeReader, targets: readonly unknown[]): Promise<void> => {
     const request = ++latestRequest;
     const target = firstTarget(targets);
@@ -59,11 +64,22 @@ export function registerScmChangeCommands(diffPanels: ChangePanels, log: (messag
 type ChangeReader = (uri: vscode.Uri) => Promise<ChangeReadResult>;
 
 /** The working tree's side is the editor's text when the file has unsaved edits, as VS Code's own diff shows it. */
-function readWorkingTree(uri: vscode.Uri): Promise<ChangeReadResult> {
+function unsavedText(uri: vscode.Uri, platform: NodeJS.Platform): string | undefined {
   const unsavedDocument = vscode.workspace.textDocuments.find(
-    (document) => document.isDirty && document.uri.toString() === uri.toString(),
+    (document) => document.isDirty && isSameResource(document.uri, uri, platform),
   );
-  return readWorkingTreeChange(uri.fsPath, unsavedDocument?.getText());
+  return unsavedDocument?.getText();
+}
+
+/**
+ * Whether two URIs name the same resource. File paths ignore case off Linux, as VS Code compares them: Source Control
+ * names a file with Git's casing of the repository, an editor with the casing the folder was opened with.
+ */
+function isSameResource(a: vscode.Uri, b: vscode.Uri, platform: NodeJS.Platform): boolean {
+  if (platform !== "linux" && a.scheme === "file" && b.scheme === "file") {
+    return a.fsPath.toLowerCase() === b.fsPath.toLowerCase();
+  }
+  return a.toString() === b.toString();
 }
 
 function readStaged(uri: vscode.Uri): Promise<ChangeReadResult> {

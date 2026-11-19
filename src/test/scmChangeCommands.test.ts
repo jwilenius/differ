@@ -145,6 +145,27 @@ describe(OPEN_WORKING_TREE_CHANGE_COMMAND, () => {
     expect(shown(requests[0])).toMatchObject({ result: ["Working Tree", "a.txt", "unsaved\n"] });
   });
 
+  it.each<[NodeJS.Platform, string]>([
+    ["win32", "unsaved\n"],
+    ["darwin", "unsaved\n"],
+    ["linux", "saved\n"],
+  ])("on %s, matches unsaved edits to a file named with other casing, showing %j", async (platform, text) => {
+    const uri = commit("a.txt", "saved\n");
+    const editorUri = vscode.Uri.file(uri.fsPath.toUpperCase());
+    const document = { uri: editorUri, isDirty: true, getText: () => "unsaved\n" };
+    vscodeMock.textDocuments.push(document as unknown as vscode.TextDocument);
+    registration.dispose();
+    registration = registerScmChangeCommands(
+      { open: async (request) => void requests.push(request) },
+      () => undefined,
+      platform,
+    );
+
+    await vscode.commands.executeCommand(OPEN_WORKING_TREE_CHANGE_COMMAND, resourceState(uri));
+
+    expect(shown(requests[0])).toMatchObject({ result: ["Working Tree", "a.txt", text] });
+  });
+
   it("opens the active editor's file when run from the Command Palette", async () => {
     const uri = commit("a.txt", "one\n");
     fs.writeFileSync(uri.fsPath, "two\n");

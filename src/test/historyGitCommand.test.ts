@@ -333,6 +333,25 @@ describe("runHistoryGit with a simulated child process", () => {
     expect(spawnProcess.mock.calls[0]?.[1]).toEqual({ executable: "git", cwd: os.tmpdir(), env });
   });
 
+  it("cancels a run whose signal aborts while its Git executable is still being found", async () => {
+    const locator = vi.fn(() => new Promise<string>(() => undefined));
+    const restore = useGitExecutableLocator(locator);
+    try {
+      const spawnProcess = vi.fn<SpawnHistoryGit>();
+      const controller = new AbortController();
+      const promise = runHistoryGit({ cwd: directory, args: ["log"], signal: controller.signal, spawnProcess });
+      await vi.waitFor(() => expect(locator).toHaveBeenCalledTimes(1));
+
+      controller.abort();
+
+      const error = await expectGitError(promise);
+      expect(error.kind).toBe("cancelled");
+      expect(spawnProcess).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
   it("starts the Git the current locator finds, and Git on PATH once it is restored", async () => {
     const restore = useGitExecutableLocator(() => Promise.resolve("/opt/git/bin/git"));
     const located = await startClosedRun({ cwd: directory, args: ["log"] }).finally(restore);

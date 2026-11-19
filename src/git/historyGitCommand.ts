@@ -135,7 +135,7 @@ export class HistoryGitError extends Error {
  */
 export async function runHistoryGit(options: HistoryGitOptions): Promise<HistoryGitResult> {
   await assertDirectoryExists(options);
-  const executable = options.executable ?? (await locateGitExecutable());
+  const executable = options.executable ?? (await untilAborted(locateGitExecutable(), options));
   if (options.signal?.aborted) {
     throw cancelledError(options);
   }
@@ -151,6 +151,22 @@ export async function runHistoryGit(options: HistoryGitOptions): Promise<History
       resolve(outcome);
     });
     run.start();
+  });
+}
+
+/** Settles as `pending` does, or rejects as cancelled as soon as the run's signal aborts. */
+function untilAborted<T>(pending: Promise<T>, options: HistoryGitOptions): Promise<T> {
+  const signal = options.signal;
+  if (signal === undefined) {
+    return pending;
+  }
+  if (signal.aborted) {
+    return Promise.reject(cancelledError(options));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(cancelledError(options));
+    signal.addEventListener("abort", onAbort, { once: true });
+    void pending.finally(() => signal.removeEventListener("abort", onAbort)).then(resolve, reject);
   });
 }
 

@@ -7,6 +7,13 @@ const GIT_API_VERSION = 1;
 const GIT_SETTINGS_SECTION = "git";
 const GIT_PATH_KEY = "path";
 const GIT_PATH_SETTING = `${GIT_SETTINGS_SECTION}.${GIT_PATH_KEY}`;
+/**
+ * How long a Git call waits for the lookup before starting Git on `PATH`. Covers a slow start of the Git extension or
+ * a slow `git.path` probe, while a lookup that never finishes delays each call by at most this.
+ */
+export const GIT_LOOKUP_TIMEOUT_MS = 5_000;
+/** How long a `git.path` entry may take to answer `--version`; `git --version` normally takes milliseconds. */
+export const GIT_PROBE_TIMEOUT_MS = 3_000;
 
 /**
  * The members of the built-in Git extension's exports that jw-differ reads, as declared in VS Code's
@@ -21,6 +28,13 @@ interface GitExtensionExports {
 
 /** Whether `executable` starts and runs as Git; injectable so tests need not depend on installed executables. */
 export type GitExecutableProbe = (executable: string) => Promise<boolean>;
+
+/** One search for Git and the moment callers stop waiting for it; both settle with an executable. */
+interface GitLookup {
+  readonly found: Promise<string>;
+  /** Settles with `git` on `PATH` once the search has run for `GIT_LOOKUP_TIMEOUT_MS`; never if it finishes first. */
+  readonly overdue: Promise<string>;
+}
 
 /** A Git executable and where it came from, for the log. */
 interface LocatedGit {
@@ -39,11 +53,12 @@ interface LocatedGit {
  *    runs.
  * 3. `git`, looked up on `PATH`.
  *
- * The answer is kept until `git.path` changes or the Git extension is enabled or disabled. In a remote window both
- * extensions run on the remote, so the remote's Git is found.
+ * The answer is kept until `git.path` changes or the Git extension is enabled or disabled. While a search runs longer
+ * than `GIT_LOOKUP_TIMEOUT_MS`, calls use `git` on `PATH` without keeping it, and get the found Git once the search
+ * finishes. In a remote window both extensions run on the remote, so the remote's Git is found.
  */
 export class GitExecutableLocator implements vscode.Disposable {
-  private located: Promise<string> | null = null;
+  private lookup: GitLookup | null = null;
   private enablementSubscription: vscode.Disposable | null = null;
   private isDisposed = false;
   private readonly configurationSubscription: vscode.Disposable;
@@ -61,8 +76,9 @@ export class GitExecutableLocator implements vscode.Disposable {
 
   /** The Git executable to start; never rejects, falling back to `git` on `PATH`. */
   locate(): Promise<string> {
-    this.located ??= this.find();
-    return this.located;
+    this.lookup ??= this.startLookup();
+    // Listed first, a finished search wins over a deadline that has passed too, as `Promise.race` settles in order.
+    return Promise.race([this.lookup.found, this.lookup.overdue]);
   }
 
   dispose(): void {
@@ -73,7 +89,19 @@ export class GitExecutableLocator implements vscode.Disposable {
   }
 
   private forget(): void {
-    this.located = null;
+    this.lookup = null;
+  }
+
+  private startLookup(): GitLookup {
+    const found = this.find();
+    const overdue = new Promise<string>((resolve) => {
+      const deadline = setTimeout(() => {
+        this.log(`Finding Git takes over ${GIT_LOOKUP_TIMEOUT_MS} ms; using ${PLAIN_GIT} on PATH until it finishes.`);
+        resolve(PLAIN_GIT);
+      }, GIT_LOOKUP_TIMEOUT_MS);
+      void found.finally(() => clearTimeout(deadline));
+    });
+    return { found, overdue };
   }
 
   private async find(): Promise<string> {
@@ -142,15 +170,22 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Runs `<executable> --version`, as the Git extension validates each `git.path` entry. */
+/**
+ * Runs `<executable> --version`, as the Git extension validates each `git.path` entry. One that has not answered
+ * within `GIT_PROBE_TIMEOUT_MS` is killed and does not count as Git.
+ */
 async function runsAsGit(executable: string): Promise<boolean> {
+  const timeout = new AbortController();
+  const deadline = setTimeout(() => timeout.abort(), GIT_PROBE_TIMEOUT_MS);
   try {
-    await runHistoryGit({ cwd: os.tmpdir(), args: ["--version"], executable });
+    await runHistoryGit({ cwd: os.tmpdir(), args: ["--version"], executable, signal: timeout.signal });
     return true;
   } catch (error) {
     if (error instanceof HistoryGitError) {
       return false;
     }
     throw error;
+  } finally {
+    clearTimeout(deadline);
   }
 }

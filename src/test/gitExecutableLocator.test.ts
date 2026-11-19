@@ -1,6 +1,9 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
-import { GitExecutableLocator } from "../host/vscode/gitExecutableLocator";
+import { GIT_LOOKUP_TIMEOUT_MS, GIT_PROBE_TIMEOUT_MS, GitExecutableLocator } from "../host/vscode/gitExecutableLocator";
 import type { GitExecutableProbe } from "../host/vscode/gitExecutableLocator";
 import { gitExecutableOnPath } from "./gitHistoryFixture";
 import { EventEmitter, changeConfiguration, resetVscodeMock, vscodeMock } from "./vscodeMock";
@@ -8,6 +11,8 @@ import type { FakeExtension } from "./vscodeMock";
 
 const EXTENSION_GIT = "/usr/local/bin/git";
 const CONFIGURED_GIT = "/configured/bin/git";
+/** Generous headroom over the production timeouts for tests that wait on a real child process. */
+const REAL_PROCESS_TEST_TIMEOUT_MS = 2 * (GIT_PROBE_TIMEOUT_MS + GIT_LOOKUP_TIMEOUT_MS);
 
 /** The members of the built-in Git extension's exports the locator reads. */
 interface FakeGitExports {
@@ -49,6 +54,7 @@ describe("GitExecutableLocator", () => {
 
   afterEach(() => {
     locator.dispose();
+    vi.useRealTimers();
   });
 
   it("uses the Git that VS Code's Git extension found without trying git.path", async () => {
@@ -204,6 +210,32 @@ describe("GitExecutableLocator", () => {
     expect(await locator.locate()).toBe("git");
   });
 
+  it("uses git on PATH while finding Git is overdue, and the found Git once it finishes", async () => {
+    vi.useFakeTimers();
+    let finishActivation: (value: FakeGitExports) => void = () => undefined;
+    const activate = vi.fn(() => new Promise<FakeGitExports>((resolve) => (finishActivation = resolve)));
+    installGitExtension({ isActive: false, activate });
+    let isFirstSettled = false;
+
+    const first = locator.locate().finally(() => (isFirstSettled = true));
+    await vi.advanceTimersByTimeAsync(GIT_LOOKUP_TIMEOUT_MS - 1);
+    const wasWaitingBeforeTimeout = !isFirstSettled;
+    await vi.advanceTimersByTimeAsync(1);
+    const overdue = await Promise.all([first, locator.locate()]);
+    finishActivation(gitExports());
+    await vi.waitFor(() => expect(lines.at(-1)).toMatch(/^Using Git /));
+    const found = await locator.locate();
+
+    expect(wasWaitingBeforeTimeout).toBe(true);
+    expect(overdue).toEqual(["git", "git"]);
+    expect(found).toBe(EXTENSION_GIT);
+    expect(activate).toHaveBeenCalledTimes(1);
+    expect(lines).toEqual([
+      `Finding Git takes over ${GIT_LOOKUP_TIMEOUT_MS} ms; using git on PATH until it finishes.`,
+      `Using Git ${EXTENSION_GIT} (found by VS Code's Git extension).`,
+    ]);
+  });
+
   it("stops following setting and enablement changes once disposed", async () => {
     const exports = gitExports(false);
     installGitExtension({ isActive: true, exports });
@@ -218,16 +250,26 @@ describe("GitExecutableLocator", () => {
   });
 });
 
+/** Waits for `file` without timers, which a test may fake. */
+async function waitForFile(file: string): Promise<void> {
+  while (!fs.existsSync(file)) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 describe("GitExecutableLocator's default probe", () => {
+  let lines: string[];
   let locator: GitExecutableLocator;
 
   beforeEach(() => {
     resetVscodeMock();
-    locator = new GitExecutableLocator(() => undefined);
+    lines = [];
+    locator = new GitExecutableLocator((line) => lines.push(line));
   });
 
   afterEach(() => {
     locator.dispose();
+    vi.useRealTimers();
   });
 
   it("accepts a git.path entry that runs as Git", async () => {
@@ -243,4 +285,29 @@ describe("GitExecutableLocator's default probe", () => {
 
     expect(await locator.locate()).toBe(installed);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "kills a git.path entry that does not answer in time and tries the next",
+    async () => {
+      const folder = fs.mkdtempSync(path.join(os.tmpdir(), "jw-differ-hanging-git-"));
+      try {
+        const hangingGit = path.join(folder, "git");
+        const started = path.join(folder, "started");
+        fs.writeFileSync(hangingGit, `#!/bin/sh\n: > '${started}'\nexec sleep 60\n`, { mode: 0o755 });
+        const installed = gitExecutableOnPath();
+        vscodeMock.configuration.set("git.path", [hangingGit, installed]);
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+        const located = locator.locate();
+        await waitForFile(started);
+        await vi.advanceTimersByTimeAsync(GIT_PROBE_TIMEOUT_MS);
+
+        expect(await located).toBe(installed);
+        expect(lines[0]).toBe(`The "git.path" entry ${hangingGit} does not run as Git.`);
+      } finally {
+        fs.rmSync(folder, { recursive: true, force: true });
+      }
+    },
+    REAL_PROCESS_TEST_TIMEOUT_MS,
+  );
 });

@@ -32,7 +32,10 @@ export type GitExecutableProbe = (executable: string) => Promise<boolean>;
 /** One search for Git and the moment callers stop waiting for it; both settle with an executable. */
 interface GitLookup {
   readonly found: Promise<string>;
-  /** Settles with `git` on `PATH` once the search has run for `GIT_LOOKUP_TIMEOUT_MS`; never if it finishes first. */
+  /**
+   * Settles with `git` on `PATH` once the search has run for `GIT_LOOKUP_TIMEOUT_MS`, or with the found Git when the
+   * search finishes first, so the `Promise.race` of each call is released rather than kept by a never-settled deadline.
+   */
   readonly overdue: Promise<string>;
 }
 
@@ -99,7 +102,10 @@ export class GitExecutableLocator implements vscode.Disposable {
         this.log(`Finding Git takes over ${GIT_LOOKUP_TIMEOUT_MS} ms; using ${PLAIN_GIT} on PATH until it finishes.`);
         resolve(PLAIN_GIT);
       }, GIT_LOOKUP_TIMEOUT_MS);
-      void found.finally(() => clearTimeout(deadline));
+      void found.then((executable) => {
+        clearTimeout(deadline);
+        resolve(executable);
+      });
     });
     return { found, overdue };
   }

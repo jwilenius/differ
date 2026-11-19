@@ -236,6 +236,19 @@ describe("GitExecutableLocator", () => {
     ]);
   });
 
+  it("leaves no call waiting on the lookup deadline once Git is found", async () => {
+    installGitExtension({ isActive: true, exports: gitExports() });
+    await locator.locate();
+    const race = vi.spyOn(Promise, "race");
+
+    await Promise.all([locator.locate(), locator.locate(), locator.locate()]);
+    const racers = race.mock.calls.flatMap(([values]) => Array.from(values as Iterable<Promise<unknown>>));
+    race.mockRestore();
+
+    expect(racers).toHaveLength(6);
+    expect(await countPending(racers)).toBe(0);
+  });
+
   it("stops following setting and enablement changes once disposed", async () => {
     const exports = gitExports(false);
     installGitExtension({ isActive: true, exports });
@@ -249,6 +262,22 @@ describe("GitExecutableLocator", () => {
     expect(await locator.locate()).toBe("git");
   });
 });
+
+/**
+ * How many of `promises` are still pending once every queued callback has run. A pending promise keeps each reaction
+ * added to it, such as those of a `Promise.race`; a settled one releases them.
+ */
+async function countPending(promises: readonly Promise<unknown>[]): Promise<number> {
+  let settledCount = 0;
+  const countSettled = (): void => {
+    settledCount += 1;
+  };
+  for (const promise of promises) {
+    void promise.then(countSettled, countSettled);
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  return promises.length - settledCount;
+}
 
 /** Waits for `file` without timers, which a test may fake. */
 async function waitForFile(file: string): Promise<void> {

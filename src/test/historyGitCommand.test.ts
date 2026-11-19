@@ -6,7 +6,12 @@ import * as path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
-import { HISTORY_GIT_OUTPUT_LIMIT_BYTES, HistoryGitError, runHistoryGit } from "../git/historyGitCommand";
+import {
+  HISTORY_GIT_OUTPUT_LIMIT_BYTES,
+  HistoryGitError,
+  runHistoryGit,
+  useGitExecutableLocator,
+} from "../git/historyGitCommand";
 import type {
   HistoryGitOptions,
   HistoryGitResult,
@@ -19,6 +24,7 @@ import {
   createHistoryRepository,
   disposeHistoryRepository,
   fixtureGitEnvironment,
+  gitExecutableOnPath,
   runFixtureGit,
 } from "./gitHistoryFixture";
 import type { HistoryRepositoryFixture } from "./gitHistoryFixture";
@@ -55,6 +61,15 @@ async function startRun(child: FakeChild, options: Omit<HistoryGitOptions, "spaw
   promise.catch(() => undefined);
   await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalled());
   return { promise, spawnProcess };
+}
+
+/** Runs to a clean exit on a fresh simulated child and returns the options Git was started with. */
+async function startClosedRun(options: Omit<HistoryGitOptions, "spawnProcess">): Promise<HistoryGitSpawnOptions> {
+  const child = createFakeChild();
+  const { promise, spawnProcess } = await startRun(child, options);
+  child.emitter.emit("close", 0, null);
+  await promise;
+  return spawnProcess.mock.calls[0]?.[1] as HistoryGitSpawnOptions;
 }
 
 async function expectGitError(promise: Promise<unknown>): Promise<HistoryGitError> {
@@ -153,6 +168,17 @@ describe("runHistoryGit with a real repository", () => {
 
     const error = await expectGitError(promise);
     expect(error.kind).toBe("missingGit");
+  });
+
+  it("runs a Git executable given by path when PATH cannot find Git", async () => {
+    const executable = gitExecutableOnPath();
+    const env = { ...fixtureGitEnvironment(), PATH: fixture.directory };
+
+    const args = ["rev-parse", "--is-inside-work-tree"];
+
+    const result = await runHistoryGit({ cwd: fixture.root, args, env, executable });
+
+    expect(result.stdout.toString("utf8")).toBe("true\n");
   });
 
   it("reports a missing working directory as a failure rather than missing Git", async () => {
@@ -304,7 +330,57 @@ describe("runHistoryGit with a simulated child process", () => {
     child.emitter.emit("close", 0, null);
     await promise;
 
-    expect(spawnProcess.mock.calls[0]?.[1]).toEqual({ cwd: os.tmpdir(), env });
+    expect(spawnProcess.mock.calls[0]?.[1]).toEqual({ executable: "git", cwd: os.tmpdir(), env });
+  });
+
+  it("starts the Git the current locator finds, and Git on PATH once it is restored", async () => {
+    const restore = useGitExecutableLocator(() => Promise.resolve("/opt/git/bin/git"));
+    const located = await startClosedRun({ cwd: directory, args: ["log"] }).finally(restore);
+
+    const plain = await startClosedRun({ cwd: directory, args: ["log"] });
+
+    expect(located.executable).toBe("/opt/git/bin/git");
+    expect(plain.executable).toBe("git");
+  });
+
+  it("keeps a newer locator when an older one is restored", async () => {
+    const restoreOlder = useGitExecutableLocator(() => Promise.resolve("/older/git"));
+    const restoreNewer = useGitExecutableLocator(() => Promise.resolve("/newer/git"));
+    try {
+      restoreOlder();
+
+      const options = await startClosedRun({ cwd: directory, args: ["log"] });
+
+      expect(options.executable).toBe("/newer/git");
+    } finally {
+      restoreNewer();
+    }
+  });
+
+  it("starts a caller-supplied executable instead of the located one", async () => {
+    const locator = vi.fn(() => Promise.resolve("/located/git"));
+    const restore = useGitExecutableLocator(locator);
+    try {
+      const options = await startClosedRun({ cwd: directory, args: ["log"], executable: "/given/git" });
+
+      expect(options.executable).toBe("/given/git");
+      expect(locator).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("names the missing Git executable and both fixes", async () => {
+    const child = createFakeChild();
+    const { promise } = await startRun(child, { cwd: directory, args: ["status"], executable: "/opt/missing/git" });
+
+    child.emitter.emit("error", Object.assign(new Error("spawn /opt/missing/git ENOENT"), { code: "ENOENT" }));
+
+    const error = await expectGitError(promise);
+    expect(error.kind).toBe("missingGit");
+    expect(error.message).toBe(
+      'Git was not found at /opt/missing/git. Install Git, or set the "git.path" setting to the Git executable.',
+    );
   });
 
   it("redacts internal paths from the message but keeps them in the detail", async () => {

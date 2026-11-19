@@ -61,52 +61,53 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 
 ## Layout
 
-| Path                                     | Role                                                           |
-| ---------------------------------------- | -------------------------------------------------------------- |
-| `src/core/conflictParser.ts`             | Detects git conflict markers in a document                     |
-| `src/core/lineDiff.ts`                   | Line diff → hunks + base↔side position maps                    |
-| `src/core/wordDiff.ts`                   | Intra-line changed character ranges                            |
-| `src/core/threeWayAligner.ts`            | Aligns the three sides into one row grid, classifies blocks    |
-| `src/core/mergeResolver.ts`              | Collapses a conflict under a chosen resolution                 |
-| `src/git/gitMergeSources.ts`             | Reads the three versions from the index                        |
-| `src/model/hunkSplitter.ts`              | Divides a conflict into separately decidable pieces            |
-| `src/model/hunkSelection.ts`             | Which side of which piece is pending inclusion                 |
-| `src/model/resolutionView.ts`            | Row model, conflict summaries, gutter controls                 |
-| `src/model/resolutionController.ts`      | Host-independent load / resolve / edit / apply                 |
-| `src/model/mergeDocument.ts`             | Port onto the host's editable document                         |
-| `src/render/renderer.ts`                 | `MergeRenderer` seam a TUI can implement                       |
-| `src/render/html/rowMarkup.ts`           | Rows, word spans, gutter arrows/checkboxes, menus → HTML       |
-| `src/render/html/changeHighlight.ts`     | IntelliJ change colour per block (added/deleted/modified)      |
-| `src/render/html/htmlRenderer.ts`        | Page shell, CSP, toolbar                                       |
-| `src/host/vscode/mergeViewPanel.ts`      | Webview lifecycle, messages, document edits                    |
-| `src/model/historyTypes.ts`              | History domain types and the `HistoryRepository` port          |
-| `src/model/historyController.ts`         | Selection, base, merge parents, cancellable comparisons        |
-| `src/model/historyGraph.ts`              | Branch graph lanes and edges per commit row                    |
-| `src/model/historyVisibility.ts`         | Search and branch filtering of loaded commits                  |
-| `src/model/historyBranchFilter.ts`       | Branch filter by ref name; the checked-out option follows HEAD |
-| `src/model/historyRefNames.ts`           | Ref namespaces (`refs/heads/`, …) and the ref kinds they give  |
-| `src/git/historyGitCommand.ts`           | Binary-safe, bounded, cancellable `git` subprocess runner      |
-| `src/git/gitHistoryRepository.ts`        | Commits, refs and pinned ref resolution                        |
-| `src/git/historyComparisonResolver.ts`   | Replay order, Automatic base, merge parents                    |
-| `src/git/gitSelectionReplay.ts`          | Isolated replay of selected commits in a private repository    |
-| `src/git/gitComparisonFiles.ts`          | Net changed files and immutable file content                   |
-| `src/git/gitComparisonRepository.ts`     | Git adapter implementing `HistoryRepository`, snapshot leases  |
-| `src/render/html/historyRenderer.ts`     | History panel HTML: toolbar, graph, table, files, details      |
-| `src/host/vscode/historyViewProvider.ts` | Panel lifecycle, repositories, messages, publishing            |
-| `src/host/vscode/historyDiffProvider.ts` | Read-only `jw-differ-history:` documents and `vscode.diff`     |
-| `src/host/vscode/historyMessages.ts`     | Validation of every message from the history webview           |
-| `src/model/twoWayDiff.ts`                | Line blocks and word spans for the two-way diff                |
-| `src/render/html/twoWayDiffRenderer.ts`  | IntelliJ-style two-pane diff HTML with token colours           |
-| `src/highlight/`                         | TextMate tokenizing and theme resolution (no VS Code import)   |
-| `src/host/vscode/syntaxHighlighting.ts`  | Finds grammars and the active theme among installed extensions |
-| `src/host/vscode/twoWayDiffPanel.ts`     | The reusable diff tab and its native-diff fallback             |
-| `src/git/gitWorkingChanges.ts`           | Index ↔ working tree and HEAD ↔ index versions of a file       |
-| `src/host/vscode/scmChangeCommands.ts`   | Source Control commands opening uncommitted changes in the tab |
-| `media/`                                 | Webview stylesheet and client script                           |
-| `media/fuzzyMatch.js`                    | Branch filter matcher: in-order letters, marks (fzy ideas)     |
-| `media/branchFilter.js`                  | Branch filter combobox: `createBranchFilter`, used by history  |
-| `media/grammars/`                        | Fallback grammars: VS Code's grammar-only built-ins + manifest |
-| `media/themes/`                          | Fallback colour themes: VS Code's `theme-defaults` themes      |
+| Path                                      | Role                                                             |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| `src/core/conflictParser.ts`              | Detects git conflict markers in a document                       |
+| `src/core/lineDiff.ts`                    | Line diff → hunks + base↔side position maps                      |
+| `src/core/wordDiff.ts`                    | Intra-line changed character ranges                              |
+| `src/core/threeWayAligner.ts`             | Aligns the three sides into one row grid, classifies blocks      |
+| `src/core/mergeResolver.ts`               | Collapses a conflict under a chosen resolution                   |
+| `src/git/gitMergeSources.ts`              | Reads the three versions from the index                          |
+| `src/model/hunkSplitter.ts`               | Divides a conflict into separately decidable pieces              |
+| `src/model/hunkSelection.ts`              | Which side of which piece is pending inclusion                   |
+| `src/model/resolutionView.ts`             | Row model, conflict summaries, gutter controls                   |
+| `src/model/resolutionController.ts`       | Host-independent load / resolve / edit / apply                   |
+| `src/model/mergeDocument.ts`              | Port onto the host's editable document                           |
+| `src/render/renderer.ts`                  | `MergeRenderer` seam a TUI can implement                         |
+| `src/render/html/rowMarkup.ts`            | Rows, word spans, gutter arrows/checkboxes, menus → HTML         |
+| `src/render/html/changeHighlight.ts`      | IntelliJ change colour per block (added/deleted/modified)        |
+| `src/render/html/htmlRenderer.ts`         | Page shell, CSP, toolbar                                         |
+| `src/host/vscode/mergeViewPanel.ts`       | Webview lifecycle, messages, document edits                      |
+| `src/model/historyTypes.ts`               | History domain types and the `HistoryRepository` port            |
+| `src/model/historyController.ts`          | Selection, base, merge parents, cancellable comparisons          |
+| `src/model/historyGraph.ts`               | Branch graph lanes and edges per commit row                      |
+| `src/model/historyVisibility.ts`          | Search and branch filtering of loaded commits                    |
+| `src/model/historyBranchFilter.ts`        | Branch filter by ref name; the checked-out option follows HEAD   |
+| `src/model/historyRefNames.ts`            | Ref namespaces (`refs/heads/`, …) and the ref kinds they give    |
+| `src/git/historyGitCommand.ts`            | Binary-safe, bounded, cancellable `git` subprocess runner        |
+| `src/host/vscode/gitExecutableLocator.ts` | Git that runs start: VS Code Git extension's, `git.path`, `PATH` |
+| `src/git/gitHistoryRepository.ts`         | Commits, refs and pinned ref resolution                          |
+| `src/git/historyComparisonResolver.ts`    | Replay order, Automatic base, merge parents                      |
+| `src/git/gitSelectionReplay.ts`           | Isolated replay of selected commits in a private repository      |
+| `src/git/gitComparisonFiles.ts`           | Net changed files and immutable file content                     |
+| `src/git/gitComparisonRepository.ts`      | Git adapter implementing `HistoryRepository`, snapshot leases    |
+| `src/render/html/historyRenderer.ts`      | History panel HTML: toolbar, graph, table, files, details        |
+| `src/host/vscode/historyViewProvider.ts`  | Panel lifecycle, repositories, messages, publishing              |
+| `src/host/vscode/historyDiffProvider.ts`  | Read-only `jw-differ-history:` documents and `vscode.diff`       |
+| `src/host/vscode/historyMessages.ts`      | Validation of every message from the history webview             |
+| `src/model/twoWayDiff.ts`                 | Line blocks and word spans for the two-way diff                  |
+| `src/render/html/twoWayDiffRenderer.ts`   | IntelliJ-style two-pane diff HTML with token colours             |
+| `src/highlight/`                          | TextMate tokenizing and theme resolution (no VS Code import)     |
+| `src/host/vscode/syntaxHighlighting.ts`   | Finds grammars and the active theme among installed extensions   |
+| `src/host/vscode/twoWayDiffPanel.ts`      | The reusable diff tab and its native-diff fallback               |
+| `src/git/gitWorkingChanges.ts`            | Index ↔ working tree and HEAD ↔ index versions of a file         |
+| `src/host/vscode/scmChangeCommands.ts`    | Source Control commands opening uncommitted changes in the tab   |
+| `media/`                                  | Webview stylesheet and client script                             |
+| `media/fuzzyMatch.js`                     | Branch filter matcher: in-order letters, marks (fzy ideas)       |
+| `media/branchFilter.js`                   | Branch filter combobox: `createBranchFilter`, used by history    |
+| `media/grammars/`                         | Fallback grammars: VS Code's grammar-only built-ins + manifest   |
+| `media/themes/`                           | Fallback colour themes: VS Code's `theme-defaults` themes        |
 
 `media/*.js` is plain browser script, not bundled: each loads by its own `<script nonce>` tag under the webview CSP, and
 tests run it in a `vm` context with a fake DOM (`src/test/historyClientFixture.ts`). The history page loads

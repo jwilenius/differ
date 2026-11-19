@@ -2,7 +2,9 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { hasConflictMarkers } from "../../core/conflictParser";
 import { findIndexFile, listConflictedFiles } from "../../git/gitConflictedFiles";
+import { useGitExecutableLocator } from "../../git/historyGitCommand";
 import { ConflictedFilesContext, type ConflictedFilesScan } from "./conflictedFilesContext";
+import { GitExecutableLocator } from "./gitExecutableLocator";
 import { HISTORY_DOCUMENT_SCHEME, HistoryDiffProvider } from "./historyDiffProvider";
 import { candidateDirectories, discoverRepositoryRoots, findGitRepositoryRoot } from "./historyRepositoryDiscovery";
 import { HISTORY_VIEW_ID, HistoryViewProvider, OPEN_HISTORY_COMMAND } from "./historyViewProvider";
@@ -33,6 +35,9 @@ interface Services {
 export function activate(context: vscode.ExtensionContext): void {
   const mediaRoot = vscode.Uri.joinPath(context.extensionUri, "media");
   const log = vscode.window.createOutputChannel(HISTORY_OUTPUT_CHANNEL);
+  // Before anything runs Git: the conflicted-files context below refreshes on creation.
+  const gitExecutable = new GitExecutableLocator((line) => log.appendLine(line));
+  const restorePlainGit = useGitExecutableLocator(() => gitExecutable.locate());
   const highlighter = new SyntaxHighlighting(
     path.join(context.extensionPath, "dist", "onig.wasm"),
     path.join(context.extensionPath, "media", "themes"),
@@ -43,6 +48,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const services: Services = { mediaRoot, highlighter, log, conflictedFiles };
 
   context.subscriptions.push(
+    gitExecutable,
+    new vscode.Disposable(restorePlainGit),
     highlighter,
     log,
     conflictedFiles,

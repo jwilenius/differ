@@ -6,6 +6,8 @@ import * as os from "node:os";
 /** Maximum bytes accepted on each of stdout and stderr before the child is killed. */
 export const HISTORY_GIT_OUTPUT_LIMIT_BYTES = 64 * 1024 * 1024;
 
+/** What runs start until the host sets a locator: Git found on `PATH`. */
+export const PLAIN_GIT = "git";
 const REDACTED_PATH = "<temporary repository>";
 const MESSAGE_STDERR_LIMIT_CHARS = 500;
 const DEFAULT_ALLOWED_EXIT_CODES: readonly number[] = [0];
@@ -36,12 +38,14 @@ const LOCATION_AND_CONFIG_VARIABLES: ReadonlySet<string> = new Set([
 const CONFIG_ENTRY_VARIABLE_PATTERN = /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/;
 
 export interface HistoryGitSpawnOptions {
+  /** The Git executable to start: a path, or a name looked up on `PATH`. */
+  readonly executable: string;
   /** Always a fixed safe directory; the requested directory reaches Git as `-C`. */
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
 }
 
-/** Starts `git` with the given arguments; injectable so tests can simulate child processes. */
+/** Starts Git with the given arguments; injectable so tests can simulate child processes. */
 export type SpawnHistoryGit = (
   args: readonly string[],
   options: HistoryGitSpawnOptions,
@@ -72,7 +76,33 @@ export interface HistoryGitOptions {
    * private temporary repository pass its paths on every call.
    */
   readonly redactedPaths?: readonly string[];
+  /** The Git executable to start; the one the current `GitExecutableLocator` finds when absent. */
+  readonly executable?: string;
   readonly spawnProcess?: SpawnHistoryGit;
+}
+
+/** A run's options once its Git executable is known. */
+interface StartingGitOptions extends HistoryGitOptions {
+  readonly executable: string;
+}
+
+/** Finds the Git executable runs start; the host's may ask the editor, so the answer is asynchronous. */
+export type GitExecutableLocator = () => Promise<string>;
+
+const locatePlainGit: GitExecutableLocator = () => Promise.resolve(PLAIN_GIT);
+let locateGitExecutable: GitExecutableLocator = locatePlainGit;
+
+/**
+ * Makes runs without an `executable` of their own start the Git `locator` finds, instead of `git` on `PATH`. The
+ * returned function restores `git` on `PATH`, unless another locator has replaced this one since.
+ */
+export function useGitExecutableLocator(locator: GitExecutableLocator): () => void {
+  locateGitExecutable = locator;
+  return () => {
+    if (locateGitExecutable === locator) {
+      locateGitExecutable = locatePlainGit;
+    }
+  };
 }
 
 export interface HistoryGitResult {
@@ -100,17 +130,20 @@ export class HistoryGitError extends Error {
 
 /**
  * Runs Git without a shell, collecting binary output. Settles only after the child has terminated, including on
- * abort and output overflow, both of which kill the child.
+ * abort and output overflow, both of which kill the child. Starts `options.executable`, else the Git the locator set
+ * with `useGitExecutableLocator` finds.
  */
 export async function runHistoryGit(options: HistoryGitOptions): Promise<HistoryGitResult> {
   await assertDirectoryExists(options);
+  const executable = options.executable ?? (await locateGitExecutable());
   if (options.signal?.aborted) {
     throw cancelledError(options);
   }
 
-  const child = startGit(options);
+  const startingOptions: StartingGitOptions = { ...options, executable };
+  const child = startGit(startingOptions);
   return new Promise<HistoryGitResult>((resolve, reject) => {
-    const run = new GitChildRun(child, options, (outcome) => {
+    const run = new GitChildRun(child, startingOptions, (outcome) => {
       if (outcome instanceof HistoryGitError) {
         reject(outcome);
         return;
@@ -132,19 +165,20 @@ async function assertDirectoryExists(options: HistoryGitOptions): Promise<void> 
   }
 }
 
-function startGit(options: HistoryGitOptions): ChildProcessWithoutNullStreams {
+function startGit(options: StartingGitOptions): ChildProcessWithoutNullStreams {
   const spawnProcess = options.spawnProcess ?? spawnGit;
   const env = options.env ?? sourceRepositoryEnvironment(process.env);
   try {
-    return spawnProcess(["-C", options.cwd, ...options.args], { cwd: os.tmpdir(), env });
+    const spawnOptions = { executable: options.executable, cwd: os.tmpdir(), env };
+    return spawnProcess(["-C", options.cwd, ...options.args], spawnOptions);
   } catch (error) {
     throw spawnError(options, error as NodeJS.ErrnoException);
   }
 }
 
 function spawnGit(args: readonly string[], options: HistoryGitSpawnOptions): ChildProcessWithoutNullStreams {
-  const { cwd, env } = options;
-  return spawn("git", [...args], { cwd, env, shell: false, stdio: "pipe", windowsHide: true });
+  const { executable, cwd, env } = options;
+  return spawn(executable, [...args], { cwd, env, shell: false, stdio: "pipe", windowsHide: true });
 }
 
 /**
@@ -172,7 +206,7 @@ class GitChildRun {
 
   constructor(
     private readonly child: ChildProcessWithoutNullStreams,
-    private readonly options: HistoryGitOptions,
+    private readonly options: StartingGitOptions,
     private readonly settle: (outcome: HistoryGitResult | HistoryGitError) => void,
   ) {}
 
@@ -273,15 +307,21 @@ function exitResult(
   return new HistoryGitError(redact(message, options), "failed", detail, exitCode, stderr);
 }
 
-function spawnError(options: HistoryGitOptions, error: NodeJS.ErrnoException): HistoryGitError {
+function spawnError(options: StartingGitOptions, error: NodeJS.ErrnoException): HistoryGitError {
   const detail = describeInvocation(options, error.message);
   // The child always starts in the existing temporary directory, so ENOENT can only mean Git itself is missing.
   const isGitMissing = error.code === "ENOENT";
   if (isGitMissing) {
-    return new HistoryGitError("Git executable was not found on PATH.", "missingGit", detail);
+    return new HistoryGitError(missingGitMessage(options.executable), "missingGit", detail);
   }
   const message = redact(`Git ${commandName(options)} could not start: ${error.message}`, options);
   return new HistoryGitError(message, "failed", detail);
+}
+
+/** Names where Git was looked for and the two fixes, as VS Code's Git extension does. */
+function missingGitMessage(executable: string): string {
+  const location = executable === PLAIN_GIT ? "on PATH" : `at ${executable}`;
+  return `Git was not found ${location}. Install Git, or set the "git.path" setting to the Git executable.`;
 }
 
 function cancelledError(options: HistoryGitOptions): HistoryGitError {

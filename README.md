@@ -360,6 +360,9 @@ A `[<theme>]` key must name the theme as the running VS Code does. VS Code 1.146
 
 Requires VS Code 1.90 or later; tested with VS Code 1.90 and 1.146.
 
+jw-differ runs the same Git as VS Code's Source Control and honours the `git.path` setting, so Git need not be on
+`PATH` (for example Git for Windows installed for Git Bash only).
+
 ### Upgrading from Differ or `local.jw-differ`
 
 The extension id is now `jwilenius.jw-differ` (publisher `jwilenius`); earlier builds used `local.differ` (Differ) and

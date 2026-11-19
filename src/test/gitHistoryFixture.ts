@@ -126,6 +126,20 @@ export function fixtureGitEnvironment(): NodeJS.ProcessEnv {
   };
 }
 
+/** The absolute path of the Git the test process's `PATH` finds, for runs that must not look Git up on `PATH`. */
+export function gitExecutableOnPath(): string {
+  const name = process.platform === "win32" ? "git.exe" : "git";
+  const found = (process.env["PATH"] ?? "")
+    .split(path.delimiter)
+    .filter((directory) => directory !== "")
+    .map((directory) => path.join(directory, name))
+    .find((candidate) => fs.statSync(candidate, { throwIfNoEntry: false })?.isFile() === true);
+  if (found === undefined) {
+    throw new Error(`No ${name} on PATH.`);
+  }
+  return found;
+}
+
 /** Stages one change; `--literal-pathspecs` keeps names such as `:x` or `*.txt` from acting as pathspec magic. */
 function applyChange(root: string, change: FixtureFileChange): void {
   const absolutePath = path.join(root, change.path);

@@ -197,6 +197,9 @@ export interface FakeExtension {
   readonly id: string;
   readonly extensionPath: string;
   readonly packageJSON: unknown;
+  readonly isActive?: boolean;
+  readonly exports?: unknown;
+  activate?(): Promise<unknown>;
 }
 
 export interface ExecutedCommand {
@@ -556,6 +559,10 @@ export const env = {
 export const extensions = {
   get all(): readonly FakeExtension[] {
     return vscodeMock.extensions;
+  },
+
+  getExtension(extensionId: string): FakeExtension | undefined {
+    return vscodeMock.extensions.find((extension) => extension.id === extensionId);
   },
 
   onDidChange(listener: Listener<void>, thisArgs?: unknown, disposables?: DisposableLike[]): Disposable {

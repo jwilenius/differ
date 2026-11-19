@@ -173,6 +173,8 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
 Each file in Source Control's **Changes**, **Staged Changes** and **Merge Changes** gets a jw-differ icon next to Git's
 own; it is also in the file's right-click menu.
 
+<img src="docs/images/scm-change-icon.png" width="348" alt="Source Control with Merge, Staged and unstaged Changes; the pointer rests on the jw-differ icon of src/inventory.ts, with the tooltip Open Changes in jw-differ">
+
 | Group                      | Icon                         | Opens                                                       |
 | -------------------------- | ---------------------------- | ----------------------------------------------------------- |
 | Changes, Untracked Changes | jw-differ (panes and ribbon) | **Open Changes in jw-differ**: Index ↔ Working Tree         |

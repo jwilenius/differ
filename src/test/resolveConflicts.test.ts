@@ -8,10 +8,17 @@ import { resetVscodeMock, vscodeMock } from "./vscodeMock";
 
 let repo: string;
 
+/** What activation registered; disposed after each test so no locator or listener outlives it. */
+const subscriptions: vscode.Disposable[] = [];
+
+function disposeSubscriptions(): void {
+  subscriptions.splice(0).forEach((subscription) => subscription.dispose());
+}
+
 /** Activates with an extension folder that has no regex engine; the picker never highlights. */
 function activateExtension(): void {
   const folder = os.tmpdir();
-  activate({ subscriptions: [], extensionUri: vscode.Uri.file(folder), extensionPath: folder } as unknown as vscode.ExtensionContext);
+  activate({ subscriptions, extensionUri: vscode.Uri.file(folder), extensionPath: folder } as unknown as vscode.ExtensionContext);
 }
 
 beforeEach(() => {
@@ -22,6 +29,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  disposeSubscriptions();
   fs.rmSync(repo, { recursive: true, force: true });
 });
 

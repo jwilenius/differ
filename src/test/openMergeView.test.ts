@@ -39,15 +39,23 @@ function openActiveMergeView(): void {
   void vscode.commands.executeCommand("jwDiffer.openMergeView");
 }
 
+/** What activation registered; disposed after each test so no locator or listener outlives it. */
+const subscriptions: vscode.Disposable[] = [];
+
+function disposeSubscriptions(): void {
+  subscriptions.splice(0).forEach((subscription) => subscription.dispose());
+}
+
 beforeEach(() => {
   resetVscodeMock();
   stageReads.length = 0;
   const folder = os.tmpdir();
-  activate({ subscriptions: [], extensionUri: vscode.Uri.file(folder), extensionPath: folder } as unknown as vscode.ExtensionContext);
+  activate({ subscriptions, extensionUri: vscode.Uri.file(folder), extensionPath: folder } as unknown as vscode.ExtensionContext);
 });
 
 afterEach(async () => {
   await deactivate();
+  disposeSubscriptions();
 });
 
 describe("jw-differ: Open Merge View", () => {

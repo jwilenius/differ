@@ -54,10 +54,17 @@ function fileDocument(uri: vscode.Uri): vscode.TextDocument {
   return { uri, languageId: "plaintext", eol: vscode.EndOfLine.LF, isClosed: false, getText: () => text } as unknown as vscode.TextDocument;
 }
 
+/** What activation registered; disposed after each test so no locator or listener outlives it. */
+const subscriptions: vscode.Disposable[] = [];
+
+function disposeSubscriptions(): void {
+  subscriptions.splice(0).forEach((subscription) => subscription.dispose());
+}
+
 /** Activates with an extension folder that has no regex engine; nothing is highlighted. */
 function activateExtension(): void {
   const folder = os.tmpdir();
-  activate({ subscriptions: [], extensionUri: vscode.Uri.file(folder), extensionPath: folder } as unknown as vscode.ExtensionContext);
+  activate({ subscriptions, extensionUri: vscode.Uri.file(folder), extensionPath: folder } as unknown as vscode.ExtensionContext);
 }
 
 /** Each setting of `jwDiffer.conflictedFiles`, one per refresh that finished current. */
@@ -115,6 +122,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await deactivate();
+  disposeSubscriptions();
   fs.rmSync(repo, { recursive: true, force: true });
   fs.rmSync(links, { recursive: true, force: true });
 });

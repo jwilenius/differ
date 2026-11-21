@@ -9,6 +9,9 @@ IntelliJ-style Git commit diff viewer and three-way merge conflict resolver for 
 
 Two workflows: review the combined changes of any set of commits, and resolve merge conflicts.
 
+Both also open from VS Code's [Source Control](#uncommitted-changes-in-source-control) view: each changed or conflicted
+file gets a jw-differ icon.
+
 > [!NOTE]
 > **Colour themes and syntax highlighting.** Locally, jw-differ's views use the active colour theme and the grammars of
 > your installed extensions. In a remote window (SSH, WSL, containers) jw-differ runs on the remote, but VS Code runs
@@ -173,7 +176,9 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
 Each file in Source Control's **Changes**, **Staged Changes** and **Merge Changes** gets a jw-differ icon next to Git's
 own; it is also in the file's right-click menu.
 
-<img src="docs/images/scm-change-icon.png" width="348" alt="Source Control with Merge, Staged and unstaged Changes; the pointer rests on the jw-differ icon of src/inventory.ts, with the tooltip Open Changes in jw-differ">
+<img src="docs/images/scm-change-icon.png" width="348" alt="Source Control with Merge, Staged and unstaged Changes; the pointer rests on the jw-differ icon of src/inventory.ts under Changes, with the tooltip Open Changes in jw-differ"> <img src="docs/images/scm-merge-icon.png" width="348" alt="Source Control mid-merge; the pointer rests on the jw-differ icon of the conflicted src/pricing.ts under Merge Changes, with the tooltip Resolve Conflict in jw-differ">
+
+_The jw-differ icon on a changed file (left) and on a merge-conflict file (right)._
 
 | Group                      | Icon                         | Opens                                                       |
 | -------------------------- | ---------------------------- | ----------------------------------------------------------- |

@@ -205,6 +205,14 @@ bump; the highest bump wins:
 
 Manual promotion of an existing GitHub Release; nothing is rebuilt.
 
+- One command for the whole release: `scripts/deploy-to-marketplace.sh [--yes]` (needs `node`, `gh` authenticated).
+  - Checks: on `main`, clean working tree (ignored files allowed); fetches; fails if `main` and `origin/main` diverged; pulls (`--ff-only`) when only behind.
+  - Unpushed commits: runs `next-release-version.mjs`; if `HEAD` would not make a release (no `feat`, `fix` or breaking commit since the last release), stops (exit 1; use `git push`).
+    Otherwise lists the unpushed commits, asks `y/N` (`--yes` skips; no answer stops), pushes `main`, waits up to 2 minutes for the `build-vsix.yml` run of the pushed commit and watches it, pulls, checks `HEAD` is `chore: release vX.Y.Z` with tag `vX.Y.Z`, runs `publish-marketplace.sh X.Y.Z` (its "Bypassed rule violations" tag-push message is harmless), watches the `publish-marketplace.yml` run for `vscode-vX.Y.Z` and prints the Marketplace URL.
+  - Resume: `main` already pushed with a pending release → waits for that build run (on `main`, for `HEAD`).
+    Nothing to push or pending → takes the highest `vX.Y.Z` tag reachable from `HEAD` (later commits allowed): not promoted → promotes; `vscode-vX.Y.Z` already pushed → watches its run, or says nothing to do once it succeeded.
+    No release tag → nothing to do (exit 0).
+    A failed or unwatchable run (e.g. `gh` with a fine-grained token) prints its URL and exits 1; a build run that does not appear within 2 minutes (e.g. `[skip ci]`) exits 1.
 - Promote: `scripts/publish-marketplace.sh X.Y.Z` (or `vX.Y.Z`; needs `gh`, authenticated). It fetches tags, then
   checks: release tag `vX.Y.Z` on `origin`; no `vscode-vX.Y.Z` locally or on `origin`; `X.Y.Z` above every
   `vscode-v*` tag on `origin` (the Marketplace accepts only increasing versions); GitHub Release `vX.Y.Z` has

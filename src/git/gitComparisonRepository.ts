@@ -14,7 +14,7 @@ import type {
 import { readComparisonFile, readComparisonFiles } from "./gitComparisonFiles";
 import { GitHistoryRepository } from "./gitHistoryRepository";
 import { resolveHistoryComparison } from "./historyComparisonResolver";
-import type { ResolvedHistoryComparison } from "./historyComparisonResolver";
+import type { LoadedParents, ResolvedHistoryComparison } from "./historyComparisonResolver";
 import { replaySelection } from "./gitSelectionReplay";
 import type { ReplayBlockedResult, ReplayOptions, ReplaySession } from "./gitSelectionReplay";
 
@@ -52,8 +52,10 @@ export class GitComparisonRepository implements HistoryRepository {
   private readonly shutdown = new AbortController();
   /** Operations and cleanups still running, so `dispose` can wait for every private directory to go. */
   private readonly pending = new Set<Promise<unknown>>();
+  /** Parents of the last loaded history, so a comparison can place HEAD without walking its history again. */
+  private loadedParents: LoadedParents = new Map();
 
-  /** @param root Any directory inside the repository's working tree. */
+  /** @param root The working tree's top-level directory, as Git status paths are relative to it. */
   constructor(
     private readonly root: string,
     private readonly options: GitComparisonRepositoryOptions = {},
@@ -62,7 +64,11 @@ export class GitComparisonRepository implements HistoryRepository {
   }
 
   loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData> {
-    return this.run(signal, (linked) => this.history.loadHistory(maxCommits, linked));
+    return this.run(signal, async (linked) => {
+      const history = await this.history.loadHistory(maxCommits, linked);
+      this.loadedParents = new Map(history.commits.map((commit) => [commit.oid, commit.parents]));
+      return history;
+    });
   }
 
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit> {
@@ -131,7 +137,7 @@ export class GitComparisonRepository implements HistoryRepository {
   }
 
   private async compareLinked(request: ComparisonRequest, signal: AbortSignal): Promise<ComparisonResult> {
-    const resolution = await resolveHistoryComparison(this.history, request, signal);
+    const resolution = await resolveHistoryComparison(this.history, request, signal, this.loadedParents);
     if (resolution.kind === "needsBase") {
       return resolution;
     }
@@ -222,8 +228,9 @@ function blockedResult(resolution: ResolvedHistoryComparison, replay: ReplayBloc
   return { kind: "blocked", base, orderedOids: orderedOids(resolution), failingOid, paths, explanation };
 }
 
+/** Selected commits in replay order, then the selected working changes. */
 function orderedOids(resolution: ResolvedHistoryComparison): readonly string[] {
-  return resolution.steps.map((step) => step.oid);
+  return [...resolution.steps.map((step) => step.oid), ...(resolution.working?.ids ?? [])];
 }
 
 function disposedError(): HistorySnapshotError {

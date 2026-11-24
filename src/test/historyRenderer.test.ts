@@ -785,10 +785,13 @@ describe("HtmlHistoryRenderer tooltips", () => {
     const pinned = render({ base: { kind: "pinned", oid: ROOT, label: "v1" } });
     const automatic = render({ selectedOids: [MIDDLE], comparison: ready([]) });
     const emptyTree = render({ selectedOids: [ROOT], comparison: readyWith({ base: { kind: "emptyTree" } }) });
+    const index = render({ selectedOids: [MIDDLE], comparison: readyWith({ base: { kind: "index" } }) });
 
     expect(titleOf(tagById(pinned, "history-base-current"))).toBe(`Pinned base: v1 ${ROOT} Initial`);
     expect(titleOf(tagById(automatic, "history-base-current"))).toBe(`Automatic base: ${ROOT} Initial`);
     expect(titleOf(tagById(emptyTree, "history-base-current"))).toMatch(/^Automatic base: the empty tree/);
+    expect(titleOf(tagById(index, "history-base-current"))).toBe("Automatic base: the staged content; the comparison starts from the index");
+    expect(index).toContain("Automatic: index");
     expect(titleOf(tagById(render(), "history-base-current"))).toMatch(/^Automatic base: the parent of the earliest selected commit, shown once/);
   });
 

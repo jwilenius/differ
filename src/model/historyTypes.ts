@@ -72,7 +72,10 @@ export interface MainlineChoice {
 }
 
 export interface ComparisonRequest {
-  /** Selected commits in no meaningful order; replay order is decided by Git. */
+  /**
+   * Selected commits, and working-change IDs from historyWorkingChanges.ts, in no meaningful order; replay order is
+   * decided by Git, with working changes always last.
+   */
   readonly selectedOids: readonly string[];
   readonly base: BaseSelection;
   /** Choices for selected merges only; unlisted merges use parent 1. */
@@ -89,8 +92,13 @@ export interface EmptyTreeBase {
   readonly kind: "emptyTree";
 }
 
+/** The staged content, which Automatic picks when only unstaged changes are selected. */
+export interface IndexBase {
+  readonly kind: "index";
+}
+
 /** The concrete tree a comparison starts from. */
-export type ResolvedBase = CommitBase | EmptyTreeBase;
+export type ResolvedBase = CommitBase | EmptyTreeBase | IndexBase;
 
 /** The selection has several earliest commits, so the user must pin a base. */
 export interface NeedsBaseResult {
@@ -102,8 +110,9 @@ export interface NeedsBaseResult {
 export interface BlockedResult {
   readonly kind: "blocked";
   readonly base: ResolvedBase;
-  /** Selected commits in replay order. */
+  /** Selected commits and working changes in replay order. */
   readonly orderedOids: readonly string[];
+  /** A commit OID or working-change ID. */
   readonly failingOid: string;
   readonly paths: readonly string[];
   readonly explanation: string;
@@ -120,7 +129,7 @@ export interface ReadyResult {
   readonly kind: "ready";
   readonly snapshotId: string;
   readonly base: ResolvedBase;
-  /** Selected commits in replay order, including ones that turned out to be no-ops. */
+  /** Selected commits and working changes in replay order, including ones that turned out to be no-ops. */
   readonly orderedOids: readonly string[];
   /** Net base-to-result changes; empty when the selected changes cancel out. */
   readonly files: readonly ComparisonFile[];

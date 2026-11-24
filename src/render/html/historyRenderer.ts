@@ -500,9 +500,14 @@ function describeBaseInFull(view: HistoryView): string {
     return "Automatic base: none, as the selection has several earliest commits; pin a base";
   }
   const resolved = comparison.base;
-  return resolved.kind === "commit"
-    ? `Automatic base: ${resolved.oid} ${resolved.subject}`
-    : "Automatic base: the empty tree, as the earliest selected commit is a root commit";
+  switch (resolved.kind) {
+    case "commit":
+      return `Automatic base: ${resolved.oid} ${resolved.subject}`;
+    case "emptyTree":
+      return "Automatic base: the empty tree, as the earliest selected commit is a root commit";
+    case "index":
+      return "Automatic base: the staged content; the comparison starts from the index";
+  }
 }
 
 /** Pinned label + hash, or what Automatic resolved to for the current comparison. */

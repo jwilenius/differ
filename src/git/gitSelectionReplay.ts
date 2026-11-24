@@ -5,7 +5,11 @@ import { privateStorage } from "./gitReplayStorage";
 import type { PrivateRepository } from "./gitReplayStorage";
 import { runHistoryGit } from "./historyGitCommand";
 import type { HistoryGitResult } from "./historyGitCommand";
-import type { ReplayStep, ReplayTree, ResolvedHistoryComparison } from "./historyComparisonResolver";
+import type { ReplayTree, ResolvedHistoryComparison, WorkingReplay } from "./historyComparisonResolver";
+import { writeWorkingTrees } from "./gitWorkingTrees";
+import type { WorkingTrees } from "./gitWorkingTrees";
+import { isWorkingChangeId, STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID, workingChangeLabel } from "../model/historyWorkingChanges";
+import type { WorkingChangeId } from "../model/historyWorkingChanges";
 
 export { HistoryReplayStorageError } from "./gitReplayStorage";
 export type { PrivateRepository } from "./gitReplayStorage";
@@ -47,6 +51,10 @@ const CONFLICT_EXPLANATION = "This commit's changes conflict with the changes re
   + "Change the selection, base or merge parent and compare again.";
 const APPLY_FAILED_EXPLANATION = "This commit's changes could not be applied to the files replayed before it. "
   + "Change the selection, base or merge parent and compare again.";
+const WORKING_CONFLICT_EXPLANATION = " conflict with the changes replayed before them. "
+  + "Change the selection or base and compare again.";
+const WORKING_APPLY_FAILED_EXPLANATION = " could not be applied to the files replayed before them. "
+  + "Change the selection or base and compare again.";
 
 /** A completed replay whose trees stay readable until `dispose`. */
 export interface ReplaySession {
@@ -71,9 +79,10 @@ export interface ReplayedResult {
   readonly session: ReplaySession;
 }
 
-/** Replay stopped at the first selected commit that did not apply; nothing of it remains on disk. */
+/** Replay stopped at the first selected commit or working change that did not apply; nothing of it remains on disk. */
 export interface ReplayBlockedResult {
   readonly kind: "blocked";
+  /** A commit OID or a working-change ID. */
   readonly failingOid: string;
   readonly paths: readonly string[];
   readonly explanation: string;
@@ -111,10 +120,25 @@ interface ReplayedTrees {
   readonly resultTreeOid: string;
 }
 
+/** One patch to apply: the change from `parentTreeOid` to `resultTreeOid`, reported as `id` when it blocks. */
+interface PatchStep {
+  readonly id: string;
+  readonly parentTreeOid: string;
+  readonly resultTreeOid: string;
+}
+
+/** Where the source repository's working tree is, for building the trees of its working changes. */
+interface WorkingSource {
+  readonly root: string;
+  readonly env: NodeJS.ProcessEnv | undefined;
+  readonly objectFormat: string;
+}
+
 /**
- * Replays only the selected commits' patches onto the comparison base inside a fresh private repository that borrows
- * the source objects read-only. The source repository's refs, index, working tree and configuration are never used
- * for writing or executing anything. Stops at the first patch that does not apply; never returns a partial result.
+ * Replays only the selected commits' patches, then the selected working changes, onto the comparison base inside a
+ * fresh private repository that borrows the source objects read-only. The source repository's refs, index, working
+ * tree and configuration are never written; working changes are read through private copies of the index. Stops at
+ * the first patch that does not apply; never returns a partial result.
  */
 export async function replaySelection(
   root: string,
@@ -122,10 +146,10 @@ export async function replaySelection(
   signal: AbortSignal,
   options: ReplayOptions = {},
 ): Promise<ReplayResult> {
-  const { repository, dispose } = await createPrivateWorkspace(root, signal, options);
+  const { repository, objectFormat, dispose } = await createPrivateWorkspace(root, signal, options);
   let isKept = false;
   try {
-    const outcome = await replaySteps(repository, comparison, signal);
+    const outcome = await replaySteps(repository, comparison, { root, env: options.env, objectFormat }, signal);
     if (outcome.kind === "blocked") {
       return outcome;
     }
@@ -267,16 +291,19 @@ async function initializePrivateRepository(
 async function replaySteps(
   repository: PrivateRepository,
   comparison: ResolvedHistoryComparison,
+  source: WorkingSource,
   signal: AbortSignal,
 ): Promise<ReplayedTrees | ReplayBlockedResult> {
+  const { working } = comparison;
   const emptyTreeOid = await writeEmptyTree(repository, signal);
-  const treeOid = (tree: ReplayTree): string => tree.kind === "commit" ? tree.treeOid : emptyTreeOid;
+  const workingTrees = working === null ? null : await writeSelectedWorkingTrees(repository, working, source, signal);
+  const treeOid = (tree: ReplayTree): string => replayTreeOid(tree, emptyTreeOid, workingTrees);
 
   await runPrivateGit(repository, ["read-tree", treeOid(comparison.baseTree)], signal);
   const baseTreeOid = await writeTree(repository, signal);
 
-  for (const step of comparison.steps) {
-    const blocked = await applyStep(repository, treeOid(step.parent), step, signal);
+  for (const step of patchSteps(comparison, treeOid, workingTrees)) {
+    const blocked = await applyStep(repository, step, signal);
     if (blocked !== null) {
       return blocked;
     }
@@ -284,14 +311,70 @@ async function replaySteps(
   return { kind: "replayed", baseTreeOid, resultTreeOid: await writeTree(repository, signal) };
 }
 
-/** Applies one commit's parent-relative patch to the index; an empty patch or an unchanged tree is a no-op. */
+/** Selected commits in replay order, then the selected working changes. */
+function patchSteps(
+  comparison: ResolvedHistoryComparison,
+  treeOid: (tree: ReplayTree) => string,
+  workingTrees: WorkingTrees | null,
+): readonly PatchStep[] {
+  const commitSteps = comparison.steps.map((step): PatchStep => ({
+    id: step.oid,
+    parentTreeOid: treeOid(step.parent),
+    resultTreeOid: step.treeOid,
+  }));
+  const { working } = comparison;
+  if (working === null || workingTrees === null) {
+    return commitSteps;
+  }
+  const headTreeOid = treeOid(working.headTree);
+  return [...commitSteps, ...working.ids.map((id) => workingStep(id, headTreeOid, workingTrees))];
+}
+
+/** The index tree, plus the tree of the files on disk when unstaged changes are selected. */
+function writeSelectedWorkingTrees(
+  repository: PrivateRepository,
+  working: WorkingReplay,
+  source: WorkingSource,
+  signal: AbortSignal,
+): Promise<WorkingTrees> {
+  const isWorktreeIncluded = working.ids.includes(UNSTAGED_CHANGES_ID);
+  const { root, env, objectFormat } = source;
+  const workingSource = { root, objectFormat, isWorktreeIncluded, ...(env === undefined ? {} : { env }) };
+  return writeWorkingTrees(repository, workingSource, signal);
+}
+
+function replayTreeOid(tree: ReplayTree, emptyTreeOid: string, workingTrees: WorkingTrees | null): string {
+  switch (tree.kind) {
+    case "commit":
+      return tree.treeOid;
+    case "emptyTree":
+      return emptyTreeOid;
+    case "index":
+      if (workingTrees === null) {
+        throw new Error("An index base needs the working trees.");
+      }
+      return workingTrees.indexTreeOid;
+  }
+}
+
+/** Staged changes take HEAD to the index; unstaged changes take the index to the files on disk. */
+function workingStep(id: WorkingChangeId, headTreeOid: string, trees: WorkingTrees): PatchStep {
+  if (id === STAGED_CHANGES_ID) {
+    return { id, parentTreeOid: headTreeOid, resultTreeOid: trees.indexTreeOid };
+  }
+  if (trees.worktreeTreeOid === null) {
+    throw new Error("Unstaged changes need the tree of the files on disk.");
+  }
+  return { id, parentTreeOid: trees.indexTreeOid, resultTreeOid: trees.worktreeTreeOid };
+}
+
+/** Applies one step's patch to the index; an empty patch or an unchanged tree is a no-op. */
 async function applyStep(
   repository: PrivateRepository,
-  parentTreeOid: string,
-  step: ReplayStep,
+  step: PatchStep,
   signal: AbortSignal,
 ): Promise<ReplayBlockedResult | null> {
-  const patchArgs = ["diff-tree", ...PATCH_OPTIONS, parentTreeOid, step.treeOid, "--"];
+  const patchArgs = ["diff-tree", ...PATCH_OPTIONS, step.parentTreeOid, step.resultTreeOid, "--"];
   const patch = await runPrivateGit(repository, patchArgs, signal);
   if (patch.stdout.length === 0) {
     return null;
@@ -302,27 +385,34 @@ async function applyStep(
   if (applied.exitCode === 0) {
     return null;
   }
-  return describeBlockedStep(repository, parentTreeOid, step, signal);
+  return describeBlockedStep(repository, step, signal);
 }
 
-/** Conflicting paths when the three-way merge left any; otherwise every path the commit touches. */
+/** Conflicting paths when the three-way merge left any; otherwise every path the step touches. */
 async function describeBlockedStep(
   repository: PrivateRepository,
-  parentTreeOid: string,
-  step: ReplayStep,
+  step: PatchStep,
   signal: AbortSignal,
 ): Promise<ReplayBlockedResult> {
   const unmerged = await runPrivateGit(repository, ["ls-files", "--unmerged", "-z"], signal);
   const conflictPaths = unique(nulFields(unmerged.stdout).map((entry) => entry.slice(entry.indexOf("\t") + 1)));
   if (conflictPaths.length > 0) {
-    return { kind: "blocked", failingOid: step.oid, paths: conflictPaths, explanation: CONFLICT_EXPLANATION };
+    const explanation = blockedExplanation(step.id, true);
+    return { kind: "blocked", failingOid: step.id, paths: conflictPaths, explanation };
   }
 
   const nameOptions = ["--no-commit-id", "-r", "--name-only", "-z", "--no-renames"];
-  const nameArgs = ["diff-tree", ...nameOptions, parentTreeOid, step.treeOid, "--"];
+  const nameArgs = ["diff-tree", ...nameOptions, step.parentTreeOid, step.resultTreeOid, "--"];
   const changed = await runPrivateGit(repository, nameArgs, signal);
   const paths = nulFields(changed.stdout);
-  return { kind: "blocked", failingOid: step.oid, paths, explanation: APPLY_FAILED_EXPLANATION };
+  return { kind: "blocked", failingOid: step.id, paths, explanation: blockedExplanation(step.id, false) };
+}
+
+function blockedExplanation(id: string, isConflict: boolean): string {
+  if (!isWorkingChangeId(id)) {
+    return isConflict ? CONFLICT_EXPLANATION : APPLY_FAILED_EXPLANATION;
+  }
+  return workingChangeLabel(id) + (isConflict ? WORKING_CONFLICT_EXPLANATION : WORKING_APPLY_FAILED_EXPLANATION);
 }
 
 async function writeEmptyTree(repository: PrivateRepository, signal: AbortSignal): Promise<string> {

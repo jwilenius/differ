@@ -2,14 +2,18 @@ import type {
   ComparisonRequest,
   EmptyTreeBase,
   HistoryCommit,
+  IndexBase,
   MainlineChoice,
   NeedsBaseResult,
   ResolvedBase,
 } from "../model/historyTypes";
+import { isWorkingChangeId, STAGED_CHANGES_ID, WORKING_CHANGE_REPLAY_ORDER } from "../model/historyWorkingChanges";
+import type { WorkingChangeId } from "../model/historyWorkingChanges";
 import { HistoryOutputError, isFullOid } from "./gitHistoryRepository";
-import type { GitHistoryRepository } from "./gitHistoryRepository";
+import type { AncestryEntry, GitHistoryRepository } from "./gitHistoryRepository";
 
 const EMPTY_TREE: EmptyTreeBase = { kind: "emptyTree" };
+const INDEX: IndexBase = { kind: "index" };
 
 /** A commit together with the tree it records. */
 export interface CommitTree {
@@ -18,8 +22,11 @@ export interface CommitTree {
   readonly treeOid: string;
 }
 
-/** Where a patch or the comparison starts: a commit's tree, or the empty tree for roots. */
-export type ReplayTree = CommitTree | EmptyTreeBase;
+/** HEAD's tree, or the empty tree while HEAD is unborn. */
+export type HeadTree = CommitTree | EmptyTreeBase;
+
+/** Where a patch or the comparison starts: a commit's tree, the empty tree for roots, or the index's tree. */
+export type ReplayTree = HeadTree | IndexBase;
 
 /** One selected commit's patch: `parent` tree → commit tree. */
 export interface ReplayStep {
@@ -29,6 +36,14 @@ export interface ReplayStep {
   readonly parent: ReplayTree;
 }
 
+/** Selected working changes, replayed after every selected commit: HEAD → index, then index → files on disk. */
+export interface WorkingReplay {
+  /** What staged changes are taken against. */
+  readonly headTree: HeadTree;
+  /** Selected working changes, staged before unstaged. */
+  readonly ids: readonly WorkingChangeId[];
+}
+
 /** One reproducible interpretation of a request: what to start from and which patches to apply in order. */
 export interface ResolvedHistoryComparison {
   readonly kind: "resolved";
@@ -36,9 +51,16 @@ export interface ResolvedHistoryComparison {
   readonly baseTree: ReplayTree;
   /** Selected commits in Git's topological replay order, oldest first. */
   readonly steps: readonly ReplayStep[];
+  /** Null when no working change is selected. */
+  readonly working: WorkingReplay | null;
 }
 
 export type HistoryComparisonResolution = ResolvedHistoryComparison | NeedsBaseResult;
+
+/** Loaded commit → its parents, as a history load read them; commits never change, so any load's entries hold. */
+export type LoadedParents = ReadonlyMap<string, readonly string[]>;
+
+const NO_LOADED_PARENTS: LoadedParents = new Map();
 
 export type HistoryComparisonErrorKind = "emptySelection" | "invalidMainline" | "shallowHistory";
 
@@ -56,45 +78,113 @@ export class HistoryComparisonError extends Error {
 interface SelectionOrder {
   /** Selected OIDs, oldest first. */
   readonly orderedOids: readonly string[];
-  /** Selected commits with no selected ancestor, in the same order. */
+  /**
+   * Selected commits with no selected ancestor, in the same order, then the first selected working change when no
+   * selected commit is HEAD or one of its ancestors.
+   */
   readonly minimumOids: readonly string[];
 }
 
+/** Which commits and working changes a request selects, plus HEAD when working changes need it. */
+interface Selection {
+  readonly oids: readonly string[];
+  readonly workingIds: readonly WorkingChangeId[];
+  /** Null while HEAD is unborn or when no working change is selected. */
+  readonly headOid: string | null;
+}
+
+/** Where the comparison starts before its tree is known. */
+type BaseSource = { readonly kind: "commit"; readonly oid: string } | EmptyTreeBase | IndexBase;
+
 /**
  * Decides base, replay order and each selected commit's patch parent, independent of how the selection was made.
- * Several earliest commits under an Automatic base need an explicit base instead of a guess.
+ * Several earliest commits under an Automatic base need an explicit base instead of a guess. Working changes sit on
+ * top of HEAD and replay last; `loadedParents` tells where HEAD is without walking its history when it can.
  */
 export async function resolveHistoryComparison(
   repository: GitHistoryRepository,
   request: ComparisonRequest,
   signal: AbortSignal,
+  loadedParents: LoadedParents = NO_LOADED_PARENTS,
 ): Promise<HistoryComparisonResolution> {
-  const selectedOids = [...new Set(request.selectedOids)];
-  if (selectedOids.length === 0) {
-    throw new HistoryComparisonError("Select at least one commit to compare.", "emptySelection");
-  }
-
-  const commits = await repository.readCommits(selectedOids, signal);
-  await assertParentsAvailable(repository, selectedOids, signal);
+  const selection = await readSelection(repository, request, signal);
+  const commits = await repository.readCommits(selection.oids, signal);
+  await assertParentsAvailable(repository, selection.oids, signal);
   const parentOids = chooseParents(commits, request.mainlines);
 
-  const order = await readSelectionOrder(repository, selectedOids, signal);
+  const order = await readSelectionOrder(repository, selection, loadedParents, signal);
   const isBaseAmbiguous = request.base.kind === "automatic" && order.minimumOids.length > 1;
   if (isBaseAmbiguous) {
     return { kind: "needsBase", minimumOids: order.minimumOids };
   }
 
-  const baseOid = request.base.kind === "pinned" ? request.base.oid : parentOids.get(order.minimumOids[0]) ?? null;
-  const base = await resolveBase(repository, baseOid, signal);
-  const treeCommitOids = [...selectedOids, ...parentOids.values(), ...(baseOid === null ? [] : [baseOid])];
+  const baseSource = request.base.kind === "pinned"
+    ? { kind: "commit", oid: request.base.oid } as const
+    : automaticBase(order.minimumOids[0]!, parentOids, selection.headOid);
+  const base = await resolveBase(repository, baseSource, signal);
+  const baseOids = baseSource.kind === "commit" ? [baseSource.oid] : [];
+  const headOids = selection.headOid === null ? [] : [selection.headOid];
+  const treeCommitOids = [...selection.oids, ...parentOids.values(), ...baseOids, ...headOids];
   const trees = await repository.readTreeOids(treeCommitOids, signal);
+  return { kind: "resolved", base, ...replayTrees(trees, { selection, order, parentOids, baseSource }) };
+}
 
+/** Everything a replay reads, with each commit resolved to its tree. */
+function replayTrees(
+  trees: ReadonlyMap<string, string>,
+  plan: {
+    readonly selection: Selection;
+    readonly order: SelectionOrder;
+    readonly parentOids: ReadonlyMap<string, string>;
+    readonly baseSource: BaseSource;
+  },
+): Pick<ResolvedHistoryComparison, "baseTree" | "steps" | "working"> {
+  const { selection, order, parentOids, baseSource } = plan;
   const steps = order.orderedOids.map((oid): ReplayStep => ({
     oid,
     treeOid: treeOf(trees, oid),
-    parent: replayTree(trees, parentOids.get(oid) ?? null),
+    parent: commitTree(trees, parentOids.get(oid) ?? null),
   }));
-  return { kind: "resolved", base, baseTree: replayTree(trees, baseOid), steps };
+  const baseTree = baseSource.kind === "commit" ? commitTree(trees, baseSource.oid) : baseSource;
+  const working = selection.workingIds.length === 0
+    ? null
+    : { headTree: commitTree(trees, selection.headOid), ids: selection.workingIds };
+  return { baseTree, steps, working };
+}
+
+async function readSelection(
+  repository: GitHistoryRepository,
+  request: ComparisonRequest,
+  signal: AbortSignal,
+): Promise<Selection> {
+  const selectedIds = [...new Set(request.selectedOids)];
+  if (selectedIds.length === 0) {
+    throw new HistoryComparisonError("Select at least one commit to compare.", "emptySelection");
+  }
+
+  const workingIds = WORKING_CHANGE_REPLAY_ORDER.filter((id) => selectedIds.includes(id));
+  const oids = selectedIds.filter((id) => !isWorkingChangeId(id));
+  const headOid = workingIds.length === 0 ? null : await repository.readHeadOid(signal);
+  return { oids, workingIds, headOid };
+}
+
+/**
+ * What Automatic starts from for the single earliest selected item: a commit's chosen parent (the empty tree for a
+ * root), HEAD for staged changes, and the index for unstaged changes alone.
+ */
+function automaticBase(
+  minimumId: string,
+  parentOids: ReadonlyMap<string, string>,
+  headOid: string | null,
+): BaseSource {
+  if (!isWorkingChangeId(minimumId)) {
+    const parentOid = parentOids.get(minimumId);
+    return parentOid === undefined ? EMPTY_TREE : { kind: "commit", oid: parentOid };
+  }
+  if (minimumId !== STAGED_CHANGES_ID) {
+    return INDEX;
+  }
+  return headOid === null ? EMPTY_TREE : { kind: "commit", oid: headOid };
 }
 
 /** A shallow boundary commit looks like a root; treating it as one would invent a patch adding its whole tree. */
@@ -148,17 +238,66 @@ function validateMainline(choice: MainlineChoice, commit: HistoryCommit | undefi
 
 /**
  * Walks every ancestor of the selection once, parents before children. A selected commit is a minimum when no
- * parent path, through selected or unselected commits, reaches another selected commit.
+ * parent path, through selected or unselected commits, reaches another selected commit. Working changes are children
+ * of HEAD, so they are a minimum when HEAD reaches no selected commit.
  */
 async function readSelectionOrder(
   repository: GitHistoryRepository,
-  selectedOids: readonly string[],
+  selection: Selection,
+  loadedParents: LoadedParents,
   signal: AbortSignal,
 ): Promise<SelectionOrder> {
-  // Lexically sorted input makes Git's order between unrelated commits independent of selection order.
-  const ancestry = await repository.readAncestry([...selectedOids].sort(), signal);
+  const workingMinimum = selection.workingIds.slice(0, 1);
+  if (selection.oids.length === 0) {
+    return { orderedOids: [], minimumOids: workingMinimum };
+  }
 
-  const selected = new Set(selectedOids);
+  // Lexically sorted input makes Git's order between unrelated commits independent of selection order.
+  const selected = new Set(selection.oids);
+  const ancestry = await repository.readAncestry([...selection.oids].sort(), signal);
+  const { orderedOids, minimumOids } = walkAncestry(ancestry, selected);
+  const isHeadOnSelection = selection.headOid !== null
+    && await headReachesSelection(repository, selection.headOid, selected, loadedParents, signal);
+  return { orderedOids, minimumOids: isHeadOnSelection ? minimumOids : [...minimumOids, ...workingMinimum] };
+}
+
+/** Whether HEAD is selected or descends from a selected commit; Git walks HEAD's history only when the load cannot tell. */
+async function headReachesSelection(
+  repository: GitHistoryRepository,
+  headOid: string,
+  selected: ReadonlySet<string>,
+  loadedParents: LoadedParents,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const loadedAnswer = loadedReach(headOid, selected, loadedParents);
+  if (loadedAnswer !== undefined) {
+    return loadedAnswer;
+  }
+  const ancestry = await repository.readAncestry([headOid], signal);
+  return ancestry.some((entry) => selected.has(entry.oid));
+}
+
+/** Searches the loaded ancestors of `headOid` for a selected commit; undefined once it reaches one not loaded. */
+function loadedReach(headOid: string, selected: ReadonlySet<string>, loadedParents: LoadedParents): boolean | undefined {
+  const seen = new Set([headOid]);
+  const pending = [headOid];
+  for (let oid = pending.pop(); oid !== undefined; oid = pending.pop()) {
+    if (selected.has(oid)) {
+      return true;
+    }
+    const parents = loadedParents.get(oid);
+    if (parents === undefined) {
+      return undefined;
+    }
+    for (const parent of parents.filter((candidate) => !seen.has(candidate))) {
+      seen.add(parent);
+      pending.push(parent);
+    }
+  }
+  return false;
+}
+
+function walkAncestry(ancestry: readonly AncestryEntry[], selected: ReadonlySet<string>): SelectionOrder {
   const reachesSelection = new Set<string>();
   const orderedOids: string[] = [];
   const minimumOids: string[] = [];
@@ -179,13 +318,13 @@ async function readSelectionOrder(
 
 async function resolveBase(
   repository: GitHistoryRepository,
-  baseOid: string | null,
+  source: BaseSource,
   signal: AbortSignal,
 ): Promise<ResolvedBase> {
-  if (baseOid === null) {
-    return EMPTY_TREE;
+  if (source.kind !== "commit") {
+    return source;
   }
-  const [commit] = await repository.readCommits([baseOid], signal);
+  const [commit] = await repository.readCommits([source.oid], signal);
   return { kind: "commit", oid: commit.oid, subject: commit.subject };
 }
 
@@ -197,7 +336,7 @@ function treeOf(trees: ReadonlyMap<string, string>, commitOid: string): string {
   return treeOid;
 }
 
-function replayTree(trees: ReadonlyMap<string, string>, commitOid: string | null): ReplayTree {
+function commitTree(trees: ReadonlyMap<string, string>, commitOid: string | null): HeadTree {
   if (commitOid === null) {
     return EMPTY_TREE;
   }

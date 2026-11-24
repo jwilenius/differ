@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GitHistoryRepository, HistoryRevisionError } from "../git/gitHistoryRepository";
 import { HistoryComparisonError, resolveHistoryComparison } from "../git/historyComparisonResolver";
 import type { HistoryComparisonResolution, ReplayTree } from "../git/historyComparisonResolver";
+import type { LoadedParents } from "../git/historyComparisonResolver";
 import type { BaseSelection, ComparisonRequest, MainlineChoice } from "../model/historyTypes";
+import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
 import {
   commitFiles,
   createHistoryRepository,
@@ -15,6 +17,16 @@ import type { HistoryRepositoryFixture } from "./gitHistoryFixture";
 
 const signal = new AbortController().signal;
 const AUTOMATIC: BaseSelection = { kind: "automatic" };
+
+/** Records the starting commits of every ancestry walk, each one `git rev-list` run. */
+class AncestryRecordingRepository extends GitHistoryRepository {
+  readonly ancestryWalks: (readonly string[])[] = [];
+
+  override readAncestry(oids: readonly string[], walkSignal: AbortSignal): ReturnType<GitHistoryRepository["readAncestry"]> {
+    this.ancestryWalks.push(oids);
+    return super.readAncestry(oids, walkSignal);
+  }
+}
 
 describe("resolveHistoryComparison", () => {
   let fixture: HistoryRepositoryFixture;
@@ -83,6 +95,7 @@ describe("resolveHistoryComparison", () => {
         { oid: b, treeOid: treeOf(b), parent: commitTree(a) },
         { oid: d, treeOid: treeOf(d), parent: commitTree(c) },
       ],
+      working: null,
     });
   });
 
@@ -200,5 +213,124 @@ describe("resolveHistoryComparison", () => {
     expect(insideBoundary).toMatchObject({ base: { oid: c } });
     await expect(resolve([c, d], AUTOMATIC, [], clone)).rejects.toMatchObject({ kind: "shallowHistory" });
     await expect(resolve([c], pinnedD, [], clone)).rejects.toMatchObject({ kind: "shallowHistory" });
+  });
+
+  describe("with working changes", () => {
+    it("starts staged changes from HEAD and replays them without commit steps", async () => {
+      const [, , , d] = linearHistory();
+
+      const resolution = await resolve([STAGED_CHANGES_ID]);
+
+      expect(resolution).toEqual({
+        kind: "resolved",
+        base: { kind: "commit", oid: d, subject: "D" },
+        baseTree: commitTree(d),
+        steps: [],
+        working: { headTree: commitTree(d), ids: [STAGED_CHANGES_ID] },
+      });
+    });
+
+    it("starts unstaged changes alone from the index", async () => {
+      const [, , , d] = linearHistory();
+
+      const resolution = await resolve([UNSTAGED_CHANGES_ID]);
+
+      expect(resolution).toMatchObject({
+        base: { kind: "index" },
+        baseTree: { kind: "index" },
+        working: { headTree: commitTree(d), ids: [UNSTAGED_CHANGES_ID] },
+      });
+    });
+
+    it("replays staged before unstaged changes, after the selected commits, whatever the selection order", async () => {
+      const [, b, c, d] = linearHistory();
+
+      const resolution = await resolve([UNSTAGED_CHANGES_ID, c, STAGED_CHANGES_ID]);
+
+      expect(resolution).toMatchObject({
+        base: { kind: "commit", oid: b },
+        steps: [{ oid: c, parent: commitTree(b) }],
+        working: { headTree: commitTree(d), ids: [STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID] },
+      });
+    });
+
+    it("needs an explicit base when a selected commit is not an ancestor of HEAD", async () => {
+      const a = commit("A");
+      git("checkout", "-q", "-b", "side");
+      const side = commit("Side");
+      git("checkout", "-q", "main");
+      commit("B");
+
+      const automatic = await resolve([side, STAGED_CHANGES_ID]);
+      const pinned = await resolve([side, STAGED_CHANGES_ID], { kind: "pinned", oid: a, label: "main" });
+
+      expect(automatic).toEqual({ kind: "needsBase", minimumOids: [side, STAGED_CHANGES_ID] });
+      expect(pinned).toMatchObject({ base: { oid: a }, steps: [{ oid: side }], working: { ids: [STAGED_CHANGES_ID] } });
+    });
+
+    describe("with HEAD in the loaded history", () => {
+      /** Every commit with its parents, as a complete history load reads them. */
+      function loadedParents(): LoadedParents {
+        const records = git("rev-list", "--parents", "--all").split("\n");
+        return new Map(records.map((record) => {
+          const [oid = "", ...parents] = record.split(" ");
+          return [oid, parents] as const;
+        }));
+      }
+
+      async function resolveLoaded(
+        selectedOids: readonly string[],
+        loaded: LoadedParents,
+      ): Promise<{ readonly resolution: HistoryComparisonResolution; readonly walks: readonly (readonly string[])[] }> {
+        const repository = new AncestryRecordingRepository(fixture.root, fixtureGitEnvironment());
+        const request: ComparisonRequest = { selectedOids, base: AUTOMATIC, mainlines: [] };
+        const resolution = await resolveHistoryComparison(repository, request, signal, loaded);
+        return { resolution, walks: repository.ancestryWalks };
+      }
+
+      it("finds a selected ancestor of HEAD there and walks only the selection's ancestry", async () => {
+        const [, b, c] = linearHistory();
+
+        const { resolution, walks } = await resolveLoaded([c, STAGED_CHANGES_ID], loadedParents());
+
+        expect(resolution).toMatchObject({ base: { oid: b }, steps: [{ oid: c }], working: { ids: [STAGED_CHANGES_ID] } });
+        expect(walks).toEqual([[c]]);
+      });
+
+      it("finds there that HEAD is off the selection and walks only the selection's ancestry", async () => {
+        commit("A");
+        git("checkout", "-q", "-b", "side");
+        const side = commit("Side");
+        git("checkout", "-q", "main");
+        commit("B");
+
+        const { resolution, walks } = await resolveLoaded([side, STAGED_CHANGES_ID], loadedParents());
+
+        expect(resolution).toEqual({ kind: "needsBase", minimumOids: [side, STAGED_CHANGES_ID] });
+        expect(walks).toEqual([[side]]);
+      });
+
+      it("walks from HEAD as well when the loaded history stops short of a selected commit", async () => {
+        const [, b, c, d] = linearHistory();
+        const cutOff: LoadedParents = new Map([[d, [c]]]);
+
+        const { resolution, walks } = await resolveLoaded([b, STAGED_CHANGES_ID], cutOff);
+
+        expect(resolution).toMatchObject({ steps: [{ oid: b }], working: { ids: [STAGED_CHANGES_ID] } });
+        expect(walks).toEqual([[b], [d]]);
+      });
+    });
+
+    it("starts from the empty tree on an unborn branch", async () => {
+      const resolution = await resolve([STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID]);
+
+      expect(resolution).toEqual({
+        kind: "resolved",
+        base: { kind: "emptyTree" },
+        baseTree: { kind: "emptyTree" },
+        steps: [],
+        working: { headTree: { kind: "emptyTree" }, ids: [STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID] },
+      });
+    });
   });
 });

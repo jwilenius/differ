@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitComparisonRepository, HistorySnapshotError } from "../git/gitComparisonRepository";
 import { HistoryController } from "../model/historyController";
 import type { BaseSelection, ComparisonResult, ReadyResult } from "../model/historyTypes";
+import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
 import {
   commitFiles,
   createHistoryRepository,
@@ -128,6 +129,21 @@ describe("GitComparisonRepository", () => {
     expect(result.orderedOids).toEqual([b, d]);
     expect(result.files.map((file) => file.result?.path)).toEqual(["b.txt", "d.txt"]);
     expect(content).toEqual({ kind: "text", text: "b\n" });
+  });
+
+  it("lists selected working changes after the commits and compares the files on disk", async () => {
+    const [, b, c] = linearHistory();
+    fs.writeFileSync(path.join(fixture.root, "a.txt"), "staged\n");
+    runFixtureGit(fixture.root, ["add", "a.txt"]);
+    fs.writeFileSync(path.join(fixture.root, "new.txt"), "untracked\n");
+
+    const result = await compareReady([UNSTAGED_CHANGES_ID, c, STAGED_CHANGES_ID]);
+    const content = await repository.readFile(result.snapshotId, fileId(result, "a.txt"), "result", signal);
+
+    expect(result.base).toMatchObject({ kind: "commit", oid: b });
+    expect(result.orderedOids).toEqual([c, STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID]);
+    expect(result.files.map((file) => file.result?.path)).toEqual(["a.txt", "c.txt", "new.txt"]);
+    expect(content).toEqual({ kind: "text", text: "staged\n" });
   });
 
   it("returns a blocked comparison without a snapshot", async () => {

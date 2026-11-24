@@ -120,6 +120,13 @@ export class GitHistoryRepository {
     });
   }
 
+  /** The commit HEAD names now; null while its branch has no commit yet. */
+  async readHeadOid(signal: AbortSignal): Promise<string | null> {
+    const result = await this.git(["rev-parse", "--verify", "-q", "HEAD^{commit}"], signal, undefined, [0, 1]);
+    const oid = result.stdout.toString("utf8").trim();
+    return result.exitCode === 0 && isFullOid(oid) ? oid : null;
+  }
+
   /** Commits whose parents were cut off by a shallow clone; Git reports them as parentless. */
   async readShallowOids(signal: AbortSignal): Promise<ReadonlySet<string>> {
     const pathResult = await this.git(["rev-parse", "--path-format=absolute", "--git-path", "shallow"], signal);
@@ -139,6 +146,9 @@ export class GitHistoryRepository {
 
   /** Commit OID → tree OID, read from the commits alone so tree objects are never required. */
   async readTreeOids(commitOids: readonly string[], signal: AbortSignal): Promise<ReadonlyMap<string, string>> {
+    if (commitOids.length === 0) {
+      return new Map();
+    }
     const args = ["log", ...LOG_OUTPUT_OPTIONS, "--no-walk=unsorted", "--format=%H %T", "--stdin"];
     const result = await this.git(args, signal, revisionInput([...new Set(commitOids)]));
     return new Map(lines(result.stdout).map((line) => {

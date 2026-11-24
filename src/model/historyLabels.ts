@@ -7,7 +7,14 @@ export function shortHash(oid: string): string {
   return oid.slice(0, SHORT_HASH_LENGTH);
 }
 
-/** Plain-text name of the tree a comparison starts from: a short hash or `empty tree`. */
+/** Plain-text name of the tree a comparison starts from: a short hash, `empty tree` or `index`. */
 export function describeResolvedBase(base: ResolvedBase): string {
-  return base.kind === "commit" ? shortHash(base.oid) : "empty tree";
+  switch (base.kind) {
+    case "commit":
+      return shortHash(base.oid);
+    case "emptyTree":
+      return "empty tree";
+    case "index":
+      return "index";
+  }
 }

@@ -8,6 +8,7 @@ import { HistoryGitError } from "../git/historyGitCommand";
 import { HistoryReplayStorageError, replaySelection, runPrivateGit } from "../git/gitSelectionReplay";
 import type { ReplayBlockedResult, ReplayResult, ReplaySession } from "../git/gitSelectionReplay";
 import type { BaseSelection, MainlineChoice } from "../model/historyTypes";
+import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
 import {
   captureRepositoryState,
   commitFiles,
@@ -323,5 +324,99 @@ describe("replaySelection", () => {
     } finally {
       watcher.close();
     }
+  });
+
+  describe("with working changes", () => {
+    function writeFile(filePath: string, content: string): void {
+      fs.writeFileSync(path.join(fixture.root, filePath), content);
+    }
+
+    /** Stages a.txt, changes b.txt on disk, deletes c.txt and adds an untracked new.txt. */
+    function workingChanges(): void {
+      writeFile("a.txt", "staged\n");
+      git("add", "a.txt");
+      writeFile("b.txt", "unstaged\n");
+      fs.rmSync(path.join(fixture.root, "c.txt"));
+      writeFile("new.txt", "untracked\n");
+    }
+
+    async function resultBlob(session: ReplaySession, filePath: string): Promise<string> {
+      const blob = await runPrivateGit(session.repository, ["cat-file", "blob", `${session.resultTreeOid}:${filePath}`], signal);
+      return blob.stdout.toString("utf8");
+    }
+
+    it("replays staged then unstaged changes onto HEAD", async () => {
+      const [, , , d] = linearHistory();
+      workingChanges();
+
+      const session = await replayed(await resolve([UNSTAGED_CHANGES_ID, STAGED_CHANGES_ID]));
+
+      expect(session.baseTreeOid).toBe(treeOf(d));
+      expect(await resultPaths(session)).toEqual(["a.txt", "b.txt", "d.txt", "new.txt"]);
+      expect(await resultBlob(session, "a.txt")).toBe("staged\n");
+      expect(await resultBlob(session, "b.txt")).toBe("unstaged\n");
+    });
+
+    it("replays staged changes alone onto HEAD", async () => {
+      linearHistory();
+      workingChanges();
+
+      const session = await replayed(await resolve([STAGED_CHANGES_ID]));
+
+      expect(await resultPaths(session)).toEqual(["a.txt", "b.txt", "c.txt", "d.txt"]);
+      expect(await resultBlob(session, "a.txt")).toBe("staged\n");
+      expect(await resultBlob(session, "b.txt")).toBe("b\n");
+    });
+
+    it("starts unstaged changes alone from the index", async () => {
+      linearHistory();
+      workingChanges();
+
+      const session = await replayed(await resolve([UNSTAGED_CHANGES_ID]));
+
+      const base = await runPrivateGit(session.repository, ["cat-file", "blob", `${session.baseTreeOid}:a.txt`], signal);
+      expect(base.stdout.toString("utf8")).toBe("staged\n");
+      expect(await resultPaths(session)).toEqual(["a.txt", "b.txt", "d.txt", "new.txt"]);
+    });
+
+    it("replays working changes after selected commits that are not ancestors of HEAD", async () => {
+      const a = commit("A", write("a.txt", "a\n"));
+      git("switch", "-q", "-c", "side");
+      const side = commit("Side", write("side.txt", "side\n"));
+      git("switch", "-q", "main");
+      commit("B", write("b.txt", "b\n"));
+      writeFile("a.txt", "unstaged\n");
+
+      const session = await replayed(await resolve([side, UNSTAGED_CHANGES_ID], pinned(a)));
+
+      expect(await resultPaths(session)).toEqual(["a.txt", "side.txt"]);
+      expect(await resultBlob(session, "a.txt")).toBe("unstaged\n");
+    });
+
+    it("blocks at the staged changes when they conflict with a replayed commit", async () => {
+      const a = commit("A", write("f.txt", "base\n"));
+      git("switch", "-q", "-c", "side");
+      const side = commit("Side", write("f.txt", "side\n"));
+      git("switch", "-q", "main");
+      writeFile("f.txt", "staged\n");
+      git("add", "f.txt");
+
+      const result = await blocked(await resolve([side, STAGED_CHANGES_ID], pinned(a)));
+
+      expect(result.failingOid).toBe(STAGED_CHANGES_ID);
+      expect(result.paths).toEqual(["f.txt"]);
+      expect(result.explanation).toMatch(/^Staged changes conflict/);
+      expect(temporaryEntries()).toEqual([]);
+    });
+
+    it("writes no objects into the source for content that exists only on disk", async () => {
+      linearHistory();
+      workingChanges();
+      const objectsBefore = git("count-objects");
+
+      await replayed(await resolve([STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID]));
+
+      expect(git("count-objects")).toBe(objectsBefore);
+    });
   });
 });

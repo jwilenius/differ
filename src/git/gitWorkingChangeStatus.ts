@@ -6,9 +6,15 @@ import type { HistoryGitResult } from "./historyGitCommand";
 
 /**
  * Global options for every working-tree read: no optional index refresh (so the index is never locked or rewritten)
- * and no file-system monitor daemon started on the user's behalf.
+ * and no file-system monitor daemon started on the user's behalf, including through the older built-in setting.
  */
-export const WORKING_TREE_READ_OPTIONS = ["--no-optional-locks", "-c", "core.fsmonitor=false"] as const;
+export const WORKING_TREE_READ_OPTIONS = [
+  "--no-optional-locks",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.useBuiltinFSMonitor=false",
+] as const;
 
 const SPACE_BYTE = 0x20;
 const NO_CHANGE = ".";

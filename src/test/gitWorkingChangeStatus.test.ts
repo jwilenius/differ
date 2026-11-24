@@ -118,6 +118,18 @@ describe("readWorkingChangeSummary", () => {
     expect(await summary()).toEqual({ ...CLEAN, unstaged: limit, untracked: limit, isTruncated: true });
   });
 
+  it("turns off both the configured and the built-in file-system monitor for every read", async () => {
+    const trace = path.join(fixture.directory, "trace.txt");
+
+    await readWorkingChangeSummary(fixture.root, signal, { ...fixtureGitEnvironment(), GIT_TRACE2: trace });
+
+    const commands = fs.readFileSync(trace, "utf8").split("\n").filter((line) => line.includes(" start git "));
+    expect(commands.some((line) => line.includes(" status "))).toBe(true);
+    for (const line of commands) {
+      expect(line).toContain("-c core.fsmonitor=false -c core.useBuiltinFSMonitor=false");
+    }
+  });
+
   it("is null for a bare repository", async () => {
     const bare = path.join(fixture.directory, "bare.git");
     runFixtureGit(fixture.directory, ["clone", "-q", "--bare", fixture.root, bare]);

@@ -1,13 +1,17 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { privateStorage } from "./gitReplayStorage";
+import type { PrivateRepository } from "./gitReplayStorage";
 import { runHistoryGit } from "./historyGitCommand";
 import type { HistoryGitResult } from "./historyGitCommand";
 import type { ReplayStep, ReplayTree, ResolvedHistoryComparison } from "./historyComparisonResolver";
 
+export { HistoryReplayStorageError } from "./gitReplayStorage";
+export type { PrivateRepository } from "./gitReplayStorage";
+
 const TEMPORARY_PREFIX = "jw-differ-replay-";
 const CLEANUP_RETRIES = 3;
-const STORAGE_FAILURE_MESSAGE = "Could not prepare a temporary repository for the comparison.";
 const QUOTE_BYTE = 0x22;
 const BACKSLASH_BYTE = 0x5c;
 const NEWLINE_BYTE = 0x0a;
@@ -44,29 +48,21 @@ const CONFLICT_EXPLANATION = "This commit's changes conflict with the changes re
 const APPLY_FAILED_EXPLANATION = "This commit's changes could not be applied to the files replayed before it. "
   + "Change the selection, base or merge parent and compare again.";
 
-/** A filesystem step on private files failed; `message` is safe to show, `detail` names private paths for logging. */
-export class HistoryReplayStorageError extends Error {
-  constructor(readonly detail: string) {
-    super(STORAGE_FAILURE_MESSAGE);
-    this.name = "HistoryReplayStorageError";
-  }
-}
-
-/** A private bare repository plus the environment that confines Git to it. */
-export interface PrivateRepository {
-  /** Owns the repository and its index; redacted from user-facing messages. */
-  readonly temporaryDirectory: string;
-  readonly gitDirectory: string;
-  /** Complete child environment: sanitized, with `GIT_DIR` and `GIT_INDEX_FILE` pointing into the private files. */
-  readonly env: NodeJS.ProcessEnv;
-}
-
 /** A completed replay whose trees stay readable until `dispose`. */
 export interface ReplaySession {
   readonly repository: PrivateRepository;
   readonly baseTreeOid: string;
   readonly resultTreeOid: string;
   /** Deletes the private repository; repeated calls are harmless. */
+  dispose(): Promise<void>;
+}
+
+/** A fresh private repository and how to delete it. */
+export interface PrivateWorkspace {
+  readonly repository: PrivateRepository;
+  /** The source repository's object format, `sha1` or `sha256`. */
+  readonly objectFormat: string;
+  /** Deletes the temporary directory; repeated calls are harmless. */
   dispose(): Promise<void>;
 }
 
@@ -126,16 +122,9 @@ export async function replaySelection(
   signal: AbortSignal,
   options: ReplayOptions = {},
 ): Promise<ReplayResult> {
-  const source = await readSourceStorage(root, signal, options.env);
-  const temporaryParent = options.temporaryParent ?? os.tmpdir();
-  const createdDirectory = await privateStorage(() => fs.mkdtemp(path.join(temporaryParent, TEMPORARY_PREFIX)));
-  const dispose = (): Promise<void> => removeDirectory(createdDirectory);
-
+  const { repository, dispose } = await createPrivateWorkspace(root, signal, options);
   let isKept = false;
   try {
-    // Git prints resolved paths, so redaction must match the real path rather than a symlinked temporary parent.
-    const temporaryDirectory = await privateStorage(() => fs.realpath(createdDirectory));
-    const repository = await initializePrivateRepository(temporaryDirectory, source, signal, options.env);
     const outcome = await replaySteps(repository, comparison, signal);
     if (outcome.kind === "blocked") {
       return outcome;
@@ -149,6 +138,31 @@ export async function replaySelection(
       // A cleanup failure must not replace the result or the error that got here.
       await dispose().catch((error: unknown) => options.onCleanupError?.(error));
     }
+  }
+}
+
+/**
+ * Creates an empty private repository in a new temporary directory that borrows the objects of the repository at
+ * `root` read-only. Nothing is left on disk when this fails; otherwise the caller must `dispose` it.
+ */
+export async function createPrivateWorkspace(
+  root: string,
+  signal: AbortSignal,
+  options: ReplayOptions = {},
+): Promise<PrivateWorkspace> {
+  const source = await readSourceStorage(root, signal, options.env);
+  const temporaryParent = options.temporaryParent ?? os.tmpdir();
+  const createdDirectory = await privateStorage(() => fs.mkdtemp(path.join(temporaryParent, TEMPORARY_PREFIX)));
+  const dispose = (): Promise<void> => removeDirectory(createdDirectory);
+
+  try {
+    // Git prints resolved paths, so redaction must match the real path rather than a symlinked temporary parent.
+    const temporaryDirectory = await privateStorage(() => fs.realpath(createdDirectory));
+    const repository = await initializePrivateRepository(temporaryDirectory, source, signal, options.env);
+    return { repository, objectFormat: source.objectFormat, dispose };
+  } catch (error) {
+    await dispose().catch((cleanupError: unknown) => options.onCleanupError?.(cleanupError));
+    throw error;
   }
 }
 
@@ -332,15 +346,6 @@ function unique(values: readonly string[]): readonly string[] {
 
 function withoutFinalNewline(output: Buffer): Buffer {
   return output.at(-1) === NEWLINE_BYTE ? output.subarray(0, -1) : output;
-}
-
-/** Runs a filesystem step on private files, replacing its error, whose message names private paths. */
-async function privateStorage<T>(operation: () => Promise<T>): Promise<T> {
-  try {
-    return await operation();
-  } catch (error) {
-    throw new HistoryReplayStorageError(error instanceof Error ? error.message : String(error));
-  }
 }
 
 function removeDirectory(directory: string): Promise<void> {

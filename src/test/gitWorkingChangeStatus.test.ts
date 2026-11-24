@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseStatus, readWorkingChangeSummary } from "../git/gitWorkingChangeStatus";
 import { WORKING_CHANGE_PATH_LIMIT } from "../model/historyWorkingChanges";
-import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
+import type { WorkingChangeCounts } from "../model/historyWorkingChanges";
 import {
   captureRepositoryState,
   commitFiles,
@@ -15,7 +15,7 @@ import {
 import type { HistoryRepositoryFixture } from "./gitHistoryFixture";
 
 const signal = new AbortController().signal;
-const CLEAN: WorkingChangeSummary = { staged: 0, unstaged: 0, untracked: 0, conflicted: 0, isTruncated: false };
+const CLEAN: WorkingChangeCounts = { staged: 0, unstaged: 0, untracked: 0, conflicted: 0, isTruncated: false };
 
 describe("readWorkingChangeSummary", () => {
   let fixture: HistoryRepositoryFixture;
@@ -45,8 +45,14 @@ describe("readWorkingChangeSummary", () => {
     fs.writeFileSync(path.join(fixture.root, filePath), content);
   }
 
-  function summary(root = fixture.root): Promise<WorkingChangeSummary | null> {
-    return readWorkingChangeSummary(root, signal, fixtureGitEnvironment());
+  /** The counts of a summary read; its content key is tested on its own. */
+  async function summary(root = fixture.root): Promise<WorkingChangeCounts | null> {
+    const read = await readWorkingChangeSummary(root, signal, fixtureGitEnvironment());
+    if (read === null) {
+      return null;
+    }
+    const { contentKey: _contentKey, ...counts } = read;
+    return counts;
   }
 
   it("counts nothing in a clean working tree", async () => {
@@ -149,6 +155,44 @@ describe("readWorkingChangeSummary", () => {
     expect(captureRepositoryState(fixture.root)).toEqual(before);
     expect(fs.existsSync(path.join(fixture.root, ".git", "index.lock"))).toBe(false);
   });
+
+  describe("content key", () => {
+    async function contentKey(): Promise<string | undefined> {
+      return (await readWorkingChangeSummary(fixture.root, signal, fixtureGitEnvironment()))?.contentKey;
+    }
+
+    function rewrite(filePath: string, content: string, modified: Date): void {
+      writeFile(filePath, content);
+      fs.utimesSync(path.join(fixture.root, filePath), modified, modified);
+    }
+
+    it("stays the same while nothing changes", async () => {
+      rewrite("a.txt", "one\n", new Date("2021-01-01T00:00:00Z"));
+      writeFile("new.txt", "new\n");
+
+      expect(await contentKey()).toBe(await contentKey());
+    });
+
+    it("changes when a changed file is rewritten without changing the counts", async () => {
+      rewrite("a.txt", "one\n", new Date("2021-01-01T00:00:00Z"));
+      const first = await contentKey();
+
+      rewrite("a.txt", "two\n", new Date("2021-01-02T00:00:00Z"));
+
+      expect(await contentKey()).not.toBe(first);
+    });
+
+    it("changes when other content is staged for the same file", async () => {
+      writeFile("a.txt", "one\n");
+      git("add", "a.txt");
+      const first = await contentKey();
+
+      writeFile("a.txt", "two\n");
+      git("add", "a.txt");
+
+      expect(await contentKey()).not.toBe(first);
+    });
+  });
 });
 
 describe("parseStatus", () => {
@@ -167,20 +211,20 @@ describe("parseStatus", () => {
     ));
 
     expect(status.worktreePaths.map(String)).toEqual(["with space.txt", "new name.txt", "untracked file.txt"]);
-    expect(status.summary).toEqual({ staged: 1, unstaged: 3, untracked: 1, conflicted: 0, isTruncated: false });
+    expect(status.counts).toEqual({ staged: 1, unstaged: 3, untracked: 1, conflicted: 0, isTruncated: false });
   });
 
   it("keeps both sides of a file renamed in the working tree", () => {
     const status = parseStatus(records(`2 .R N... ${OIDS} R100 new name.txt`, "old name.txt"));
 
     expect(status.worktreePaths.map(String)).toEqual(["new name.txt", "old name.txt"]);
-    expect(status.summary).toEqual({ ...CLEAN, unstaged: 1 });
+    expect(status.counts).toEqual({ ...CLEAN, unstaged: 1 });
   });
 
   it("ignores content changes inside a submodule but counts a staged gitlink", () => {
     const status = parseStatus(records(`1 MM SCM. ${OIDS} module`));
 
     expect(status.worktreePaths).toEqual([]);
-    expect(status.summary).toEqual({ ...CLEAN, staged: 1 });
+    expect(status.counts).toEqual({ ...CLEAN, staged: 1 });
   });
 });

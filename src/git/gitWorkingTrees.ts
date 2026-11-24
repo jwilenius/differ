@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { readWorkingChangeStatus, WORKING_TREE_READ_OPTIONS } from "./gitWorkingChangeStatus";
-import type { WorkingChangeStatus, WorkingTreeGit } from "./gitWorkingChangeStatus";
+import type { WorkingTreeGit } from "./gitWorkingChangeStatus";
 import { HistoryGitError, runHistoryGit, sourceRepositoryEnvironment } from "./historyGitCommand";
 import type { HistoryGitResult } from "./historyGitCommand";
 import { privateStorage } from "./gitReplayStorage";
@@ -35,6 +35,8 @@ export interface WorkingTrees {
   readonly indexTreeOid: string;
   /** Null unless requested. */
   readonly worktreeTreeOid: string | null;
+  /** More paths changed than status lists, so the tree of the files on disk may leave changes out. */
+  readonly isWorktreeIncomplete: boolean;
 }
 
 /** Which repository's working tree to read, and what to build from it. */
@@ -68,22 +70,25 @@ export async function writeWorkingTrees(
 ): Promise<WorkingTrees> {
   const sourceIndex = await readSourceIndexPath(source, signal);
   const staged = indexCopy(repository, source, STAGED_INDEX_NAME, signal);
-  const status = await readCopiedStatus(sourceIndex, staged);
-  if (status.conflictedPaths.length > 0) {
-    await keepOurSide(staged, source.objectFormat);
-  }
+  // Status reads the conflicts before they are resolved; it is needed only for the tree of the files on disk.
+  const { status, conflictedPaths } = await readCopiedIndex(sourceIndex, staged, async () => ({
+    status: source.isWorktreeIncluded ? await readWorkingChangeStatus(staged.read) : null,
+    conflictedPaths: await keepOurSide(staged, source.objectFormat),
+  }));
   const indexTreeOid = await writeTree(staged);
-  if (!source.isWorktreeIncluded) {
-    return { indexTreeOid, worktreeTreeOid: null };
+  if (status === null) {
+    return { indexTreeOid, worktreeTreeOid: null, isWorktreeIncomplete: false };
   }
 
   const worktree = indexCopy(repository, source, WORKTREE_INDEX_NAME, signal);
   await copyIndex(Buffer.from(staged.file), worktree.file);
-  if (status.worktreePaths.length > 0) {
-    const pathInput = Buffer.concat(status.worktreePaths.flatMap((entry) => [entry, Buffer.from([0])]));
+  // Status stops at its path limit; only the index lists every conflict past it.
+  const worktreePaths = uniquePaths([...status.worktreePaths, ...conflictedPaths]);
+  if (worktreePaths.length > 0) {
+    const pathInput = Buffer.concat(worktreePaths.flatMap((entry) => [entry, Buffer.from([0])]));
     await worktree.git(["update-index", "-z", "--add", "--remove", "--replace", "--stdin"], pathInput);
   }
-  return { indexTreeOid, worktreeTreeOid: await writeTree(worktree) };
+  return { indexTreeOid, worktreeTreeOid: await writeTree(worktree), isWorktreeIncomplete: status.counts.isTruncated };
 }
 
 async function readSourceIndexPath(source: WorkingTreeSource, signal: AbortSignal): Promise<Buffer> {
@@ -123,20 +128,19 @@ function indexCopy(repository: PrivateRepository, source: WorkingTreeSource, nam
 }
 
 /**
- * Copies the source index and reads the working tree's status against the copy. Git replaces the index by renaming a
- * new file over it, but a copy taken mid-write elsewhere could still be unreadable, so one failed read is retried with
- * a fresh copy.
+ * Copies the source index and runs `read` against the copy. Git replaces the index by renaming a new file over it, but
+ * a copy taken mid-write elsewhere could still be unreadable, so one failed read is retried with a fresh copy.
  */
-async function readCopiedStatus(sourceIndex: Buffer, copy: IndexCopy): Promise<WorkingChangeStatus> {
+async function readCopiedIndex<T>(sourceIndex: Buffer, copy: IndexCopy, read: () => Promise<T>): Promise<T> {
   await copyIndex(sourceIndex, copy.file);
   try {
-    return await readWorkingChangeStatus(copy.read);
+    return await read();
   } catch (error) {
     if (!(error instanceof HistoryGitError && error.kind === "failed")) {
       throw error;
     }
     await copyIndex(sourceIndex, copy.file);
-    return readWorkingChangeStatus(copy.read);
+    return read();
   }
 }
 
@@ -154,18 +158,30 @@ async function copyIndex(from: Buffer, to: string): Promise<void> {
   });
 }
 
-/** Replaces each conflicted path's stages with HEAD's side (stage 2), or removes it when HEAD's side deleted it. */
-async function keepOurSide(copy: IndexCopy, objectFormat: string): Promise<void> {
+/**
+ * Replaces each conflicted path's stages with HEAD's side (stage 2), or removes it when HEAD's side deleted it.
+ * Returns the conflicted paths.
+ */
+async function keepOurSide(copy: IndexCopy, objectFormat: string): Promise<readonly Buffer[]> {
   const unmerged = await copy.git(["ls-files", "-z", "--unmerged"]);
   const zeroOid = "0".repeat(objectFormat === SHA256_FORMAT ? SHA256_HEX_LENGTH : SHA1_HEX_LENGTH);
   const entries = nulRecords(unmerged.stdout).map(parseUnmergedEntry);
-  const paths = [...new Map(entries.map((entry) => [entry.path.toString("latin1"), entry.path])).values()];
+  const paths = uniquePaths(entries.map((entry) => entry.path));
+  if (paths.length === 0) {
+    return paths;
+  }
 
   const removals = paths.map((entryPath) => indexInfoLine(`0 ${zeroOid}`, entryPath));
   const ours = entries
     .filter((entry) => entry.stage === OURS_STAGE)
     .map((entry) => indexInfoLine(`${entry.mode} ${entry.oid}`, entry.path));
   await copy.git(["update-index", "-z", "--index-info"], Buffer.concat([...removals, ...ours]));
+  return paths;
+}
+
+/** Raw paths in their first order, each once. */
+function uniquePaths(paths: readonly Buffer[]): readonly Buffer[] {
+  return [...new Map(paths.map((entry) => [entry.toString("latin1"), entry])).values()];
 }
 
 interface UnmergedEntry {

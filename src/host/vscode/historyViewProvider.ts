@@ -7,13 +7,14 @@ import { CHECKED_OUT_BRANCH, isPickedBranch, resolveBranchChoice } from "../../m
 import type { BranchFilter } from "../../model/historyBranchFilter";
 import { HistoryController } from "../../model/historyController";
 import { shortHash } from "../../model/historyLabels";
-import type { HistoryRepository, HistoryState } from "../../model/historyTypes";
+import type { HistoryData, HistoryRepository, HistoryState } from "../../model/historyTypes";
 import { isWorkingChangeId, WORKING_CHANGE_REPLAY_ORDER, workingChangeLabel } from "../../model/historyWorkingChanges";
 import type { WorkingChangeId } from "../../model/historyWorkingChanges";
 import { VisibleCommitCache, visibleWorkingChangeIds } from "../../model/historyVisibility";
 import type { CommitFilter } from "../../model/historyVisibility";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../../render/html/historyRenderer";
 import type { HistoryPage, HistoryPageContext, HistoryPresentation } from "../../render/html/historyRenderer";
+import { GitIndexWatchers } from "./gitIndexWatchers";
 import type { HistoryFileOpener } from "./historyDiffProvider";
 import { parseHistoryMessage } from "./historyMessages";
 import type { HistoryMessage } from "./historyMessages";
@@ -27,6 +28,8 @@ export const OPEN_HISTORY_COMMAND = "jwDiffer.openHistory";
 export const FOCUS_HISTORY_VIEW_COMMAND = `${HISTORY_VIEW_ID}.focus`;
 /** Quiet period after a selection, base or merge-parent change before comparing. */
 export const COMPARE_DELAY_MS = 150;
+/** Quiet period after a save, an index change or the window gaining focus before the working changes are read again. */
+export const WORKING_REFRESH_DELAY_MS = 300;
 /** `jwDiffer.*` setting capping the commits each history load reads; bounds extension-host memory on large repositories. */
 export const MAX_COMMITS_SETTING = "historyMaxCommits";
 export const DEFAULT_MAX_COMMITS = 20_000;
@@ -40,6 +43,10 @@ export const COMPARISON_CHANGED_MESSAGE = "This comparison has changed — open 
 
 /** Port implementation the provider owns per repository root; disposal resolves once private files are gone. */
 export interface ClosableHistoryRepository extends HistoryRepository {
+  /** Absolute path of the index file, watched so staging or committing elsewhere refreshes the working changes. */
+  findIndexFile(): Promise<string>;
+  /** The commit HEAD names now, null while unborn; a working-change refresh reloads the history when it moved. */
+  readHeadOid(): Promise<string | null>;
   dispose(): Promise<void>;
 }
 
@@ -121,11 +128,17 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private readonly workspaceSubscription: vscode.Disposable;
   private readonly configurationSubscription: vscode.Disposable;
   private readonly openedFileSubscription: vscode.Disposable;
+  /** The active repository's index; working-change rows also refresh on saves and when the window gains focus. */
+  private readonly indexWatchers = new GitIndexWatchers(() => this.scheduleWorkingRefresh());
+  private readonly workingChangeTriggers: vscode.Disposable;
+  private workingRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly createRepository: NonNullable<HistoryViewProviderOptions["createRepository"]>;
   private readonly findRepositoryRoot: RepositoryRootFinder;
   private view: vscode.WebviewView | undefined;
   private viewSubscriptions: vscode.Disposable[] = [];
   private active: HistorySession | undefined;
+  /** The HEAD commit each history was loaded for while it names no HEAD, so such a HEAD reloads only once. */
+  private readonly unnamedHeadOids = new WeakMap<HistoryData, string>();
   /** The one discovery running; calls made meanwhile mark it stale so it runs once more with current folders. */
   private discovery: Promise<void> | undefined;
   private isDiscoveryStale = false;
@@ -157,6 +170,15 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       }
     });
     this.openedFileSubscription = options.fileOpener.onDidChangeOpenedFile(() => this.publish());
+    this.workingChangeTriggers = vscode.Disposable.from(
+      this.indexWatchers,
+      vscode.workspace.onDidSaveTextDocument(() => this.scheduleWorkingRefresh()),
+      vscode.window.onDidChangeWindowState((state) => {
+        if (state.focused) {
+          this.scheduleWorkingRefresh();
+        }
+      }),
+    );
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -167,7 +189,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       view.webview.onDidReceiveMessage((message: unknown) => void this.handleMessage(message)),
       view.onDidDispose(() => this.detachView()),
       view.onDidChangeVisibility(() => {
-        if (!view.visible) {
+        if (view.visible) {
+          // Refreshes are skipped while hidden.
+          this.scheduleWorkingRefresh();
+        } else {
           this.publish();
         }
       }),
@@ -202,6 +227,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     this.workspaceSubscription.dispose();
     this.configurationSubscription.dispose();
     this.openedFileSubscription.dispose();
+    this.workingChangeTriggers.dispose();
+    clearTimeout(this.workingRefreshTimer);
     const repositories = this.sessions.map((session) => {
       clearTimeout(session.compareTimer);
       session.controller.dispose();
@@ -288,13 +315,20 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   }
 
   private activate(session: HistorySession): void {
+    if (this.active !== undefined && this.active !== session) {
+      // The new index is watched once found; until then, and if it is never found, no other repository's is.
+      this.indexWatchers.watch([]);
+    }
     this.active = session;
+    void this.watchIndexOf(session);
     const state = session.controller.getState();
     const needsLoad = state.history === null && !state.operations.isLoading;
     if (needsLoad) {
       void this.load(session);
       return;
     }
+    // Its working changes went unread while another repository was shown.
+    this.scheduleWorkingRefresh();
     this.publish();
   }
 
@@ -348,11 +382,11 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     }
     const missingCount = selectedOids.filter((oid) => !isWorkingChangeId(oid) && !kept.includes(oid)).length;
     if (missingCount > 0) {
-      this.report(`${missingCount} selected commit(s) are no longer in the history of ${session.name}; they were deselected.`);
+      this.inform(`${missingCount} selected commit(s) are no longer in the history of ${session.name}; they were deselected.`);
     }
     const emptiedLabels = selectedOids.filter(isWorkingChangeId).filter((id) => !kept.includes(id)).map(workingChangeLabel);
     if (emptiedLabels.length > 0) {
-      this.report(`${emptiedLabels.join(" and ")} of ${session.name} no longer have changes; they were deselected.`);
+      this.inform(`${emptiedLabels.join(" and ")} of ${session.name} no longer have changes; they were deselected.`);
     }
     session.controller.setSelection(kept);
   }
@@ -371,7 +405,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const isPickedBranchGone = branch === null && isPickedBranch(branchChoice);
     session.presentation = {
       ...session.presentation,
-      focusedOid: focusedOid !== null && isLoaded(focusedOid) ? focusedOid : null,
+      focusedOid: focusedOid !== null && session.controller.isSelectable(focusedOid) ? focusedOid : null,
       branchChoice: isPickedBranchGone ? null : branchChoice,
       branch,
     };
@@ -575,6 +609,100 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     }, COMPARE_DELAY_MS);
   }
 
+  // --------------------------------------------------------- working changes
+
+  /** Watches the index of `session` while it is the active one. */
+  private async watchIndexOf(session: HistorySession): Promise<void> {
+    try {
+      const indexFile = await session.repository.findIndexFile();
+      if (this.active === session && !this.isDisposed) {
+        this.indexWatchers.watch([indexFile]);
+      }
+    } catch (error) {
+      this.logError(`Could not find the Git index of ${session.root}`, error);
+    }
+  }
+
+  /** Restarts the quiet period before rereading the active repository's working changes; none while hidden. */
+  private scheduleWorkingRefresh(): void {
+    clearTimeout(this.workingRefreshTimer);
+    if (this.isDisposed || !this.view?.visible) {
+      return;
+    }
+    this.workingRefreshTimer = setTimeout(() => {
+      this.workingRefreshTimer = undefined;
+      if (this.active) {
+        void this.refreshWorkingChanges(this.active);
+      }
+    }, WORKING_REFRESH_DELAY_MS);
+  }
+
+  /** Rereads the working changes of a loaded session; deselects and unfocuses emptied ones and compares again. */
+  private async refreshWorkingChanges(session: HistorySession): Promise<void> {
+    const before = session.controller.getState();
+    const isLoaded = before.history !== null && !before.operations.isLoading;
+    if (!isLoaded) {
+      // A load reads them too.
+      return;
+    }
+    const headOid = await this.readHeadOid(session);
+    const current = session.controller.getState();
+    if (current.operations.isLoading || current.history !== before.history) {
+      // A load that ran meanwhile reads, or read, them too.
+      return;
+    }
+    if (headOid !== undefined && this.hasHeadMoved(before.history, headOid)) {
+      if (this.active === session && !this.isDisposed) {
+        await this.load(session);
+        this.rememberUnnamedHead(session, before.history, headOid);
+      }
+      return;
+    }
+    await session.controller.refreshWorkingChanges();
+    const after = session.controller.getState();
+    const isUnchanged = after.workingChanges === before.workingChanges;
+    if (isUnchanged || this.isDisposed || this.active !== session) {
+      return;
+    }
+    this.deselectUnavailable(session, after.selectedOids);
+    const { focusedOid } = session.presentation;
+    if (focusedOid !== null && !session.controller.isSelectable(focusedOid)) {
+      session.presentation = { ...session.presentation, focusedOid: null };
+    }
+    this.scheduleCompare(session);
+    this.publish();
+  }
+
+  /** The commit HEAD names now, null while its branch has none; undefined, and logged, when the read fails. */
+  private async readHeadOid(session: HistorySession): Promise<string | null | undefined> {
+    try {
+      return await session.repository.readHeadOid();
+    } catch (error) {
+      this.logError(`Could not read HEAD of ${session.root}`, error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Whether HEAD at `headOid` names another commit than `history` records, as after a commit elsewhere. While `history`
+   * names no HEAD, as for one attached to a ref outside the list, it has moved once it names a commit, unless `history`
+   * was loaded for that commit.
+   */
+  private hasHeadMoved(history: HistoryData, headOid: string | null): boolean {
+    if (history.head !== null) {
+      return headOid !== history.head.oid;
+    }
+    return headOid !== null && this.unnamedHeadOids.get(history) !== headOid;
+  }
+
+  /** Records that the history reloaded for HEAD at `headOid` still names no HEAD; a failed reload records nothing. */
+  private rememberUnnamedHead(session: HistorySession, before: HistoryData, headOid: string | null): void {
+    const { history } = session.controller.getState();
+    if (history !== null && history !== before && history.head === null && headOid !== null) {
+      this.unnamedHeadOids.set(history, headOid);
+    }
+  }
+
   /** Publishes the synchronous state change now and the settled state once `operation` completes. */
   private async follow(operation: Promise<void>): Promise<void> {
     this.publish();
@@ -684,6 +812,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
   private report(message: string): void {
     this.options.log.appendLine(message);
     void vscode.window.showWarningMessage(message);
+  }
+
+  /** Logs and shows `message` as news rather than a problem, such as a selection following the repository. */
+  private inform(message: string): void {
+    this.options.log.appendLine(message);
+    void vscode.window.showInformationMessage(message);
   }
 
   private logInspectionError(directory: string, error: unknown): void {

@@ -61,6 +61,8 @@ export interface ReplaySession {
   readonly repository: PrivateRepository;
   readonly baseTreeOid: string;
   readonly resultTreeOid: string;
+  /** The files on disk had more changed paths than status lists, so the result may leave some of them out. */
+  readonly isIncomplete: boolean;
   /** Deletes the private repository; repeated calls are harmless. */
   dispose(): Promise<void>;
 }
@@ -118,6 +120,7 @@ interface ReplayedTrees {
   readonly kind: "replayed";
   readonly baseTreeOid: string;
   readonly resultTreeOid: string;
+  readonly isIncomplete: boolean;
 }
 
 /** One patch to apply: the change from `parentTreeOid` to `resultTreeOid`, reported as `id` when it blocks. */
@@ -155,8 +158,8 @@ export async function replaySelection(
     }
 
     isKept = true;
-    const { baseTreeOid, resultTreeOid } = outcome;
-    return { kind: "replayed", session: { repository, baseTreeOid, resultTreeOid, dispose } };
+    const { baseTreeOid, resultTreeOid, isIncomplete } = outcome;
+    return { kind: "replayed", session: { repository, baseTreeOid, resultTreeOid, isIncomplete, dispose } };
   } finally {
     if (!isKept) {
       // A cleanup failure must not replace the result or the error that got here.
@@ -308,7 +311,8 @@ async function replaySteps(
       return blocked;
     }
   }
-  return { kind: "replayed", baseTreeOid, resultTreeOid: await writeTree(repository, signal) };
+  const resultTreeOid = await writeTree(repository, signal);
+  return { kind: "replayed", baseTreeOid, resultTreeOid, isIncomplete: workingTrees?.isWorktreeIncomplete ?? false };
 }
 
 /** Selected commits in replay order, then the selected working changes. */

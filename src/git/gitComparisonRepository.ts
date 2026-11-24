@@ -77,6 +77,16 @@ export class GitComparisonRepository implements HistoryRepository {
     return this.run(signal, (linked) => readWorkingChangeSummary(this.root, linked, this.options.env));
   }
 
+  /** Absolute path of the repository's index file; only `dispose` cancels the read. */
+  findIndexFile(): Promise<string> {
+    return this.run(this.shutdown.signal, (linked) => this.history.readIndexPath(linked));
+  }
+
+  /** The commit HEAD names now, null while unborn; only `dispose` cancels the read. */
+  readHeadOid(): Promise<string | null> {
+    return this.run(this.shutdown.signal, (linked) => this.history.readHeadOid(linked));
+  }
+
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit> {
     return this.run(signal, (linked) => this.history.resolveRef(ref, linked));
   }
@@ -176,7 +186,8 @@ export class GitComparisonRepository implements HistoryRepository {
     const snapshotId = randomUUID();
     const filesById = new Map(files.map((file) => [file.id, file]));
     this.snapshots.set(snapshotId, { session, filesById, leaseCount: 0, isReleased: false });
-    return { kind: "ready", snapshotId, base: resolution.base, orderedOids: orderedOids(resolution), files };
+    const { base } = resolution;
+    return { kind: "ready", snapshotId, base, orderedOids: orderedOids(resolution), files, isIncomplete: session.isIncomplete };
   }
 
   private deleteIfUnused(snapshot: Snapshot): void {

@@ -324,6 +324,7 @@ let didChangeConfiguration = new EventEmitter<vscode.ConfigurationChangeEvent>()
 let didChangeExtensions = new EventEmitter<void>();
 let didChangeActiveColorTheme = new EventEmitter<{ readonly kind: ColorThemeKind }>();
 let didChangeWindowState = new EventEmitter<{ readonly focused: boolean }>();
+let didSaveTextDocument = new EventEmitter<vscode.TextDocument>();
 
 export function resetVscodeMock(): void {
   vscodeMock.commands.clear();
@@ -359,6 +360,7 @@ export function resetVscodeMock(): void {
   didChangeExtensions = new EventEmitter();
   didChangeActiveColorTheme = new EventEmitter();
   didChangeWindowState = new EventEmitter();
+  didSaveTextDocument = new EventEmitter();
 }
 
 /** Sets a setting by full key and reports it as changed, affecting that key and its enclosing sections. */
@@ -381,6 +383,10 @@ export function changeColorThemeKind(kind: ColorThemeKind): void {
 /** Reports the window gaining or losing focus. */
 export function changeWindowFocus(isFocused: boolean): void {
   didChangeWindowState.fire({ focused: isFocused });
+}
+
+export function fireDidSaveTextDocument(document: vscode.TextDocument): void {
+  didSaveTextDocument.fire(document);
 }
 
 export function fireDidCloseTextDocument(document: vscode.TextDocument): void {
@@ -493,6 +499,10 @@ export const workspace = {
 
   onDidCloseTextDocument(listener: Listener<vscode.TextDocument>, thisArgs?: unknown, disposables?: DisposableLike[]): Disposable {
     return didCloseTextDocument.event(listener, thisArgs, disposables);
+  },
+
+  onDidSaveTextDocument(listener: Listener<vscode.TextDocument>, thisArgs?: unknown, disposables?: DisposableLike[]): Disposable {
+    return didSaveTextDocument.event(listener, thisArgs, disposables);
   },
 
   onDidChangeWorkspaceFolders(

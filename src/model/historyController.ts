@@ -9,7 +9,7 @@ import type {
   HistoryState,
   MainlineChoice,
 } from "./historyTypes";
-import { isWorkingChangeId, presentWorkingChangeIds, workingChangeLabel } from "./historyWorkingChanges";
+import { isSameWorkingChangeSummary, isWorkingChangeId, presentWorkingChangeIds, workingChangeLabel } from "./historyWorkingChanges";
 import type { WorkingChangeSummary } from "./historyWorkingChanges";
 
 const AUTOMATIC_BASE: BaseSelection = { kind: "automatic" };
@@ -62,6 +62,7 @@ export class HistoryController {
   private readonly loading = new LatestOperation();
   private readonly baseResolution = new LatestOperation();
   private readonly comparing = new LatestOperation();
+  private readonly workingRefresh = new LatestOperation();
   private commitsByOid: ReadonlyMap<string, HistoryCommit> = new Map();
   private isDisposed = false;
   private state: HistoryState = {
@@ -97,17 +98,20 @@ export class HistoryController {
 
   /**
    * Reads metadata of at most `maxCommits` commits and the uncommitted changes; on failure the previous ones stay with
-   * a visible error.
+   * a visible error. A failed read of the uncommitted changes alone keeps their last counts and fails nothing; the
+   * repository reports it.
    */
   async load(maxCommits: number): Promise<void> {
     this.assertActive();
     const signal = this.loading.begin();
+    // The load reads the working changes too.
+    this.workingRefresh.cancel();
     this.update({ error: this.errorExcept("load") });
 
     try {
       const [history, workingChanges] = await Promise.all([
         this.repository.loadHistory(maxCommits, signal),
-        this.repository.readWorkingChanges(signal),
+        this.repository.readWorkingChanges(signal).catch(() => this.state.workingChanges),
       ]);
       if (!this.loading.complete(signal)) {
         return;
@@ -116,6 +120,26 @@ export class HistoryController {
       this.update({ history, ...this.withWorkingChanges(workingChanges) });
     } catch (error) {
       this.failIfCurrent(this.loading, signal, "load", error);
+    }
+  }
+
+  /**
+   * Rereads the uncommitted changes; a selection that includes them loses its comparison only when their counts or
+   * content changed. A failed read keeps the last counts; the repository reports it.
+   */
+  async refreshWorkingChanges(): Promise<void> {
+    this.assertActive();
+    const signal = this.workingRefresh.begin();
+    try {
+      const workingChanges = await this.repository.readWorkingChanges(signal);
+      if (!this.workingRefresh.complete(signal)) {
+        return;
+      }
+      if (!isSameWorkingChangeSummary(workingChanges, this.state.workingChanges)) {
+        this.update(this.withWorkingChanges(workingChanges));
+      }
+    } catch {
+      this.workingRefresh.complete(signal);
     }
   }
 
@@ -224,6 +248,7 @@ export class HistoryController {
     }
     this.isDisposed = true;
     this.loading.cancel();
+    this.workingRefresh.cancel();
     this.baseResolution.cancel();
     this.update(this.discardComparison());
   }
@@ -242,10 +267,11 @@ export class HistoryController {
     this.update({ ...this.discardComparison(), base, error: this.errorExcept("compare", "resolveBase") });
   }
 
-  /** Stores a new read; a comparison that includes working changes is stale, as their content may have changed. */
+  /** Stores a new read; a comparison that includes working changes is stale when they changed. */
   private withWorkingChanges(workingChanges: WorkingChangeSummary | null): Partial<HistoryState> {
-    const hasSelectedWorkingChange = this.state.selectedOids.some(isWorkingChangeId);
-    return hasSelectedWorkingChange ? { ...this.discardComparison(), workingChanges } : { workingChanges };
+    const isStale = this.state.selectedOids.some(isWorkingChangeId)
+      && !isSameWorkingChangeSummary(workingChanges, this.state.workingChanges);
+    return isStale ? { ...this.discardComparison(), workingChanges } : { workingChanges };
   }
 
   private comparisonRequest(): ComparisonRequest {

@@ -89,7 +89,7 @@ describe("VisibleCommitCache", () => {
 });
 
 describe("visibleWorkingChangeIds", () => {
-  const CHANGES: WorkingChangeSummary = { staged: 1, unstaged: 2, untracked: 0, conflicted: 0, isTruncated: false };
+  const CHANGES: WorkingChangeSummary = { staged: 1, unstaged: 2, untracked: 0, conflicted: 0, isTruncated: false, contentKey: "k1" };
   /** `feature` (F1) is checked out; `main` (C3) is not. */
   const CHECKED_OUT: HistoryData = {
     ...HISTORY,

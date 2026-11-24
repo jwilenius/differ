@@ -11,7 +11,7 @@ const C1 = "1".repeat(40);
 const C2 = "2".repeat(40);
 
 function summary(staged: number, unstaged: number): WorkingChangeSummary {
-  return { staged, unstaged, untracked: 0, conflicted: 0, isTruncated: false };
+  return { staged, unstaged, untracked: 0, conflicted: 0, isTruncated: false, contentKey: "k1" };
 }
 
 describe("presentWorkingChangeIds", () => {

@@ -486,7 +486,7 @@ describe("history client", () => {
   });
 
   describe("working-change rows", () => {
-    const workingChanges: WorkingChangeSummary = { staged: 1, unstaged: 2, untracked: 1, conflicted: 0, isTruncated: false };
+    const workingChanges: WorkingChangeSummary = { staged: 1, unstaged: 2, untracked: 1, conflicted: 0, isTruncated: false, contentKey: "k1" };
 
     it("selects a working-change row like a commit", () => {
       const webview = open({ workingChanges });
@@ -551,7 +551,7 @@ describe("history client", () => {
     }
 
     it("gives every working-change row and its cells a tooltip", () => {
-      const webview = open({ workingChanges: { staged: 1, unstaged: 2, untracked: 1, conflicted: 1, isTruncated: false } });
+      const webview = open({ workingChanges: { staged: 1, unstaged: 2, untracked: 1, conflicted: 1, isTruncated: false, contentKey: "k1" } });
       const rows = webview.document.querySelectorAll("tr.working-row");
       const filledCells = rows.flatMap((row) => row.descendants()).filter((element) => element.tagName === "TD" && element.childNodes.length > 0);
 

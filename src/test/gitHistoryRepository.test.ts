@@ -311,6 +311,21 @@ describe("GitHistoryRepository", () => {
     });
   });
 
+  describe("readIndexPath", () => {
+    it("names the index of the main and of a linked worktree", async () => {
+      commit("First");
+      const linked = path.join(fixture.directory, "linked");
+      runFixtureGit(fixture.root, ["worktree", "add", "-q", "--detach", linked]);
+      const linkedRepository = new GitHistoryRepository(linked, fixtureGitEnvironment());
+
+      const main = await repository.readIndexPath(signal);
+      const linkedIndex = await linkedRepository.readIndexPath(signal);
+
+      expect(fs.realpathSync(main)).toBe(fs.realpathSync(path.join(fixture.root, ".git", "index")));
+      expect(fs.realpathSync(linkedIndex)).toBe(fs.realpathSync(path.join(fixture.root, ".git", "worktrees", "linked", "index")));
+    });
+  });
+
   describe("readShallowOids", () => {
     it("is empty for a complete repository and lists the boundary of a shallow clone", async () => {
       commit("First");

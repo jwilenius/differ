@@ -65,6 +65,7 @@ function comparison(changes: Partial<ReadyResult> = {}): ReadyResult {
     base: { kind: "commit", oid: BASE_OID, subject: "base" },
     orderedOids: ["d".repeat(40), "e".repeat(40)],
     files: [],
+    isIncomplete: false,
     ...changes,
   };
 }

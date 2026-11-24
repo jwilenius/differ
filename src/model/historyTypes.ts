@@ -135,6 +135,8 @@ export interface ReadyResult {
   readonly orderedOids: readonly string[];
   /** Net base-to-result changes; empty when the selected changes cancel out. */
   readonly files: readonly ComparisonFile[];
+  /** Unstaged changes past `WORKING_CHANGE_PATH_LIMIT` changed paths are left out of `files`. */
+  readonly isIncomplete: boolean;
 }
 
 export type ComparisonResult = NeedsBaseResult | BlockedResult | ReadyResult;

@@ -15,7 +15,7 @@ export const WORKING_CHANGE_REPLAY_ORDER: readonly WorkingChangeId[] = [STAGED_C
 export const WORKING_CHANGE_PATH_LIMIT = 5_000;
 
 /** Changed-file counts of the working tree; every count stops at `WORKING_CHANGE_PATH_LIMIT` paths in total. */
-export interface WorkingChangeSummary {
+export interface WorkingChangeCounts {
   /** Files whose index entry differs from HEAD. */
   readonly staged: number;
   /** Files on disk that differ from the index, including untracked and conflicted ones. */
@@ -26,6 +26,12 @@ export interface WorkingChangeSummary {
   readonly conflicted: number;
   /** More changed paths exist than were read. */
   readonly isTruncated: boolean;
+}
+
+/** The counts of one read, with a key that tells whether the changes' content differs from another read's. */
+export interface WorkingChangeSummary extends WorkingChangeCounts {
+  /** Equal between two reads that found the same staged and unstaged content. */
+  readonly contentKey: string;
 }
 
 const LABELS: Readonly<Record<WorkingChangeId, string>> = {
@@ -44,6 +50,15 @@ export function workingChangeLabel(id: WorkingChangeId): string {
 /** How many files the pseudo-commit `id` changes. */
 export function workingChangeCount(summary: WorkingChangeSummary, id: WorkingChangeId): number {
   return id === STAGED_CHANGES_ID ? summary.staged : summary.unstaged;
+}
+
+/** Whether two reads found the same changes: the same counts and content. */
+export function isSameWorkingChangeSummary(a: WorkingChangeSummary | null, b: WorkingChangeSummary | null): boolean {
+  if (a === null || b === null) {
+    return a === b;
+  }
+  return a.staged === b.staged && a.unstaged === b.unstaged && a.untracked === b.untracked
+    && a.conflicted === b.conflicted && a.isTruncated === b.isTruncated && a.contentKey === b.contentKey;
 }
 
 /** Pseudo-commits with changes, in replay order; none without a summary. */

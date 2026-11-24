@@ -44,6 +44,8 @@ class FakeRepository implements HistoryRepository {
   /** Returned at once by every working-change read. */
   workingChanges: WorkingChangeSummary | null = null;
   workingReadCount = 0;
+  /** Rejects every working-change read while set. */
+  workingReadFailure: Error | null = null;
 
   loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData> {
     return this.record(this.loads, maxCommits, signal);
@@ -51,7 +53,7 @@ class FakeRepository implements HistoryRepository {
 
   readWorkingChanges(): Promise<WorkingChangeSummary | null> {
     this.workingReadCount += 1;
-    return Promise.resolve(this.workingChanges);
+    return this.workingReadFailure ? Promise.reject(this.workingReadFailure) : Promise.resolve(this.workingChanges);
   }
 
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit> {
@@ -101,6 +103,7 @@ function ready(snapshotId: string, base = A): ReadyResult {
     snapshotId,
     base: { kind: "commit", oid: base, subject: "base" },
     orderedOids: [],
+    isIncomplete: false,
     files: [{
       id: `${snapshotId}-file`,
       status: "added",
@@ -111,7 +114,7 @@ function ready(snapshotId: string, base = A): ReadyResult {
   };
 }
 
-const STAGED_ONLY: WorkingChangeSummary = { staged: 2, unstaged: 0, untracked: 0, conflicted: 0, isTruncated: false };
+const STAGED_ONLY: WorkingChangeSummary = { staged: 2, unstaged: 0, untracked: 0, conflicted: 0, isTruncated: false, contentKey: "k1" };
 
 async function loadedController(
   workingChanges: WorkingChangeSummary | null = null,
@@ -343,6 +346,19 @@ describe("HistoryController working changes", () => {
     expect(repository.workingReadCount).toBe(1);
   });
 
+  it("loads the history when the working changes cannot be read, keeping their last counts", async () => {
+    const { controller, repository } = await loadedController(STAGED_ONLY);
+    repository.workingReadFailure = new Error("output limit exceeded");
+
+    const loading = controller.load(MAX_COMMITS);
+    repository.loads.at(-1)!.reply.resolve(HISTORY);
+    await loading;
+
+    expect(controller.getState().error).toBeNull();
+    expect(controller.getState().history).toEqual(HISTORY);
+    expect(controller.getState().workingChanges).toEqual(STAGED_ONLY);
+  });
+
   it("selects a working change only while it has changes", async () => {
     const { controller } = await loadedController(STAGED_ONLY);
 
@@ -353,7 +369,7 @@ describe("HistoryController working changes", () => {
     expect(() => controller.setSelection([UNSTAGED_CHANGES_ID])).toThrow("There are no unstaged changes to select.");
   });
 
-  it("discards a comparison of working changes when they are read again, but keeps one of commits only", async () => {
+  it("discards a comparison of working changes when a reload finds them changed, but keeps one of commits only", async () => {
     const { controller, repository } = await loadedController(STAGED_ONLY);
     const commitsOnly = startCompare(controller, repository, [B]);
     commitsOnly.call.reply.resolve(ready("commits"));
@@ -364,16 +380,80 @@ describe("HistoryController working changes", () => {
       await loading;
     };
 
+    repository.workingChanges = { ...STAGED_ONLY, contentKey: "k2" };
     await reload();
     const kept = controller.getState().comparison;
     const working = startCompare(controller, repository, [STAGED_CHANGES_ID]);
     working.call.reply.resolve(ready("working"));
     await working.done;
     await reload();
+    const keptWorking = controller.getState().comparison;
+    repository.workingChanges = { ...STAGED_ONLY, contentKey: "k3" };
+    await reload();
 
     expect(kept).toEqual(ready("commits"));
+    expect(keptWorking).toEqual(ready("working"));
     expect(controller.getState().comparison).toBeNull();
     expect(repository.released).toEqual(["commits", "working"]);
+  });
+
+  describe("refreshWorkingChanges", () => {
+    it("stores changed counts", async () => {
+      const { controller, repository } = await loadedController(STAGED_ONLY);
+      repository.workingChanges = { ...STAGED_ONLY, unstaged: 1 };
+
+      await controller.refreshWorkingChanges();
+
+      expect(controller.getState().workingChanges).toEqual({ ...STAGED_ONLY, unstaged: 1 });
+      expect(repository.workingReadCount).toBe(2);
+    });
+
+    it("leaves the state alone when the counts are unchanged and none is selected", async () => {
+      const { controller, repository } = await loadedController(STAGED_ONLY);
+      const before = controller.getState();
+      repository.workingChanges = { ...STAGED_ONLY };
+
+      await controller.refreshWorkingChanges();
+
+      expect(controller.getState()).toBe(before);
+    });
+
+    it("discards a comparison of working changes whose content changed under the same counts", async () => {
+      const { controller, repository } = await loadedController(STAGED_ONLY);
+      const working = startCompare(controller, repository, [STAGED_CHANGES_ID]);
+      working.call.reply.resolve(ready("working"));
+      await working.done;
+      repository.workingChanges = { ...STAGED_ONLY, contentKey: "k2" };
+
+      await controller.refreshWorkingChanges();
+
+      expect(controller.getState().comparison).toBeNull();
+      expect(repository.released).toEqual(["working"]);
+    });
+
+    it("keeps a comparison of working changes whose content is unchanged", async () => {
+      const { controller, repository } = await loadedController(STAGED_ONLY);
+      const working = startCompare(controller, repository, [STAGED_CHANGES_ID]);
+      working.call.reply.resolve(ready("working"));
+      await working.done;
+      const before = controller.getState();
+      repository.workingChanges = { ...STAGED_ONLY };
+
+      await controller.refreshWorkingChanges();
+
+      expect(controller.getState()).toBe(before);
+      expect(repository.released).toEqual([]);
+    });
+
+    it("keeps the last counts when a read fails", async () => {
+      const { controller, repository } = await loadedController(STAGED_ONLY);
+      const before = controller.getState();
+      repository.workingReadFailure = new Error("index.lock exists");
+
+      await controller.refreshWorkingChanges();
+
+      expect(controller.getState()).toBe(before);
+    });
   });
 });
 

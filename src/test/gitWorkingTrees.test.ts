@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPrivateWorkspace, runPrivateGit } from "../git/gitSelectionReplay";
 import type { PrivateWorkspace } from "../git/gitSelectionReplay";
 import { writeWorkingTrees } from "../git/gitWorkingTrees";
@@ -14,6 +14,19 @@ import {
   runFixtureGit,
 } from "./gitHistoryFixture";
 import type { FixtureFileChange, HistoryRepositoryFixture, RepositoryState } from "./gitHistoryFixture";
+
+/** Status path limit, lowered by a test to read past it with a few files. */
+const pathLimit = vi.hoisted(() => ({ value: undefined as number | undefined }));
+
+vi.mock("../model/historyWorkingChanges", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../model/historyWorkingChanges")>();
+  return {
+    ...original,
+    get WORKING_CHANGE_PATH_LIMIT() {
+      return pathLimit.value ?? original.WORKING_CHANGE_PATH_LIMIT;
+    },
+  };
+});
 
 const signal = new AbortController().signal;
 const EMPTY_TREE_OID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -40,6 +53,7 @@ describe("writeWorkingTrees", () => {
   });
 
   afterEach(async () => {
+    pathLimit.value = undefined;
     await Promise.all(workspaces.splice(0).map((workspace) => workspace.dispose()));
     disposeHistoryRepository(fixture);
   });
@@ -132,6 +146,36 @@ describe("writeWorkingTrees", () => {
     const { trees } = await build(false);
 
     expect(trees.worktreeTreeOid).toBeNull();
+    expect(trees.isWorktreeIncomplete).toBe(false);
+  });
+
+  it("marks the tree of the files on disk incomplete only past the status path limit", async () => {
+    sampleChanges();
+    pathLimit.value = 4;
+    const { workspace, trees: atLimit } = await build();
+    pathLimit.value = 3;
+
+    const { trees: pastLimit } = await build();
+
+    expect(atLimit.isWorktreeIncomplete).toBe(false);
+    expect(await contents(workspace, atLimit.worktreeTreeOid))
+      .toEqual({ "a.txt": "staged\n", "b.txt": "unstaged\n", "new/d.txt": "untracked\n" });
+    expect(pastLimit.isWorktreeIncomplete).toBe(true);
+  });
+
+  it("reads no working-tree status when only the index tree is asked for", async () => {
+    sampleChanges();
+    const trace = path.join(fixture.directory, "trace.txt");
+    const env = { ...fixtureGitEnvironment(), GIT_TRACE: trace };
+    const workspace = await createPrivateWorkspace(fixture.root, signal, { env, temporaryParent });
+    workspaces.push(workspace);
+    const source = { root: fixture.root, env, objectFormat: workspace.objectFormat, isWorktreeIncluded: false };
+
+    await writeWorkingTrees(workspace.repository, source, signal);
+
+    const commands = fs.readFileSync(trace, "utf8");
+    expect(commands).toContain(" write-tree");
+    expect(commands).not.toContain(" status ");
   });
 
   it("turns off the built-in file-system monitor wherever it turns off the configured one", async () => {
@@ -220,6 +264,27 @@ describe("writeWorkingTrees", () => {
     expect(snapshotSource()).toEqual(before);
   });
 
+  it("resolves a conflict that status lists past its path limit", async () => {
+    commit("A", write("a.txt", "a\n"), write("b.txt", "b\n"), write("z.txt", "base\n"));
+    git("checkout", "-q", "-b", "side");
+    commit("side", write("z.txt", "side\n"));
+    git("checkout", "-q", "main");
+    commit("main", write("z.txt", "main\n"));
+    expect(() => git("merge", "-q", "side")).toThrow();
+    const conflicted = fs.readFileSync(path.join(fixture.root, "z.txt"), "utf8");
+    writeFile("a.txt", "changed\n");
+    writeFile("b.txt", "changed\n");
+    pathLimit.value = 2;
+    const before = snapshotSource();
+
+    const { workspace, trees } = await build();
+
+    expect(await contents(workspace, trees.indexTreeOid)).toEqual({ "a.txt": "a\n", "b.txt": "b\n", "z.txt": "main\n" });
+    expect(await contents(workspace, trees.worktreeTreeOid))
+      .toEqual({ "a.txt": "changed\n", "b.txt": "changed\n", "z.txt": conflicted });
+    expect(snapshotSource()).toEqual(before);
+  });
+
   it("builds trees on an unborn branch, and the empty tree without any index", async () => {
     const { trees: empty } = await build();
     writeFile("first.txt", "first\n");
@@ -227,7 +292,7 @@ describe("writeWorkingTrees", () => {
 
     const { workspace, trees } = await build();
 
-    expect(empty).toEqual({ indexTreeOid: EMPTY_TREE_OID, worktreeTreeOid: EMPTY_TREE_OID });
+    expect(empty).toEqual({ indexTreeOid: EMPTY_TREE_OID, worktreeTreeOid: EMPTY_TREE_OID, isWorktreeIncomplete: false });
     expect(await contents(workspace, trees.indexTreeOid)).toEqual({ "first.txt": "first\n" });
   });
 

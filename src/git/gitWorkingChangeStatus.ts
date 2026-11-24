@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { WORKING_CHANGE_PATH_LIMIT } from "../model/historyWorkingChanges";
-import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
+import type { WorkingChangeCounts, WorkingChangeSummary } from "../model/historyWorkingChanges";
 import { HistoryOutputError } from "./gitHistoryRepository";
 import { HistoryGitError, runHistoryGit } from "./historyGitCommand";
 import type { HistoryGitResult } from "./historyGitCommand";
@@ -35,7 +38,7 @@ export type WorkingTreeGit = (args: readonly string[], allowedExitCodes?: readon
 
 /** What `git status` reports about the working tree, with the paths needed to rebuild its trees. */
 export interface WorkingChangeStatus {
-  readonly summary: WorkingChangeSummary;
+  readonly counts: WorkingChangeCounts;
   /** Raw path bytes whose working-tree file differs from the index: changed, deleted, untracked or conflicted. */
   readonly worktreePaths: readonly Buffer[];
   /** Raw path bytes with unresolved merge conflicts. */
@@ -54,7 +57,7 @@ interface StatusTally {
 /**
  * Counts staged, unstaged, untracked and conflicted files of the repository at `root` without writing anything: the
  * index is read but never refreshed or locked. Null for a repository without a working tree, or whose status cannot
- * be read.
+ * be read. `root` must be the top level of the working tree, as status paths are relative to it.
  */
 export async function readWorkingChangeSummary(
   root: string,
@@ -70,7 +73,9 @@ export async function readWorkingChangeSummary(
   });
 
   try {
-    return (await readWorkingChangeStatus(git)).summary;
+    const output = await readStatusOutput(git);
+    const status = parseStatus(output);
+    return { ...status.counts, contentKey: await readContentKey(root, output, status.worktreePaths) };
   } catch (error) {
     if (error instanceof HistoryGitError && error.kind === "failed") {
       return null;
@@ -84,9 +89,38 @@ export async function readWorkingChangeSummary(
  * them off. Renames count once; submodule content changes are left out because their gitlinks stay as recorded.
  */
 export async function readWorkingChangeStatus(git: WorkingTreeGit): Promise<WorkingChangeStatus> {
+  return parseStatus(await readStatusOutput(git));
+}
+
+async function readStatusOutput(git: WorkingTreeGit): Promise<Buffer> {
   const untrackedMode = await readUntrackedMode(git);
   const result = await git(["status", "--porcelain=v2", "-z", `--untracked-files=${untrackedMode}`]);
-  return parseStatus(result.stdout);
+  return result.stdout;
+}
+
+/**
+ * Digest of the status output and of each changed file's size and change and modification times. Status names the
+ * index object of every staged file, so the digest changes with staged content; unstaged content is only stamped by
+ * the file times, which every write updates.
+ */
+async function readContentKey(root: string, statusOutput: Buffer, worktreePaths: readonly Buffer[]): Promise<string> {
+  const rootPrefix = Buffer.from(`${root}${path.sep}`);
+  const stamps = await Promise.all(worktreePaths.map((entry) => readFileStamp(Buffer.concat([rootPrefix, entry]))));
+  const digest = createHash("sha256").update(statusOutput);
+  for (const stamp of stamps) {
+    digest.update(`\0${stamp}`);
+  }
+  return digest.digest("hex");
+}
+
+/** A deleted file stamps as its error code. */
+async function readFileStamp(filePath: Buffer): Promise<string> {
+  try {
+    const stats = await fs.lstat(filePath, { bigint: true });
+    return `${stats.size} ${stats.mtimeNs} ${stats.ctimeNs}`;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code ?? "unreadable";
+  }
 }
 
 async function readUntrackedMode(git: WorkingTreeGit): Promise<"no" | "all"> {
@@ -121,7 +155,7 @@ export function parseStatus(output: Buffer): WorkingChangeStatus {
 
   const { staged, unstaged, untracked, worktreePaths, conflictedPaths } = tally;
   const conflicted = conflictedPaths.length;
-  return { summary: { staged, unstaged, untracked, conflicted, isTruncated }, worktreePaths, conflictedPaths };
+  return { counts: { staged, unstaged, untracked, conflicted, isTruncated }, worktreePaths, conflictedPaths };
 }
 
 function isChangeRecord(kind: string): boolean {

@@ -8,6 +8,7 @@ import {
   FOCUS_HISTORY_VIEW_COMMAND,
   HistoryViewProvider,
   OPEN_HISTORY_COMMAND,
+  WORKING_REFRESH_DELAY_MS,
 } from "../host/vscode/historyViewProvider";
 import type { ClosableHistoryRepository } from "../host/vscode/historyViewProvider";
 import type {
@@ -22,10 +23,19 @@ import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingC
 import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
 import { HISTORY_PAGE_SIZE } from "../render/html/historyRenderer";
 import type { HistoryPublicState, HistoryUpdate } from "../render/html/historyRenderer";
-import { changeConfiguration, changeWorkspaceFolders, createFakeWebviewView, resetVscodeMock, vscodeMock } from "./vscodeMock";
+import {
+  changeConfiguration,
+  changeWindowFocus,
+  changeWorkspaceFolders,
+  createFakeWebviewView,
+  fireDidSaveTextDocument,
+  resetVscodeMock,
+  vscodeMock,
+} from "./vscodeMock";
 import type { FakeWebviewView } from "./vscodeMock";
 
 const ROOT_A = "/work/alpha";
+const INDEX_FILE = `${ROOT_A}/.git/index`;
 const ROOT_B = "/work/beta";
 const C1 = "1".repeat(40);
 const C2 = "2".repeat(40);
@@ -70,6 +80,7 @@ function readyResult(request: ComparisonRequest): ReadyResult {
     snapshotId: SNAPSHOT_ID,
     base: { kind: "commit", oid: C1, subject: "Initial import" },
     orderedOids: request.selectedOids,
+    isIncomplete: false,
     files: [{
       id: FILE_ID,
       status: "modified",
@@ -96,7 +107,18 @@ class FakeRepository implements ClosableHistoryRepository {
   /** Returned by every working-change read. */
   workingChanges: WorkingChangeSummary | null = null;
   workingReadCount = 0;
+  headReadCount = 0;
+  /** Returned by every HEAD read instead of the history's HEAD, as for a HEAD attached to a ref outside the list. */
+  headOid: string | null | undefined = undefined;
+  /** Keeps every HEAD read running until `finishHeadReads`. */
+  isHeadReadHeld = false;
+  /** Keeps every history load running until `finishLoads`. */
+  isLoadHeld = false;
+  /** Returned, or thrown, by every index lookup. */
+  indexFile: string | Error = INDEX_FILE;
   private heldCompares: (() => void)[] = [];
+  private heldHeadReads: (() => void)[] = [];
+  private heldLoads: (() => void)[] = [];
 
   constructor(private history: HistoryData = HISTORY) {}
 
@@ -104,15 +126,44 @@ class FakeRepository implements ClosableHistoryRepository {
     this.history = history;
   }
 
-  loadHistory(maxCommits: number): Promise<HistoryData> {
+  async loadHistory(maxCommits: number): Promise<HistoryData> {
     this.loadCount += 1;
     this.loadCaps.push(maxCommits);
-    return this.loadFailure ? Promise.reject(this.loadFailure) : Promise.resolve(this.history);
+    if (this.isLoadHeld) {
+      await new Promise<void>((resolve) => this.heldLoads.push(resolve));
+    }
+    if (this.loadFailure) {
+      throw this.loadFailure;
+    }
+    return this.history;
+  }
+
+  finishLoads(): void {
+    this.heldLoads.forEach((resolve) => resolve());
+    this.heldLoads = [];
   }
 
   readWorkingChanges(): Promise<WorkingChangeSummary | null> {
     this.workingReadCount += 1;
     return Promise.resolve(this.workingChanges);
+  }
+
+  /** HEAD as the history the next load returns names it. */
+  async readHeadOid(): Promise<string | null> {
+    this.headReadCount += 1;
+    if (this.isHeadReadHeld) {
+      await new Promise<void>((resolve) => this.heldHeadReads.push(resolve));
+    }
+    return this.headOid !== undefined ? this.headOid : this.history.head?.oid ?? null;
+  }
+
+  finishHeadReads(): void {
+    this.heldHeadReads.forEach((resolve) => resolve());
+    this.heldHeadReads = [];
+  }
+
+  findIndexFile(): Promise<string> {
+    return this.indexFile instanceof Error ? Promise.reject(this.indexFile) : Promise.resolve(this.indexFile);
   }
 
   resolveRef(ref: string): Promise<HistoryCommit> {
@@ -1009,7 +1060,7 @@ describe("HistoryViewProvider", () => {
   });
 
   describe("working changes", () => {
-    const BOTH: WorkingChangeSummary = { staged: 1, unstaged: 2, untracked: 1, conflicted: 0, isTruncated: false };
+    const BOTH: WorkingChangeSummary = { staged: 1, unstaged: 2, untracked: 1, conflicted: 0, isTruncated: false, contentKey: "k1" };
 
     async function openWithWorkingChanges(workingChanges: WorkingChangeSummary): Promise<FakeRepository> {
       await open();
@@ -1075,6 +1126,325 @@ describe("HistoryViewProvider", () => {
       await send({ type: "presentation", search: "", branch: "refs/heads/feature", focusedOid: C3, rowLimit: 200 });
       expect(shownHtml(view)).not.toContain(`role="row" data-oid="${STAGED_CHANGES_ID}"`);
       expect(shownHtml(view)).toContain("2 hidden by filters");
+    });
+
+    describe("refresh", () => {
+      const SAVED = vscode.Uri.file(`${ROOT_A}/src/a.ts`);
+
+      function save(): void {
+        fireDidSaveTextDocument({ uri: SAVED } as vscode.TextDocument);
+      }
+
+      function indexWatcher(): (typeof vscodeMock.fileSystemWatchers)[number] {
+        return vscodeMock.fileSystemWatchers.at(-1)!;
+      }
+
+      async function waitOutQuietPeriod(): Promise<void> {
+        await vi.advanceTimersByTimeAsync(WORKING_REFRESH_DELAY_MS);
+        await settle();
+      }
+
+      it("reads the working changes once after a burst of saves goes quiet", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        const readsBefore = repository.workingReadCount;
+
+        save();
+        await vi.advanceTimersByTimeAsync(WORKING_REFRESH_DELAY_MS - 1);
+        save();
+        save();
+        await vi.advanceTimersByTimeAsync(WORKING_REFRESH_DELAY_MS - 1);
+        expect(repository.workingReadCount).toBe(readsBefore);
+
+        await waitOutQuietPeriod();
+        expect(repository.workingReadCount).toBe(readsBefore + 1);
+      });
+
+      it("watches the repository's index file and reads again when it changes", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        const readsBefore = repository.workingReadCount;
+        const pattern = indexWatcher().globPattern as vscode.RelativePattern;
+        expect([pattern.baseUri.fsPath, pattern.pattern]).toEqual([`${ROOT_A}/.git`, "index"]);
+
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+
+        expect(repository.workingReadCount).toBe(readsBefore + 1);
+      });
+
+      it("reads again when the window gains focus, not when it loses it", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        const readsBefore = repository.workingReadCount;
+
+        changeWindowFocus(false);
+        await waitOutQuietPeriod();
+        expect(repository.workingReadCount).toBe(readsBefore);
+
+        changeWindowFocus(true);
+        await waitOutQuietPeriod();
+        expect(repository.workingReadCount).toBe(readsBefore + 1);
+      });
+
+      it("reads nothing while the view is hidden and reads once it shows again", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        const readsBefore = repository.workingReadCount;
+        view.fireDidChangeVisibility(false);
+
+        save();
+        await waitOutQuietPeriod();
+        expect(repository.workingReadCount).toBe(readsBefore);
+
+        view.fireDidChangeVisibility(true);
+        await waitOutQuietPeriod();
+        expect(repository.workingReadCount).toBe(readsBefore + 1);
+      });
+
+      it("shows changed counts and deselects a row that has become clean, saying so", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        await send({ type: "select", oids: [C3, STAGED_CHANGES_ID], focusedOid: STAGED_CHANGES_ID });
+        repository.workingChanges = { ...BOTH, staged: 0, unstaged: 5 };
+
+        save();
+        await waitOutQuietPeriod();
+
+        expect(publicState(view).selectedOids).toEqual([C3]);
+        expect(shownHtml(view)).not.toContain(`role="row" data-oid="${STAGED_CHANGES_ID}"`);
+        expect(shownHtml(view)).toContain(`role="row" data-oid="${UNSTAGED_CHANGES_ID}"`);
+        expect(vscodeMock.messages).toEqual([
+          { level: "information", text: "Staged changes of alpha no longer have changes; they were deselected." },
+        ]);
+      });
+
+      it("reloads the history when the index changes because HEAD moved, as a commit elsewhere does", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        await send({ type: "select", oids: [STAGED_CHANGES_ID], focusedOid: STAGED_CHANGES_ID });
+        const loadsBefore = repository.loadCount;
+        const committed = commit(F1.replace(/f/g, "e"), [C3], "Committed elsewhere");
+        repository.setHistory({
+          commits: [committed, ...HISTORY.commits],
+          refs: [{ kind: "localBranch", name: "main", oid: committed.oid }, { kind: "localBranch", name: "feature", oid: F1 }],
+          head: { oid: committed.oid, branch: "main" },
+          isTruncated: false,
+        });
+        repository.workingChanges = { ...BOTH, staged: 0 };
+
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+
+        expect(repository.loadCount).toBe(loadsBefore + 1);
+        expect(shownRows(view)).toContain(committed.oid);
+        expect(vscodeMock.messages).toEqual([
+          { level: "information", text: "Staged changes of alpha no longer have changes; they were deselected." },
+        ]);
+      });
+
+      it("rereads only the working changes when the index changes but HEAD stayed", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        const loadsBefore = repository.loadCount;
+        const readsBefore = repository.workingReadCount;
+
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+
+        expect(repository.headReadCount).toBeGreaterThan(0);
+        expect(repository.loadCount).toBe(loadsBefore);
+        expect(repository.workingReadCount).toBe(readsBefore + 1);
+      });
+
+      it("reloads once for a HEAD the history cannot name, not on every index change", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        repository.headOid = C3;
+        // The reload reads a new history, as Git does.
+        repository.setHistory({ ...HISTORY });
+        const loadsBefore = repository.loadCount;
+
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+        expect(repository.loadCount).toBe(loadsBefore + 1);
+
+        repository.headOid = F1;
+        repository.setHistory({ ...HISTORY });
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+        expect(repository.loadCount).toBe(loadsBefore + 2);
+      });
+
+      it("reloads again for a HEAD the history cannot name after the reload for it failed", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        repository.headOid = C3;
+        repository.loadFailure = new Error("log broke");
+        const loadsBefore = repository.loadCount;
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+        repository.loadFailure = null;
+
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+
+        expect(repository.loadCount).toBe(loadsBefore + 2);
+      });
+
+      it("leaves a reload that starts while it reads HEAD to load the history alone", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        const committed = commit(F1.replace(/f/g, "e"), [C3], "Committed elsewhere");
+        repository.setHistory({
+          commits: [committed, ...HISTORY.commits],
+          refs: [{ kind: "localBranch", name: "main", oid: committed.oid }, { kind: "localBranch", name: "feature", oid: F1 }],
+          head: { oid: committed.oid, branch: "main" },
+          isTruncated: false,
+        });
+        repository.isHeadReadHeld = true;
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+        repository.isLoadHeld = true;
+        const reloaded = send({ type: "refresh" });
+        await settle();
+        const loadsBefore = repository.loadCount;
+
+        repository.finishHeadReads();
+        await settle();
+
+        expect(repository.loadCount).toBe(loadsBefore);
+        repository.finishLoads();
+        await reloaded;
+        await settle();
+        expect(shownRows(view)).toContain(committed.oid);
+      });
+
+      it("leaves the history a reload finished while it read HEAD alone", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        const committed = commit(F1.replace(/f/g, "e"), [C3], "Committed elsewhere");
+        repository.setHistory({
+          commits: [committed, ...HISTORY.commits],
+          refs: [{ kind: "localBranch", name: "main", oid: committed.oid }, { kind: "localBranch", name: "feature", oid: F1 }],
+          head: { oid: committed.oid, branch: "main" },
+          isTruncated: false,
+        });
+        repository.isHeadReadHeld = true;
+        indexWatcher().fireDidChange(vscode.Uri.file(INDEX_FILE));
+        await waitOutQuietPeriod();
+        await send({ type: "refresh" });
+        await settle();
+        const loadsBefore = repository.loadCount;
+        const readsBefore = repository.workingReadCount;
+
+        repository.finishHeadReads();
+        await settle();
+
+        expect(repository.loadCount).toBe(loadsBefore);
+        expect(repository.workingReadCount).toBe(readsBefore);
+      });
+
+      it("compares a selected working change again after a save changes its content", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        await selectAndCompare([UNSTAGED_CHANGES_ID]);
+        repository.workingChanges = { ...BOTH, contentKey: "k2" };
+
+        save();
+        await waitOutQuietPeriod();
+        await vi.advanceTimersByTimeAsync(COMPARE_DELAY_MS);
+        await settle();
+
+        expect(repository.compareRequests.map((request) => request.selectedOids)).toEqual([[UNSTAGED_CHANGES_ID], [UNSTAGED_CHANGES_ID]]);
+      });
+
+      it("keeps the comparison of a selected working change when a save leaves its content alone", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        await selectAndCompare([UNSTAGED_CHANGES_ID]);
+        const revision = publicState(view).revision;
+
+        save();
+        await waitOutQuietPeriod();
+        await vi.advanceTimersByTimeAsync(COMPARE_DELAY_MS);
+        await settle();
+
+        expect(publicState(view).revision).toBe(revision);
+        expect(repository.compareRequests).toHaveLength(1);
+      });
+
+      it("leaves the page alone when nothing changed and nothing working is selected", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        await selectAndCompare([C3]);
+        const revision = publicState(view).revision;
+
+        save();
+        await waitOutQuietPeriod();
+
+        expect(publicState(view).revision).toBe(revision);
+        expect(repository.compareRequests).toHaveLength(1);
+      });
+
+      it("lets a comparison that starts during a reread finding nothing changed run on", async () => {
+        const repository = await openWithWorkingChanges(BOTH);
+        repository.isHeadReadHeld = true;
+        repository.isCompareHeld = true;
+        save();
+        await waitOutQuietPeriod();
+
+        await selectAndCompare([C3]);
+        repository.finishHeadReads();
+        await settle();
+        await vi.advanceTimersByTimeAsync(COMPARE_DELAY_MS);
+        await settle();
+
+        expect(repository.compareRequests).toHaveLength(1);
+        expect(repository.compareSignals[0].aborted).toBe(false);
+      });
+
+      it("reads the working changes of a repository again when switching back to it", async () => {
+        await open([ROOT_A, ROOT_B]);
+        const alpha = repositories.get(ROOT_A)!;
+        const alphaId = publicState(view).repositoryId!;
+        const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1]!;
+        await send({ type: "repository", repositoryId: betaId });
+        const readsBefore = alpha.workingReadCount;
+
+        await send({ type: "repository", repositoryId: alphaId });
+        await waitOutQuietPeriod();
+
+        expect(alpha.workingReadCount).toBe(readsBefore + 1);
+      });
+
+      it("stops watching the previous repository's index when the shown one's index cannot be found", async () => {
+        await open([ROOT_A, ROOT_B]);
+        const alphaWatcher = indexWatcher();
+        repositories.get(ROOT_B)!.indexFile = new Error("no index");
+        const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1]!;
+
+        await send({ type: "repository", repositoryId: betaId });
+
+        expect(alphaWatcher.isDisposed).toBe(true);
+        expect(vscodeMock.fileSystemWatchers.filter((watcher) => !watcher.isDisposed)).toEqual([]);
+      });
+
+      it("keeps one watcher on the shown repository's index however often it is shown again", async () => {
+        await open([ROOT_A, ROOT_B]);
+        repositories.get(ROOT_B)!.indexFile = `${ROOT_B}/.git/index`;
+        const alphaId = publicState(view).repositoryId!;
+        const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1]!;
+        vscodeMock.openDialogResponse = [vscode.Uri.file(ROOT_A)];
+
+        await send({ type: "repository", repositoryId: betaId });
+        await send({ type: "repository", repositoryId: alphaId });
+        await send({ type: "chooseRepository" });
+        await send({ type: "repository", repositoryId: alphaId });
+
+        const watched = vscodeMock.fileSystemWatchers.filter((watcher) => !watcher.isDisposed)
+          .map((watcher) => (watcher.globPattern as vscode.RelativePattern).baseUri.fsPath);
+        expect(watched).toEqual([`${ROOT_A}/.git`]);
+      });
+
+      it("stops watching the index when disposed", async () => {
+        await openWithWorkingChanges(BOTH);
+        const watcher = indexWatcher();
+
+        await provider.dispose();
+
+        expect(watcher.isDisposed).toBe(true);
+      });
     });
   });
 

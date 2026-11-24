@@ -645,7 +645,7 @@ function pageFor(publication: Publication): { readonly state: HistoryState; read
     mainlines: [],
     comparison: selectedOids.length === 0
       ? null
-      : { kind: "ready", snapshotId: SNAPSHOT_ID, base: { kind: "emptyTree" }, orderedOids: selectedOids, files },
+      : { kind: "ready", snapshotId: SNAPSHOT_ID, base: { kind: "emptyTree" }, orderedOids: selectedOids, files, isIncomplete: false },
     operations: { isLoading: false, isResolvingBase: false, isComparing: false },
     error: null,
   };

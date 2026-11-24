@@ -32,6 +32,19 @@ vi.mock("../git/gitComparisonFiles", async (importOriginal) => {
   };
 });
 
+/** Status path limit, lowered by a test to reach it with a few files. */
+const pathLimit = vi.hoisted(() => ({ value: undefined as number | undefined }));
+
+vi.mock("../model/historyWorkingChanges", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../model/historyWorkingChanges")>();
+  return {
+    ...original,
+    get WORKING_CHANGE_PATH_LIMIT() {
+      return pathLimit.value ?? original.WORKING_CHANGE_PATH_LIMIT;
+    },
+  };
+});
+
 const signal = new AbortController().signal;
 /** More commits than any fixture creates. */
 const MAX_COMMITS = 1_000;
@@ -52,6 +65,7 @@ describe("GitComparisonRepository", () => {
   afterEach(async () => {
     gates.listing = null;
     gates.content = null;
+    pathLimit.value = undefined;
     await repository.dispose();
     disposeHistoryRepository(fixture);
   });
@@ -144,6 +158,23 @@ describe("GitComparisonRepository", () => {
     expect(result.orderedOids).toEqual([c, STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID]);
     expect(result.files.map((file) => file.result?.path)).toEqual(["a.txt", "c.txt", "new.txt"]);
     expect(content).toEqual({ kind: "text", text: "staged\n" });
+  });
+
+  it("marks a comparison of the files on disk incomplete once more paths changed than status lists", async () => {
+    const [, b] = linearHistory();
+    fs.writeFileSync(path.join(fixture.root, "a.txt"), "staged\n");
+    runFixtureGit(fixture.root, ["add", "a.txt"]);
+    fs.writeFileSync(path.join(fixture.root, "new.txt"), "untracked\n");
+    pathLimit.value = 2;
+    const atLimit = await compareReady([UNSTAGED_CHANGES_ID]);
+    fs.writeFileSync(path.join(fixture.root, "b.txt"), "unstaged\n");
+
+    const pastLimit = await compareReady([UNSTAGED_CHANGES_ID]);
+    const stagedOnly = await compareReady([b, STAGED_CHANGES_ID]);
+
+    expect(atLimit.isIncomplete).toBe(false);
+    expect(pastLimit.isIncomplete).toBe(true);
+    expect(stagedOnly.isIncomplete).toBe(false);
   });
 
   it("returns a blocked comparison without a snapshot", async () => {

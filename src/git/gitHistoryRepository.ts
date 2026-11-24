@@ -127,6 +127,12 @@ export class GitHistoryRepository {
     return result.exitCode === 0 && isFullOid(oid) ? oid : null;
   }
 
+  /** Absolute path of the index file, which Git rewrites whenever staging, committing or a checkout changes it. */
+  async readIndexPath(signal: AbortSignal): Promise<string> {
+    const result = await this.git(["rev-parse", "--path-format=absolute", "--git-path", "index"], signal);
+    return result.stdout.toString("utf8").replace(/\n$/, "");
+  }
+
   /** Commits whose parents were cut off by a shallow clone; Git reports them as parentless. */
   async readShallowOids(signal: AbortSignal): Promise<ReadonlySet<string>> {
     const pathResult = await this.git(["rev-parse", "--path-format=absolute", "--git-path", "shallow"], signal);

@@ -813,7 +813,8 @@ function describeWorkingChange(id: WorkingChangeId, summary: WorkingChangeSummar
     sentences.push(describeConflicts(summary));
   }
   if (summary.isTruncated) {
-    sentences.push(`Only the first ${formatCount(WORKING_CHANGE_PATH_LIMIT)} paths are counted.`);
+    const limit = `Only the first ${formatCount(WORKING_CHANGE_PATH_LIMIT)} paths are counted`;
+    sentences.push(isStaged ? `${limit}.` : `${limit}, so a comparison of them is incomplete.`);
   }
   return sentences.join(" ");
 }
@@ -940,9 +941,16 @@ function renderFiles(view: HistoryView): string {
   const comparison = view.state.comparison;
   return `<section id="history-files" class="files-pane" aria-labelledby="history-files-heading">
 <h2 id="history-files-heading" title="Net changes from the base to the replayed selection; double-click a file or press Enter on it to open its diff">Changed files</h2>
+${comparison?.kind === "ready" && comparison.isIncomplete ? renderIncompleteNote() : ""}
 ${comparison?.kind === "ready" ? renderFileList(comparison.snapshotId, comparison.files) : ""}
 ${comparison?.kind === "blocked" ? renderBlockedPaths(comparison.paths) : ""}
 </section>`;
+}
+
+/** Heads the changed files of a comparison that left unstaged changes past the path limit out. */
+function renderIncompleteNote(): string {
+  const limit = formatCount(WORKING_CHANGE_PATH_LIMIT);
+  return `<p id="history-files-incomplete" class="truncated-note" title="More than ${limit} paths changed on disk; unstaged changes past the first ${limit} are left out of this comparison">Incomplete: only the first ${limit} changed files are compared</p>`;
 }
 
 function renderFileList(snapshotId: string, files: readonly ComparisonFile[]): string {

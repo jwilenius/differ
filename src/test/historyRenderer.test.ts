@@ -69,8 +69,8 @@ function makeContext(overrides: Partial<HistoryRenderContext> = {}): HistoryRend
   };
 }
 
-function ready(files: readonly ComparisonFile[]): ComparisonResult {
-  return { kind: "ready", snapshotId: SNAPSHOT_ID, base: { kind: "commit", oid: ROOT, subject: "Initial" }, orderedOids: [MIDDLE], files };
+function ready(files: readonly ComparisonFile[]): ReadyResult {
+  return { kind: "ready", snapshotId: SNAPSHOT_ID, base: { kind: "commit", oid: ROOT, subject: "Initial" }, orderedOids: [MIDDLE], files, isIncomplete: false };
 }
 
 function render(state: Partial<HistoryState> = {}, context: Partial<HistoryRenderContext> = {}): string {
@@ -199,6 +199,7 @@ describe("HtmlHistoryRenderer", () => {
       snapshotId: SNAPSHOT_ID,
       base: { kind: "commit", oid: MIDDLE, subject: "Middle work" },
       orderedOids: [MERGE],
+      isIncomplete: false,
       files: [],
     };
     const html = render({ selectedOids: [MERGE], mainlines: [{ oid: MERGE, parentNumber: 2 }], comparison });
@@ -626,7 +627,7 @@ describe("HtmlHistoryRenderer", () => {
 });
 
 describe("HtmlHistoryRenderer working-change rows", () => {
-  const CHANGES: WorkingChangeSummary = { staged: 1, unstaged: 3, untracked: 1, conflicted: 0, isTruncated: false };
+  const CHANGES: WorkingChangeSummary = { staged: 1, unstaged: 3, untracked: 1, conflicted: 0, isTruncated: false, contentKey: "k1" };
   const BOTH: readonly WorkingChangeId[] = [UNSTAGED_CHANGES_ID, STAGED_CHANGES_ID];
   /** `main` (MERGE) is checked out, so HEAD is the first commit row. */
   const checkedOut: HistoryData = { ...history, head: { oid: MERGE, branch: "main" } };
@@ -683,8 +684,18 @@ describe("HtmlHistoryRenderer working-change rows", () => {
 
     expect(unstaged).toContain('aria-label="Unstaged changes, 3+ files"');
     expect(unstaged).toContain('<span class="working-conflicts" title="2 conflicted files use the HEAD version in the index.">2 conflicts</span>');
-    expect(unstaged).toContain("Only the first 5,000 paths are counted.");
+    expect(unstaged).toContain("Only the first 5,000 paths are counted, so a comparison of them is incomplete.");
+    expect(rowHtml(html, STAGED_CHANGES_ID)).toContain("Only the first 5,000 paths are counted.\"");
     expect(rowHtml(html, STAGED_CHANGES_ID)).not.toContain("working-conflicts");
+  });
+
+  it("heads the changed files of an incomplete comparison with what was left out", () => {
+    const complete = renderWorking({ selectedOids: [UNSTAGED_CHANGES_ID], comparison: { ...ready([]), isIncomplete: false } });
+    const incomplete = renderWorking({ selectedOids: [UNSTAGED_CHANGES_ID], comparison: { ...ready([]), isIncomplete: true } });
+
+    expect(complete).not.toContain("history-files-incomplete");
+    expect(incomplete).toContain(">Incomplete: only the first 5,000 changed files are compared</p>");
+    expect(incomplete).toMatch(/<p id="history-files-incomplete" class="truncated-note" title="[^"]*5,000[^"]*">/);
   });
 
   it("joins the rows to HEAD with a dashed line only while HEAD is the first commit row", () => {
@@ -827,7 +838,7 @@ describe("HtmlHistoryRenderer tooltips", () => {
   }
 
   function readyWith(fields: Partial<ReadyResult>): ReadyResult {
-    return { kind: "ready", snapshotId: SNAPSHOT_ID, base: { kind: "commit", oid: ROOT, subject: "Initial" }, orderedOids: [MIDDLE], files: [], ...fields };
+    return { kind: "ready", snapshotId: SNAPSHOT_ID, base: { kind: "commit", oid: ROOT, subject: "Initial" }, orderedOids: [MIDDLE], files: [], isIncomplete: false, ...fields };
   }
 
   const files: readonly ComparisonFile[] = [
@@ -846,7 +857,7 @@ describe("HtmlHistoryRenderer tooltips", () => {
     }),
     "no repository and no history": render({ history: null }, { repositories: [], activeRepositoryId: null, visibleOids: [] }),
     "working-change rows": render(
-      { history: { ...history, head: { oid: MERGE, branch: "main" } }, workingChanges: { staged: 1, unstaged: 2, untracked: 1, conflicted: 1, isTruncated: false }, selectedOids: [STAGED_CHANGES_ID] },
+      { history: { ...history, head: { oid: MERGE, branch: "main" } }, workingChanges: { staged: 1, unstaged: 2, untracked: 1, conflicted: 1, isTruncated: false, contentKey: "k1" }, selectedOids: [STAGED_CHANGES_ID] },
       { visibleWorkingIds: [UNSTAGED_CHANGES_ID, STAGED_CHANGES_ID] },
     ),
     "a truncated history with Load more": render(

@@ -161,6 +161,25 @@ describe("readWorkingTreeChange", () => {
     });
   });
 
+  it("leaves a byte order mark out of both sides, as the editor's unsaved text has none", async () => {
+    const file = commit("f.txt", "﻿one\ntwo\n");
+
+    expect(summarize(await readWorkingTreeChange(file, "one\nTWO\n"))).toMatchObject({
+      base: ["Index", "f.txt", "one\ntwo\n"],
+      result: ["Working Tree", "f.txt", "one\nTWO\n"],
+    });
+  });
+
+  it("leaves a byte order mark out of a working file read from disk too", async () => {
+    const file = commit("f.txt", "﻿one\n");
+    fs.writeFileSync(file, "﻿one\ntwo\n");
+
+    expect(summarize(await readWorkingTreeChange(file))).toMatchObject({
+      base: ["Index", "f.txt", "one\n"],
+      result: ["Working Tree", "f.txt", "one\ntwo\n"],
+    });
+  });
+
   it("compares a symbolic link's targets", async () => {
     fs.symlinkSync("first.txt", path.join(root, "link"));
     runGit(root, "add", "link");

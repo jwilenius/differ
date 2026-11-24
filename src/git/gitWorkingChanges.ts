@@ -71,6 +71,7 @@ const RECORD_FIELDS = 2;
 const RENAME_RECORD_FIELDS = 3;
 const NO_FILE_PATH = "";
 const NO_FILE_TEXT = "";
+const BYTE_ORDER_MARK = "\uFEFF";
 
 /**
  * The unstaged change of the file at `filePath`: its index version, or none when the file is untracked, against its
@@ -268,14 +269,19 @@ function isUnreadable(content: VersionContent): content is UnreadableChange {
 }
 
 /**
- * A version's side with LF line endings: the index holds Git's LF form of a file the working tree may hold with CRLF,
- * as with `core.autocrlf`, and VS Code's diff does not show line-ending differences either.
+ * A version's side with LF line endings and no byte order mark: the index holds Git's LF form of a file the working
+ * tree may hold with CRLF, as with `core.autocrlf`, and VS Code's diff does not show line-ending differences either.
+ * An editor's unsaved text never starts with the file's byte order mark, so no side keeps one.
  */
 function toSide(label: string, filePath: string, content: { readonly text: string } | null): ChangeSide {
   if (content === null) {
     return { label, path: NO_FILE_PATH, text: NO_FILE_TEXT };
   }
-  return { label, path: filePath, text: normalizeEol(content.text) };
+  return { label, path: filePath, text: normalizeEol(withoutByteOrderMark(content.text)) };
+}
+
+function withoutByteOrderMark(text: string): string {
+  return text.startsWith(BYTE_ORDER_MARK) ? text.slice(BYTE_ORDER_MARK.length) : text;
 }
 
 /** A lone CR breaks the line too, as in VS Code's editor and jw-differ's merge view. */

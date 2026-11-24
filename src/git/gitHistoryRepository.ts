@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import type { BranchCommits } from "../model/historyBranchCommits";
 import { LOCAL_BRANCH_PREFIX, REF_NAMESPACES } from "../model/historyRefNames";
 import type { HistoryCommit, HistoryData, HistoryHead, HistoryRef } from "../model/historyTypes";
 import { runHistoryGit } from "./historyGitCommand";
@@ -14,6 +15,19 @@ const COMMIT_FIELD_COUNT = 5;
 const LOG_OUTPUT_OPTIONS = ["--no-show-signature", "--encoding=UTF-8"] as const;
 
 const REF_FORMAT = "--format=%(refname)%00%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%00%(symref)";
+const BRANCH_REF_FORMAT = "--format=%(refname)%00%(symref)%00%(upstream)";
+
+const DETACHED_HEAD = "HEAD";
+/** Names the remote's default branch once cloned; checked before the local candidates. */
+const ORIGIN_HEAD = "refs/remotes/origin/HEAD";
+const ORIGIN_BRANCH_PREFIX = "refs/remotes/origin/";
+const LOCAL_DEFAULT_BRANCHES = [`${LOCAL_BRANCH_PREFIX}main`, `${LOCAL_BRANCH_PREFIX}master`] as const;
+
+/** The parts of a ref Select branch reads; empty strings when it is no symbolic ref or has no upstream. */
+interface BranchRefRecord {
+  readonly symref: string;
+  readonly upstream: string;
+}
 
 /** One commit of an ancestry walk. */
 export interface AncestryEntry {
@@ -127,6 +141,34 @@ export class GitHistoryRepository {
     return result.exitCode === 0 && isFullOid(oid) ? oid : null;
   }
 
+  /**
+   * The commits on `branchRef` that the default branch (`origin/HEAD`, else `main`, else `master`) lacks. On the default
+   * branch itself, or on the local branch named like origin's default, they are the commits its upstream lacks.
+   * `branchRef` is a full ref name under `refs/`, or `HEAD` for a detached HEAD.
+   */
+  async readBranchCommits(branchRef: string, signal: AbortSignal): Promise<BranchCommits> {
+    if (branchRef !== DETACHED_HEAD && !branchRef.startsWith("refs/")) {
+      throw new HistoryRevisionError(`"${branchRef}" is not a branch.`);
+    }
+    const branch = shortRefName(branchRef);
+    const records = await this.readBranchRefRecords(branchRef, signal);
+    const defaultRef = defaultBranchRef(records);
+    if (defaultRef === null) {
+      return { kind: "noDefaultBranch", branch };
+    }
+
+    const isDefault = branchRef === defaultRef || branchRef === localBranchOf(defaultRef);
+    const upstream = records.get(branchRef)?.upstream ?? "";
+    const hasUpstream = isDefault && upstream !== "" && await this.readCommitOid(upstream, signal) !== null;
+    if (isDefault && !hasUpstream) {
+      return { kind: "noUpstream", branch };
+    }
+
+    const base = isDefault ? upstream : defaultRef;
+    const result = await this.git(["rev-list", "--topo-order", "--stdin"], signal, revisionInput([branchRef, `^${base}`]));
+    return { kind: "commits", branch, base: shortRefName(base), isUpstream: isDefault, oids: lines(result.stdout) };
+  }
+
   /** Absolute path of the index file, which Git rewrites whenever staging, committing or a checkout changes it. */
   async readIndexPath(signal: AbortSignal): Promise<string> {
     const result = await this.git(["rev-parse", "--path-format=absolute", "--git-path", "index"], signal);
@@ -174,6 +216,31 @@ export class GitHistoryRepository {
       const [oid = "", ...parents] = line.split(" ");
       return { oid, parents };
     });
+  }
+
+  /** `ORIGIN_HEAD`, the local default branch candidates and `branchRef`, by full name, as far as they exist. */
+  private async readBranchRefRecords(branchRef: string, signal: AbortSignal): Promise<ReadonlyMap<string, BranchRefRecord>> {
+    const wanted = [ORIGIN_HEAD, ...LOCAL_DEFAULT_BRANCHES, ...(branchRef === DETACHED_HEAD ? [] : [branchRef])];
+    const result = await this.git(["for-each-ref", BRANCH_REF_FORMAT, ...wanted], signal);
+    const records = new Map<string, BranchRefRecord>();
+    for (const line of lines(result.stdout)) {
+      const [refName = "", symref, upstream] = line.split("\0");
+      if (symref === undefined || upstream === undefined) {
+        throw new HistoryOutputError(`Unexpected ref record "${line}".`);
+      }
+      // Patterns also match refs below the wanted names, such as `refs/heads/main/old`.
+      if (wanted.includes(refName)) {
+        records.set(refName, { symref, upstream });
+      }
+    }
+    return records;
+  }
+
+  /** The commit `ref` names now; null when it names none. */
+  private async readCommitOid(ref: string, signal: AbortSignal): Promise<string | null> {
+    const result = await this.git(["rev-parse", "--verify", "-q", "--end-of-options", `${ref}^{commit}`], signal, undefined, [0, 1]);
+    const oid = result.stdout.toString("utf8").trim();
+    return result.exitCode === 0 && isFullOid(oid) ? oid : null;
   }
 
   /** Commits reachable from `tips`, counted no further than `maxCount`. */
@@ -257,6 +324,29 @@ export class GitHistoryRepository {
       ...(allowedExitCodes === undefined ? {} : { allowedExitCodes }),
     });
   }
+}
+
+/**
+ * The full name of the default branch: the branch `origin/HEAD` points at, else `main`, else `master`. A broken
+ * `origin/HEAD` is not listed by `for-each-ref`, so a listed one points at an existing ref.
+ */
+function defaultBranchRef(records: ReadonlyMap<string, BranchRefRecord>): string | null {
+  const originDefault = records.get(ORIGIN_HEAD)?.symref ?? "";
+  if (originDefault !== "") {
+    return originDefault;
+  }
+  return LOCAL_DEFAULT_BRANCHES.find((candidate) => records.has(candidate)) ?? null;
+}
+
+/** `refs/heads/<name>` for `refs/remotes/origin/<name>`, the local branch that usually tracks it; else `refName`. */
+function localBranchOf(refName: string): string {
+  return refName.startsWith(ORIGIN_BRANCH_PREFIX) ? LOCAL_BRANCH_PREFIX + refName.slice(ORIGIN_BRANCH_PREFIX.length) : refName;
+}
+
+/** `refName` without its namespace prefix, as `HistoryRef.name` shows it; `HEAD` unchanged. */
+function shortRefName(refName: string): string {
+  const namespace = REF_NAMESPACES.find((candidate) => refName.startsWith(candidate.prefix));
+  return namespace ? refName.slice(namespace.prefix.length) : refName;
 }
 
 /** One revision per line, for commands reading `--stdin` instead of arguments that could exceed OS limits. */

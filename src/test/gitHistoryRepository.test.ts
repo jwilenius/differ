@@ -311,6 +311,124 @@ describe("GitHistoryRepository", () => {
     });
   });
 
+  describe("readBranchCommits", () => {
+    /** Makes `origin` a remote whose branches map to `refs/remotes/origin/*`, without fetching. */
+    function addOriginRemote(): void {
+      runFixtureGit(fixture.root, ["config", "remote.origin.url", fixture.root]);
+      runFixtureGit(fixture.root, ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]);
+    }
+
+    function track(branch: string, remoteBranch: string): void {
+      runFixtureGit(fixture.root, ["config", `branch.${branch}.remote`, "origin"]);
+      runFixtureGit(fixture.root, ["config", `branch.${branch}.merge`, `refs/heads/${remoteBranch}`]);
+    }
+
+    function startFeature(): readonly string[] {
+      runFixtureGit(fixture.root, ["checkout", "-q", "-b", "feature"]);
+      const first = commit("Feature one", "feature.txt");
+      return [commit("Feature two", "feature.txt"), first];
+    }
+
+    it("lists the commits a branch has beyond local main, newest first", async () => {
+      commit("Base");
+      const featureOids = startFeature();
+
+      const result = await repository.readBranchCommits("refs/heads/feature", signal);
+
+      expect(result).toEqual({ kind: "commits", branch: "feature", base: "main", isUpstream: false, oids: featureOids });
+    });
+
+    it("takes the default branch from origin/HEAD before local main", async () => {
+      const base = commit("Base");
+      runFixtureGit(fixture.root, ["update-ref", "refs/remotes/origin/develop", base]);
+      runFixtureGit(fixture.root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop"]);
+      const featureOids = startFeature();
+      runFixtureGit(fixture.root, ["update-ref", "refs/heads/main", featureOids[1]!]);
+
+      const result = await repository.readBranchCommits("refs/heads/feature", signal);
+
+      expect(result).toMatchObject({ kind: "commits", base: "origin/develop", oids: featureOids });
+    });
+
+    it("skips an origin/HEAD whose branch is gone", async () => {
+      commit("Base");
+      runFixtureGit(fixture.root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone"]);
+      const featureOids = startFeature();
+
+      const result = await repository.readBranchCommits("refs/heads/feature", signal);
+
+      expect(result).toMatchObject({ kind: "commits", base: "main", oids: featureOids });
+    });
+
+    it("falls back to master, and reports when neither main nor master exists", async () => {
+      commit("Base");
+      runFixtureGit(fixture.root, ["branch", "-m", "master"]);
+      const featureOids = startFeature();
+      expect(await repository.readBranchCommits("refs/heads/feature", signal)).toMatchObject({ base: "master", oids: featureOids });
+
+      runFixtureGit(fixture.root, ["branch", "-m", "master", "trunk"]);
+
+      expect(await repository.readBranchCommits("refs/heads/feature", signal)).toEqual({ kind: "noDefaultBranch", branch: "feature" });
+    });
+
+    it("lists the default branch's commits its upstream lacks", async () => {
+      const pushed = commit("Pushed");
+      const unpushed = commit("Not pushed");
+      addOriginRemote();
+      runFixtureGit(fixture.root, ["update-ref", "refs/remotes/origin/main", pushed]);
+      runFixtureGit(fixture.root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+      track("main", "main");
+
+      const result = await repository.readBranchCommits("refs/heads/main", signal);
+
+      expect(result).toEqual({ kind: "commits", branch: "main", base: "origin/main", isUpstream: true, oids: [unpushed] });
+    });
+
+    it("reports a default branch without an upstream or with a deleted one", async () => {
+      const base = commit("Base");
+      expect(await repository.readBranchCommits("refs/heads/main", signal)).toEqual({ kind: "noUpstream", branch: "main" });
+
+      addOriginRemote();
+      track("main", "main");
+      expect(await repository.readBranchCommits("refs/heads/main", signal)).toEqual({ kind: "noUpstream", branch: "main" });
+
+      runFixtureGit(fixture.root, ["update-ref", "refs/remotes/origin/main", base]);
+      runFixtureGit(fixture.root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+      const remoteResult = await repository.readBranchCommits("refs/remotes/origin/main", signal);
+      expect(remoteResult).toEqual({ kind: "noUpstream", branch: "origin/main" });
+    });
+
+    it("compares a feature branch tracking origin's default branch with that branch, not as unpushed", async () => {
+      const base = commit("Base");
+      addOriginRemote();
+      runFixtureGit(fixture.root, ["update-ref", "refs/remotes/origin/main", base]);
+      runFixtureGit(fixture.root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+      const featureOids = startFeature();
+      track("feature", "main");
+
+      const result = await repository.readBranchCommits("refs/heads/feature", signal);
+
+      expect(result).toEqual({ kind: "commits", branch: "feature", base: "origin/main", isUpstream: false, oids: featureOids });
+    });
+
+    it("reads a detached HEAD's commits and an empty list for a branch merged into main", async () => {
+      commit("Base");
+      const featureOids = startFeature();
+      runFixtureGit(fixture.root, ["checkout", "-q", "--detach"]);
+      expect(await repository.readBranchCommits("HEAD", signal)).toMatchObject({ branch: "HEAD", oids: featureOids });
+
+      runFixtureGit(fixture.root, ["update-ref", "refs/heads/main", featureOids[0]!]);
+
+      expect(await repository.readBranchCommits("refs/heads/feature", signal)).toMatchObject({ kind: "commits", oids: [] });
+    });
+
+    it("rejects a name that is not a full ref", async () => {
+      commit("Base");
+
+      await expect(repository.readBranchCommits("--all", signal)).rejects.toThrow(HistoryRevisionError);
+    });
+  });
+
   describe("readIndexPath", () => {
     it("names the index of the main and of a linked worktree", async () => {
       commit("First");

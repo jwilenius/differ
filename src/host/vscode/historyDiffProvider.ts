@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import { describeResolvedBase } from "../../model/historyLabels";
+import { describeSelectedChanges } from "../../model/historyWorkingChanges";
 import type {
   ComparisonFile,
   ComparisonFileSide,
@@ -287,8 +288,7 @@ function diffTitle(comparison: ReadyResult, file: ComparisonFile): string {
 }
 
 function describeSelection(comparison: ReadyResult): string {
-  const count = comparison.orderedOids.length;
-  return `${count} selected commit${count === 1 ? "" : "s"}`;
+  return describeSelectedChanges(comparison.orderedOids);
 }
 
 /**

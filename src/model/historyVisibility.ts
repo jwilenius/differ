@@ -1,4 +1,8 @@
+import { headBranchFilter } from "./historyBranchFilter";
+import type { BranchFilter } from "./historyBranchFilter";
 import type { HistoryCommit, HistoryData } from "./historyTypes";
+import { presentWorkingChangeIds, workingChangeLabel } from "./historyWorkingChanges";
+import type { WorkingChangeId, WorkingChangeSummary } from "./historyWorkingChanges";
 
 /** The view-only filters that decide which commits the table lists. */
 export interface CommitFilter {
@@ -86,6 +90,27 @@ export class VisibleCommitCache {
     this.lastReachable = { history, tipOid, oids };
     return oids;
   }
+}
+
+/**
+ * Working-change rows with changes that the filters show, newest first as the table lists them: Unstaged above
+ * Staged. They sit on the checked-out HEAD, so a branch filter naming any other branch hides them; a search shows
+ * them when their label matches.
+ */
+export function visibleWorkingChangeIds(
+  history: HistoryData | null,
+  workingChanges: WorkingChangeSummary | null,
+  search: string,
+  branch: BranchFilter | null,
+): readonly WorkingChangeId[] {
+  const isOtherBranch = branch !== null && branch.ref !== headBranchFilter(history, () => true)?.ref;
+  if (isOtherBranch) {
+    return [];
+  }
+  const query = search.trim().toLowerCase();
+  return presentWorkingChangeIds(workingChanges)
+    .filter((id) => query === "" || workingChangeLabel(id).toLowerCase().includes(query))
+    .reverse();
 }
 
 function matchingOids(commits: readonly HistoryCommit[], reachable: ReadonlySet<string> | null, search: string): readonly string[] {

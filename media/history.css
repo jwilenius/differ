@@ -429,6 +429,18 @@ input::placeholder {
   color: var(--muted);
 }
 
+.working-label {
+  font-style: italic;
+}
+
+.working-count {
+  color: var(--muted);
+}
+
+.working-conflicts {
+  color: var(--vscode-editorWarning-foreground, var(--muted));
+}
+
 .commit-row.is-selected .author-cell,
 .commit-row.is-selected .date-cell,
 .commit-row.is-selected .hash-cell {
@@ -521,6 +533,16 @@ input::placeholder {
   fill: var(--vscode-panel-background, var(--vscode-editor-background));
   stroke-dasharray: 1.5 1;
   opacity: 0.7;
+}
+
+/* Uncommitted changes are no commits yet: hollow dashed rings joined by dashed lines on HEAD's lane. */
+.graph-node.is-working {
+  fill: var(--vscode-panel-background, var(--vscode-editor-background));
+  stroke-dasharray: 2 1.5;
+}
+
+.graph-working {
+  stroke-dasharray: 2 2;
 }
 
 .graph-clipped {

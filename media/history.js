@@ -452,7 +452,7 @@
       document.getElementById(id).outerHTML = markup;
     }
     if (update.appendedRows) {
-      document.getElementById("history-commits").querySelector("tbody").insertAdjacentHTML("beforeend", update.appendedRows);
+      document.getElementById("history-commits").querySelector("tbody.commit-rows").insertAdjacentHTML("beforeend", update.appendedRows);
     }
     const isSameRepository = update.state.repositoryId === published.repositoryId;
     published = update.state;

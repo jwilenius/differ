@@ -53,3 +53,20 @@ export function presentWorkingChangeIds(summary: WorkingChangeSummary | null): r
   }
   return WORKING_CHANGE_REPLAY_ORDER.filter((id) => workingChangeCount(summary, id) > 0);
 }
+
+/**
+ * Lower-case description of a selection for status lines and titles, such as `2 selected commits`, `staged changes`
+ * or `1 selected commit and staged and unstaged changes`.
+ */
+export function describeSelectedChanges(ids: readonly string[]): string {
+  const commitCount = ids.filter((id) => !isWorkingChangeId(id)).length;
+  const workingIds = WORKING_CHANGE_REPLAY_ORDER.filter((id) => ids.includes(id));
+  const workingText = workingIds.length === WORKING_CHANGE_REPLAY_ORDER.length
+    ? "staged and unstaged changes"
+    : workingIds.map((id) => workingChangeLabel(id).toLowerCase()).join("");
+  const commitText = `${commitCount} selected commit${commitCount === 1 ? "" : "s"}`;
+  if (workingText === "") {
+    return commitText;
+  }
+  return commitCount === 0 ? workingText : `${commitText} and ${workingText}`;
+}

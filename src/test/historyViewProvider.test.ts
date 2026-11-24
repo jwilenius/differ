@@ -182,7 +182,7 @@ function page(view: FakeWebviewView): { readonly html: string; readonly state: H
   let state = documentState(view);
   for (const update of updates(view)) {
     html = Object.entries(update.regions).reduce((patched, [id, markup]) => replaceElement(patched, id, markup), html);
-    const tableEnd = html.indexOf("</tbody>", html.indexOf(` id="history-commits"`));
+    const tableEnd = html.indexOf("</tbody>", html.indexOf(`<tbody class="commit-rows">`));
     html = html.slice(0, tableEnd) + update.appendedRows + html.slice(tableEnd);
     state = update.state;
   }
@@ -1061,6 +1061,20 @@ describe("HistoryViewProvider", () => {
       expect(vscodeMock.messages.map((message) => message.text)).toEqual([
         "Staged changes and Unstaged changes of alpha no longer have changes; they were deselected.",
       ]);
+    });
+
+    it("shows the rows the filters pass and counts selected ones they hide", async () => {
+      await openWithWorkingChanges(BOTH);
+      await send({ type: "select", oids: [C3, STAGED_CHANGES_ID], focusedOid: C3 });
+      expect(shownHtml(view)).toContain(`role="row" data-oid="${UNSTAGED_CHANGES_ID}"`);
+
+      await send({ type: "presentation", search: "third", branch: null, focusedOid: C3, rowLimit: 200 });
+      expect(shownHtml(view)).not.toContain(`role="row" data-oid="${STAGED_CHANGES_ID}"`);
+      expect(shownHtml(view)).toContain("1 hidden by filters");
+
+      await send({ type: "presentation", search: "", branch: "refs/heads/feature", focusedOid: C3, rowLimit: 200 });
+      expect(shownHtml(view)).not.toContain(`role="row" data-oid="${STAGED_CHANGES_ID}"`);
+      expect(shownHtml(view)).toContain("2 hidden by filters");
     });
   });
 

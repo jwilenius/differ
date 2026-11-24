@@ -4,6 +4,8 @@ import * as vm from "node:vm";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../render/html/historyRenderer";
 import type { HistoryPage, HistoryPresentation, HistoryRenderContext, HistoryUpdate } from "../render/html/historyRenderer";
 import type { ComparisonFile, HistoryCommit, HistoryData, HistoryState } from "../model/historyTypes";
+import { presentWorkingChangeIds } from "../model/historyWorkingChanges";
+import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
 
 // A minimal DOM for running the history page's scripts in a VM context, the page as the renderer publishes it, and a
 // host sending it updates. Shared by the history client's tests and its branch filter's.
@@ -595,6 +597,9 @@ export const history: HistoryData = {
   isTruncated: false,
 };
 
+/** `history` with `main` checked out; one object for every publication, so updates keep its rows. */
+const checkedOutHistory: HistoryData = { ...history, head: { oid: A, branch: "main" } };
+
 const files: readonly ComparisonFile[] = [
   { id: FILE_ID, status: "modified", base: { path: "a.txt", blob: oid(10), mode: "100644" }, result: { path: "a.txt", blob: oid(11), mode: "100644" }, contentKind: "text" },
   { id: OTHER_FILE_ID, status: "added", base: null, result: { path: "b.txt", blob: oid(12), mode: "100644" }, contentKind: "text" },
@@ -618,6 +623,8 @@ interface Publication {
   readonly openFileId?: string | null;
   /** The history's refs, in place of `history`'s one branch. */
   readonly refs?: HistoryData["refs"];
+  /** Uncommitted changes on `main` (A), checked out; their rows show above the commits. */
+  readonly workingChanges?: WorkingChangeSummary;
 }
 
 export function publish(publication: Publication = {}): string {
@@ -627,10 +634,12 @@ export function publish(publication: Publication = {}): string {
 
 function pageFor(publication: Publication): { readonly state: HistoryState; readonly context: HistoryRenderContext } {
   const selectedOids = publication.selectedOids ?? [];
+  const workingChanges = publication.workingChanges ?? null;
+  const loaded = workingChanges === null ? history : checkedOutHistory;
   const state: HistoryState = {
     revision: 1,
-    history: publication.refs ? { ...history, refs: publication.refs } : history,
-    workingChanges: null,
+    history: publication.refs ? { ...loaded, refs: publication.refs } : loaded,
+    workingChanges,
     selectedOids,
     base: { kind: "automatic" },
     mainlines: [],
@@ -656,6 +665,7 @@ function pageFor(publication: Publication): { readonly state: HistoryState; read
       rowLimit: publication.rowLimit ?? HISTORY_PAGE_SIZE,
     },
     visibleOids: publication.visibleOids ?? ALL_OIDS,
+    visibleWorkingIds: [...presentWorkingChangeIds(workingChanges)].reverse(),
     hiddenSelectedCount: 0,
     wireRevision: publication.revision ?? 7,
     openedFile: publication.openFileId ? { snapshotId: SNAPSHOT_ID, fileId: publication.openFileId } : null,

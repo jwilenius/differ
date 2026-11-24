@@ -16,6 +16,16 @@ import type {
   HistoryState,
   OpenedFile,
 } from "../../model/historyTypes";
+import {
+  describeSelectedChanges,
+  isWorkingChangeId,
+  presentWorkingChangeIds,
+  STAGED_CHANGES_ID,
+  WORKING_CHANGE_PATH_LIMIT,
+  workingChangeCount,
+  workingChangeLabel,
+} from "../../model/historyWorkingChanges";
+import type { WorkingChangeId, WorkingChangeSummary } from "../../model/historyWorkingChanges";
 import { escapeHtml, type WebviewAssets } from "./webviewMarkup";
 
 /** Rows rendered initially and added by each Load more. */
@@ -45,7 +55,9 @@ export interface HistoryPageContext {
   readonly presentation: HistoryPresentation;
   /** OIDs of the state's history passing the host's search and branch filters, in graph order. */
   readonly visibleOids: readonly string[];
-  /** Selected commits the filters currently hide. */
+  /** Working-change rows with changes that pass the filters, in table order: Unstaged above Staged. */
+  readonly visibleWorkingIds: readonly WorkingChangeId[];
+  /** Selected commits and working changes the filters currently hide. */
   readonly hiddenSelectedCount: number;
   /** Publication counter every client intent must echo. */
   readonly wireRevision: number;
@@ -83,12 +95,24 @@ export interface HistoryPublicState {
   readonly openFileId: string | null;
 }
 
-/** The rows a page shows: the first `count` of `visibleOids` in `history`, with graphs `graphColumns` wide. */
+/** Where a graph node sits: its lane and that lane's colour counter. */
+export interface GraphAnchor {
+  readonly lane: number;
+  readonly color: number;
+}
+
+/**
+ * The rows a page shows: the `workingIds` rows, then the first `count` of `visibleOids` in `history`, with graphs
+ * `graphColumns` wide.
+ */
 export interface HistoryRowSet {
   readonly history: HistoryData | null;
   readonly visibleOids: readonly string[];
+  readonly workingIds: readonly WorkingChangeId[];
   readonly count: number;
   readonly graphColumns: number;
+  /** HEAD's node when it is the first commit row, which the working-change rows then join; null otherwise. */
+  readonly workingAnchor: GraphAnchor | null;
 }
 
 /** What one page shows, so that an update can carry only the differences. */
@@ -136,6 +160,8 @@ interface HistoryView {
   readonly commitOf: (oid: string) => HistoryCommit | undefined;
   readonly refs: ReadonlyMap<string, readonly HistoryRef[]>;
   readonly selected: ReadonlySet<string>;
+  /** HEAD when working-change rows are shown and HEAD is the first commit row, so a line joins them; else null. */
+  readonly workingLinkOid: string | null;
 }
 
 type StatusTone = "info" | "busy" | "warning" | "error";
@@ -161,6 +187,12 @@ const CUT_STUB_SPREAD = LANE_WIDTH / 2 - 1;
 const LANE_COLOR_COUNT = 8;
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
 const COMMIT_TABLE_ID = "history-commits";
+const WORKING_ROWS_ID = "history-working-rows";
+const WORKING_NODE_TITLE = "Uncommitted changes on top of HEAD";
+const NOT_A_COMMIT_TITLE = "Not a commit";
+const NO_HASH = "—";
+/** Working-change rows stand on HEAD's lane, or on the first lane when HEAD is not the first commit row. */
+const FIRST_LANE_ANCHOR: GraphAnchor = { lane: 0, color: 0 };
 const ISO_MINUTE_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
 const ISO_SECOND_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})?/;
 /** How rows are selected; the selection count and the subject column explain it on hover. */
@@ -260,7 +292,7 @@ ${renderToolbar(view.context.presentation, regions)}
 ${regions["history-status"]}
 <main class="history-layout">
 <section class="commit-pane" aria-label="Commits">
-${renderCommitTable(view, entries, rows.graphColumns)}
+${renderCommitTable(view, entries, rows, regions[WORKING_ROWS_ID])}
 ${regions["history-commit-footer"]}
 </section>
 <aside class="detail-pane">
@@ -284,23 +316,26 @@ ${regions["history-details"]}
   update(state: HistoryState, context: HistoryPageContext, shown: HistoryPage): HistoryPatch {
     const view = this.viewOf(state, context);
     const count = state.history ? Math.min(rowLimit(context), context.visibleOids.length) : 0;
-    const isSameFilter = state.history === shown.rows.history && context.visibleOids === shown.rows.visibleOids;
+    const isSameFilter = state.history === shown.rows.history && context.visibleOids === shown.rows.visibleOids
+      && isSameList(context.visibleWorkingIds, shown.rows.workingIds);
+    const entries = isSameFilter && count === shown.rows.count ? null : this.rowsOf(view);
+    const rows = entries === null ? shown.rows : rowSetOf(view, entries);
+    const regions = renderRegions(view, rows, this.branchFilterOf(view));
     const changed: Record<string, string> = {};
-    let rows = shown.rows;
     let appendedRows = "";
-    if (!isSameFilter || count !== shown.rows.count) {
-      const entries = this.rowsOf(view);
-      rows = rowSetOf(view, entries);
+    if (entries !== null) {
       const isAppend = isSameFilter && rows.count > shown.rows.count && rows.graphColumns === shown.rows.graphColumns;
       if (isAppend) {
         appendedRows = entries.slice(shown.rows.count).map((entry) => renderCommitRow(view, entry, rows.graphColumns, false)).join("\n");
       } else {
-        changed[COMMIT_TABLE_ID] = renderCommitTable(view, entries, rows.graphColumns);
+        changed[COMMIT_TABLE_ID] = renderCommitTable(view, entries, rows, regions[WORKING_ROWS_ID]);
       }
     }
-    const regions = renderRegions(view, rows, this.branchFilterOf(view));
+    // A replaced table already holds the working-change rows.
+    const isTableReplaced = COMMIT_TABLE_ID in changed;
     for (const [id, markup] of Object.entries(regions)) {
-      if (shown.regions[id] !== markup) {
+      const isInReplacedTable = isTableReplaced && id === WORKING_ROWS_ID;
+      if (shown.regions[id] !== markup && !isInReplacedTable) {
         changed[id] = markup;
       }
     }
@@ -351,7 +386,11 @@ function createView(state: HistoryState, context: HistoryPageContext, index: His
     const position = index?.layout.indexOf(oid);
     return position === undefined ? undefined : index?.history.commits[position];
   };
-  return { state, context, commitOf, refs: index?.refs ?? new Map(), selected: new Set(state.selectedOids) };
+  const head = state.history?.head;
+  const isHeadLinked = head !== undefined && head !== null && context.visibleWorkingIds.length > 0
+    && context.visibleOids[0] === head.oid;
+  const workingLinkOid = isHeadLinked ? head.oid : null;
+  return { state, context, commitOf, refs: index?.refs ?? new Map(), selected: new Set(state.selectedOids), workingLinkOid };
 }
 
 function rowLimit(context: HistoryPageContext): number {
@@ -377,11 +416,26 @@ function createPublicState(state: HistoryState, context: HistoryPageContext): Hi
 
 function rowSetOf(view: HistoryView, entries: readonly VisibleGraphRow[]): HistoryRowSet {
   const { history } = view.state;
-  return { history, visibleOids: view.context.visibleOids, count: entries.length, graphColumns: graphColumnsOf(entries) };
+  const { visibleOids, visibleWorkingIds } = view.context;
+  const first = entries[0]?.row;
+  const workingAnchor = first !== undefined && first.oid === view.workingLinkOid ? { lane: first.lane, color: first.color } : null;
+  return {
+    history,
+    visibleOids,
+    workingIds: visibleWorkingIds,
+    count: entries.length,
+    graphColumns: graphColumnsOf(entries),
+    workingAnchor,
+  };
+}
+
+function isSameList(first: readonly string[], second: readonly string[]): boolean {
+  return first.length === second.length && first.every((value, index) => value === second[index]);
 }
 
 /** Every element an update may replace, by ID, except the commit table. */
 type RegionId =
+  | typeof WORKING_ROWS_ID
   | "history-repository"
   | "history-branch"
   | "history-base-automatic"
@@ -404,6 +458,7 @@ function renderRegions(view: HistoryView, rows: HistoryRowSet, branchFilter: str
     "history-selection": renderSelectionSummary(view),
     "history-status": renderStatus(view),
     "history-commit-footer": renderCommitFooter(view, rows.count),
+    [WORKING_ROWS_ID]: renderWorkingRows(view, rows),
     "history-files": renderFiles(view),
     "history-replay": renderReplay(view),
     "history-details": renderDetails(view),
@@ -504,7 +559,9 @@ function describeBaseInFull(view: HistoryView): string {
     case "commit":
       return `Automatic base: ${resolved.oid} ${resolved.subject}`;
     case "emptyTree":
-      return "Automatic base: the empty tree, as the earliest selected commit is a root commit";
+      return view.state.selectedOids.some((oid) => !isWorkingChangeId(oid))
+        ? "Automatic base: the empty tree, as the earliest selected commit is a root commit"
+        : "Automatic base: the empty tree, as HEAD has no commit yet";
     case "index":
       return "Automatic base: the staged content; the comparison starts from the index";
   }
@@ -564,7 +621,7 @@ function describeStatus(view: HistoryView): StatusLine {
     return { text: "Resolving base…", tone: "busy" };
   }
   if (operations.isComparing) {
-    return { text: `Comparing ${plural(selectedOids.length, "selected commit")}…`, tone: "busy" };
+    return { text: `Comparing ${describeSelectedChanges(selectedOids)}…`, tone: "busy" };
   }
   if (error !== null) {
     return { text: `Could not ${FAILED_OPERATION_LABELS[error.operation]}: ${escapeHtml(error.message)}`, tone: "error" };
@@ -572,7 +629,8 @@ function describeStatus(view: HistoryView): StatusLine {
   if (history === null) {
     return { text: "History is not loaded", tone: "info" };
   }
-  if (history.commits.length === 0) {
+  const hasWorkingChanges = presentWorkingChangeIds(view.state.workingChanges).length > 0;
+  if (history.commits.length === 0 && !hasWorkingChanges) {
     return { text: "This repository has no commits", tone: "info" };
   }
   if (selectedOids.length === 0) {
@@ -590,7 +648,9 @@ function describeComparison(view: HistoryView, comparison: ComparisonResult | nu
   }
   switch (comparison.kind) {
     case "needsBase": {
-      const minima = comparison.minimumOids.map((oid) => `<code>${shortHash(oid)}</code>`).join(", ");
+      const minima = comparison.minimumOids
+        .map((oid) => isWorkingChangeId(oid) ? workingChangeLabel(oid) : `<code>${shortHash(oid)}</code>`)
+        .join(", ");
       return { text: `The selection has several earliest commits (${minima}); pin a base to compare`, tone: "warning" };
     }
     case "blocked":
@@ -609,17 +669,27 @@ function graphColumnsOf(rows: readonly VisibleGraphRow[]): number {
   return Math.min(OVERFLOW_COLUMN + 1, Math.max(1, ...rows.map((entry) => entry.row.width)));
 }
 
-function renderCommitTable(view: HistoryView, rows: readonly VisibleGraphRow[], graphColumns: number): string {
-  const focusedOid = rows.some((entry) => entry.row.oid === view.context.presentation.focusedOid)
-    ? view.context.presentation.focusedOid
-    : rows[0]?.row.oid ?? null;
-  const body = rows.map((entry) => renderCommitRow(view, entry, graphColumns, entry.row.oid === focusedOid)).join("\n");
-  return `<table id="${COMMIT_TABLE_ID}" class="commit-table" role="grid" aria-label="Commits" aria-multiselectable="true" aria-rowcount="${view.context.visibleOids.length + 1}">
+/** `workingRows` is the working-change rows' region, which precedes the commit rows. */
+function renderCommitTable(view: HistoryView, entries: readonly VisibleGraphRow[], rows: HistoryRowSet, workingRows: string): string {
+  const tabStop = tabStopOid(view, rows);
+  const body = entries.map((entry) => renderCommitRow(view, entry, rows.graphColumns, entry.row.oid === tabStop)).join("\n");
+  const rowCount = view.context.visibleOids.length + rows.workingIds.length + 1;
+  return `<table id="${COMMIT_TABLE_ID}" class="commit-table" role="grid" aria-label="Commits" aria-multiselectable="true" aria-rowcount="${rowCount}">
 <thead><tr role="row">${COLUMN_HEADERS}</tr></thead>
-<tbody>
+${workingRows}
+<tbody class="commit-rows">
 ${body}
 </tbody>
 </table>`;
+}
+
+/** The one row Tab reaches: the focused row when it is shown, else the first row. */
+function tabStopOid(view: HistoryView, rows: HistoryRowSet): string | null {
+  const commitOids = rows.visibleOids.slice(0, rows.count);
+  const firstOid = rows.workingIds[0] ?? commitOids[0] ?? null;
+  const focused = view.context.presentation.focusedOid;
+  const isFocusShown = focused !== null && (rows.workingIds.some((id) => id === focused) || commitOids.includes(focused));
+  return isFocusShown ? focused : firstOid;
 }
 
 /** What follows the rows: why there are none, Load more and the truncation note. */
@@ -649,7 +719,7 @@ function renderCommitRow(view: HistoryView, entry: VisibleGraphRow, graphColumns
   const graphTitle = entry.row.width > DRAWN_LANE_COUNT ? `${describeParents(commit)}\n${OVERFLOW_TITLE}` : describeParents(commit);
 
   return `<tr class="${classes}" role="row" data-oid="${escapeHtml(commit.oid)}" aria-selected="${isSelected}" tabindex="${hasTabStop ? 0 : -1}"${current}>`
-    + `<td class="graph-cell" role="gridcell" title="${escapeHtml(graphTitle)}">${renderGraph(entry, graphColumns, commit.parents.length > 1)}</td>`
+    + `<td class="graph-cell" role="gridcell" title="${escapeHtml(graphTitle)}">${renderGraph(entry, graphColumns, commit.parents.length > 1, commit.oid === view.workingLinkOid)}</td>`
     + `<td class="subject-cell" role="gridcell" title="${escapeHtml(commit.subject)}">${renderRefLabels(view, commit.oid)}<span class="subject">${escapeHtml(commit.subject)}</span></td>`
     + `<td class="author-cell" role="gridcell" title="${escapeHtml(commit.author)}">${escapeHtml(commit.author)}</td>`
     + `<td class="date-cell" role="gridcell" title="${escapeHtml(formatFullDate(commit.authoredDate))}">${renderDate(commit.authoredDate)}</td>`
@@ -680,6 +750,102 @@ function describeRef(ref: HistoryRef): string {
   return ref.kind === "head" ? REF_KIND_LABELS.head : `${REF_KIND_LABELS[ref.kind]}: ${ref.name}`;
 }
 
+// ---------------------------------------------------- working-change rows
+
+/** Rows for the staged and unstaged changes, in their own body so a refresh of their counts replaces only them. */
+function renderWorkingRows(view: HistoryView, rows: HistoryRowSet): string {
+  const summary = view.state.workingChanges;
+  const tabStop = tabStopOid(view, rows);
+  const markup = summary === null
+    ? []
+    : rows.workingIds.map((id, position) => {
+      const isLinkedBelow = position < rows.workingIds.length - 1 || rows.workingAnchor !== null;
+      const graph = renderWorkingGraph(rows, position > 0, isLinkedBelow);
+      return renderWorkingRow(view, { id, summary, graph }, id === tabStop);
+    });
+  return `<tbody id="${WORKING_ROWS_ID}" class="working-rows">${markup.join("\n")}</tbody>`;
+}
+
+interface WorkingRow {
+  readonly id: WorkingChangeId;
+  readonly summary: WorkingChangeSummary;
+  /** The graph cell's SVG. */
+  readonly graph: string;
+}
+
+/** A row like a commit's: its label and file count as the subject, no author or date, and no hash. */
+function renderWorkingRow(view: HistoryView, row: WorkingRow, hasTabStop: boolean): string {
+  const { id, summary } = row;
+  const isSelected = view.selected.has(id);
+  const isFocused = id === view.context.presentation.focusedOid;
+  const classes = ["commit-row", "working-row", isSelected ? "is-selected" : "", isFocused ? "is-focused" : ""].filter(Boolean).join(" ");
+  const current = isFocused ? ` aria-current="true"` : "";
+  const label = workingChangeLabel(id);
+  const count = fileCountText(workingChangeCount(summary, id), summary.isTruncated);
+  const title = escapeHtml(describeWorkingChange(id, summary));
+
+  return `<tr class="${classes}" role="row" data-oid="${id}" aria-selected="${isSelected}" tabindex="${hasTabStop ? 0 : -1}"${current} aria-label="${label}, ${count}" title="${title}">`
+    + `<td class="graph-cell" role="gridcell" title="${WORKING_NODE_TITLE}">${row.graph}</td>`
+    + `<td class="subject-cell" role="gridcell" title="${title}"><span class="subject working-label">${label}</span> <span class="working-count">${count}</span>${renderConflictMarker(id, summary)}</td>`
+    + `<td class="author-cell" role="gridcell"></td>`
+    + `<td class="date-cell" role="gridcell"></td>`
+    + `<td class="hash-cell" role="gridcell" title="${NOT_A_COMMIT_TITLE}"><code>${NO_HASH}</code></td>`
+    + `</tr>`;
+}
+
+/** Unstaged changes include unresolved conflicts, whose HEAD version stands in the index. */
+function renderConflictMarker(id: WorkingChangeId, summary: WorkingChangeSummary): string {
+  if (id === STAGED_CHANGES_ID || summary.conflicted === 0) {
+    return "";
+  }
+  const text = plural(summary.conflicted, "conflict");
+  return ` <span class="working-conflicts" title="${describeConflicts(summary)}">${text}</span>`;
+}
+
+/** The row's tooltip: what is compared with what, and what is left out. */
+function describeWorkingChange(id: WorkingChangeId, summary: WorkingChangeSummary): string {
+  const files = fileCountText(workingChangeCount(summary, id), summary.isTruncated);
+  const isStaged = id === STAGED_CHANGES_ID;
+  const sentences = isStaged
+    ? [`Staged changes: ${files} in the index compared with HEAD. Select to include them; they replay after any selected commits.`]
+    : [`Unstaged changes: ${files} on disk compared with the index, including ${formatCount(summary.untracked)} untracked. Unsaved editor text is not included.`];
+  if (!isStaged && summary.conflicted > 0) {
+    sentences.push(describeConflicts(summary));
+  }
+  if (summary.isTruncated) {
+    sentences.push(`Only the first ${formatCount(WORKING_CHANGE_PATH_LIMIT)} paths are counted.`);
+  }
+  return sentences.join(" ");
+}
+
+function describeConflicts(summary: WorkingChangeSummary): string {
+  const verb = summary.conflicted === 1 ? "uses" : "use";
+  return `${plural(summary.conflicted, "conflicted file")} ${verb} the HEAD version in the index.`;
+}
+
+/** `3 files`, or `5,000+ files` when more paths changed than were counted. */
+function fileCountText(count: number, isTruncated: boolean): string {
+  const suffix = isTruncated ? "+" : "";
+  return `${formatCount(count)}${suffix} file${count === 1 && !isTruncated ? "" : "s"}`;
+}
+
+/** A hollow dashed node on HEAD's lane, joined to the working-change row above and to the row below when linked. */
+function renderWorkingGraph(rows: HistoryRowSet, isLinkedAbove: boolean, isLinkedBelow: boolean): string {
+  const anchor = rows.workingAnchor ?? FIRST_LANE_ANCHOR;
+  const width = rows.graphColumns * LANE_WIDTH;
+  const middle = ROW_HEIGHT / 2;
+  const above = isLinkedAbove ? renderWorkingLine(anchor, 0, middle) : "";
+  const below = isLinkedBelow ? renderWorkingLine(anchor, middle, ROW_HEIGHT) : "";
+  const node = `<circle class="graph-node ${laneClass(anchor.color)} is-working" cx="${columnX(anchor.lane)}" cy="${middle}" r="${NODE_RADIUS}"/>`;
+  return `<svg class="graph" width="${width}" height="${ROW_HEIGHT}" viewBox="0 0 ${width} ${ROW_HEIGHT}" aria-hidden="true" focusable="false">${above}${below}${node}</svg>`;
+}
+
+/** A dashed vertical line on `anchor`'s lane, joining uncommitted changes to each other and to HEAD. */
+function renderWorkingLine(anchor: GraphAnchor, y1: number, y2: number): string {
+  const x = columnX(anchor.lane);
+  return `<line class="graph-edge ${laneClass(anchor.color)} graph-working" x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/>`;
+}
+
 // ------------------------------------------------------------------ graph
 
 /**
@@ -688,11 +854,14 @@ function describeRef(ref: HistoryRef): string {
  * loaded history, and lanes after the first `DRAWN_LANE_COUNT` share one
  * overflow column with hollow `is-overflow` nodes.
  */
-function renderGraph(entry: VisibleGraphRow, columns: number, isMerge: boolean): string {
+function renderGraph(entry: VisibleGraphRow, columns: number, isMerge: boolean, isWorkingLinked: boolean): string {
   const { row } = entry;
   const width = columns * LANE_WIDTH;
   const middle = ROW_HEIGHT / 2;
   const upper = row.upper.map((segment) => renderSegment(segment, 0, middle, entry.hasHiddenAbove, false));
+  if (isWorkingLinked) {
+    upper.push(renderWorkingLine(row, 0, middle));
+  }
   const lower = row.lower.map((segment) => renderSegment(segment, middle, ROW_HEIGHT, entry.hasHiddenBelow, segment.from === row.lane));
   const cuts = renderCutStubs(row, middle);
   const isOverflow = row.lane >= OVERFLOW_COLUMN;
@@ -832,7 +1001,8 @@ function renderReplay(view: HistoryView): string {
   const items = oids.map((oid) => {
     const isFailing = oid === failingOid;
     const failing = isFailing ? ` class="is-failing"` : "";
-    const title = isFailing ? `${describeCommit(view, oid)}\nReplay stopped at this commit` : describeCommit(view, oid);
+    const stoppedAt = isWorkingChangeId(oid) ? "these changes" : "this commit";
+    const title = isFailing ? `${describeCommit(view, oid)}\nReplay stopped at ${stoppedAt}` : describeCommit(view, oid);
     return `<li data-oid="${escapeHtml(oid)}"${failing} title="${escapeHtml(title)}">${commitLabel(view, oid)}${renderMainlineSelect(view, oid)}</li>`;
   });
   const heading = hasOrder ? "Replay order" : "Selected commits";
@@ -865,13 +1035,21 @@ function renderMainlineSelect(view: HistoryView, oid: string): string {
 function renderDetails(view: HistoryView): string {
   const focusedOid = view.context.presentation.focusedOid;
   const commit = focusedOid === null ? undefined : view.commitOf(focusedOid);
-  const body = commit
-    ? renderCommitDetails(view, commit)
-    : `<p class="empty" title="Click a commit, or move to it with ↑/↓, to show its hash, author, date and parents">Focus a commit to see its details</p>`;
+  const summary = view.state.workingChanges;
+  const isWorkingFocused = focusedOid !== null && isWorkingChangeId(focusedOid) && summary !== null;
+  const empty = `<p class="empty" title="Click a commit, or move to it with ↑/↓, to show its hash, author, date and parents">Focus a commit to see its details</p>`;
+  const body = commit ? renderCommitDetails(view, commit) : empty;
   return `<section id="history-details" class="details-pane" aria-labelledby="history-details-heading">
 <h2 id="history-details-heading" title="The focused commit's subject, labels, hash, author, date and parents">Commit details</h2>
-${body}
+${isWorkingFocused ? renderWorkingDetails(focusedOid, summary) : body}
 </section>`;
+}
+
+function renderWorkingDetails(id: WorkingChangeId, summary: WorkingChangeSummary): string {
+  const label = workingChangeLabel(id);
+  const description = escapeHtml(describeWorkingChange(id, summary));
+  return `<p class="details-subject" title="${label}">${label}</p>
+<p class="details-working" title="${description}">${description}</p>`;
 }
 
 function renderCommitDetails(view: HistoryView, commit: HistoryCommit): string {
@@ -894,15 +1072,21 @@ function option(value: string, label: string, isSelected: boolean): string {
   return `<option value="${escapeHtml(value)}"${isSelected ? " selected" : ""}>${escapeHtml(label)}</option>`;
 }
 
-/** Short hash plus subject when the commit is loaded; escaped. */
+/** Short hash plus subject when the commit is loaded, or a working change's label; escaped. */
 function commitLabel(view: HistoryView, oid: string): string {
+  if (isWorkingChangeId(oid)) {
+    return `<span class="subject">${workingChangeLabel(oid)}</span>`;
+  }
   const subject = view.commitOf(oid)?.subject;
   const suffix = subject === undefined ? "" : ` <span class="subject">${escapeHtml(subject)}</span>`;
   return `<code>${shortHash(oid)}</code>${suffix}`;
 }
 
-/** Full hash plus subject when the commit is loaded; plain text, for tooltips. */
+/** Full hash plus subject when the commit is loaded, or a working change's label; plain text, for tooltips. */
 function describeCommit(view: HistoryView, oid: string): string {
+  if (isWorkingChangeId(oid)) {
+    return workingChangeLabel(oid);
+  }
   const subject = view.commitOf(oid)?.subject;
   return subject === undefined ? oid : `${oid} ${subject}`;
 }

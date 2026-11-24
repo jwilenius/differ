@@ -9,7 +9,9 @@ import { HistoryController } from "../../model/historyController";
 import { shortHash } from "../../model/historyLabels";
 import type { HistoryRepository, HistoryState } from "../../model/historyTypes";
 import { isWorkingChangeId, WORKING_CHANGE_REPLAY_ORDER, workingChangeLabel } from "../../model/historyWorkingChanges";
-import { VisibleCommitCache } from "../../model/historyVisibility";
+import type { WorkingChangeId } from "../../model/historyWorkingChanges";
+import { VisibleCommitCache, visibleWorkingChangeIds } from "../../model/historyVisibility";
+import type { CommitFilter } from "../../model/historyVisibility";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../../render/html/historyRenderer";
 import type { HistoryPage, HistoryPageContext, HistoryPresentation } from "../../render/html/historyRenderer";
 import type { HistoryFileOpener } from "./historyDiffProvider";
@@ -601,6 +603,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     const presentation = session?.presentation ?? INITIAL_PRESENTATION;
     const filter = { search: presentation.search, branchOid: presentation.branch?.tipOid ?? null };
     const visibleOids = this.visibility.visibleOids(state.history, filter);
+    const visibleWorkingIds = visibleWorkingChangeIds(state.history, state.workingChanges, presentation.search, presentation.branch);
     const wireRevision = this.published.wireRevision + 1;
     const sessionId = session?.id ?? null;
     const isSameSession = sessionId === this.published.sessionId;
@@ -611,7 +614,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       activeRepositoryId: sessionId,
       presentation,
       visibleOids,
-      hiddenSelectedCount: this.visibility.hiddenCount(state.history, filter, state.selectedOids),
+      visibleWorkingIds,
+      hiddenSelectedCount: this.hiddenSelectedCount(state, filter, visibleWorkingIds),
       wireRevision,
       openedFile: this.options.fileOpener.openedFile,
     };
@@ -639,6 +643,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       void view.webview.postMessage(patch.update);
       this.shownPage = patch.page;
     }
+  }
+
+  /** Selected commits and working changes that the filters hide. */
+  private hiddenSelectedCount(state: HistoryState, filter: CommitFilter, visibleWorkingIds: readonly WorkingChangeId[]): number {
+    const commitOids = state.selectedOids.filter((oid) => !isWorkingChangeId(oid));
+    const hiddenWorkingCount = state.selectedOids
+      .filter((oid) => isWorkingChangeId(oid) && !visibleWorkingIds.some((id) => id === oid)).length;
+    return this.visibility.hiddenCount(state.history, filter, commitOids) + hiddenWorkingCount;
   }
 
   /** Placeholder state that explains why no repository is shown. */

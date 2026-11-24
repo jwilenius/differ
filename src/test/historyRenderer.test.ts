@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../render/html/historyRenderer";
 import type { HistoryPublicState, HistoryRenderContext, HistoryUpdate } from "../render/html/historyRenderer";
 import type { ComparisonFile, ComparisonResult, HistoryCommit, HistoryData, HistoryState, ReadyResult } from "../model/historyTypes";
+import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
+import type { WorkingChangeId, WorkingChangeSummary } from "../model/historyWorkingChanges";
 
 const NONCE = "abcdefghijklmnopqrstuvwxyz012345";
 
@@ -59,6 +61,7 @@ function makeContext(overrides: Partial<HistoryRenderContext> = {}): HistoryRend
     activeRepositoryId: "repo-1",
     presentation: { search: "", branchChoice: null, branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
     visibleOids: history.commits.map((entry) => entry.oid),
+    visibleWorkingIds: [],
     hiddenSelectedCount: 0,
     wireRevision: 7,
     openedFile: null,
@@ -622,6 +625,133 @@ describe("HtmlHistoryRenderer", () => {
   });
 });
 
+describe("HtmlHistoryRenderer working-change rows", () => {
+  const CHANGES: WorkingChangeSummary = { staged: 1, unstaged: 3, untracked: 1, conflicted: 0, isTruncated: false };
+  const BOTH: readonly WorkingChangeId[] = [UNSTAGED_CHANGES_ID, STAGED_CHANGES_ID];
+  /** `main` (MERGE) is checked out, so HEAD is the first commit row. */
+  const checkedOut: HistoryData = { ...history, head: { oid: MERGE, branch: "main" } };
+
+  function renderWorking(state: Partial<HistoryState> = {}, context: Partial<HistoryRenderContext> = {}): string {
+    return render({ history: checkedOut, workingChanges: CHANGES, ...state }, { visibleWorkingIds: BOTH, ...context });
+  }
+
+  function focusing(id: string): Partial<HistoryRenderContext> {
+    return { presentation: { search: "", branchChoice: null, branch: null, focusedOid: id, rowLimit: HISTORY_PAGE_SIZE } };
+  }
+
+  /** The `data-oid` of every row in table order. */
+  function rowIds(html: string): readonly string[] {
+    return [...html.matchAll(/<tr class="commit-row[^"]*" role="row" data-oid="([^"]+)"/g)].map((match) => match[1]!);
+  }
+
+  it("lists Unstaged then Staged above the commits in their own body", () => {
+    const html = renderWorking();
+
+    expect(rowIds(html)).toEqual([...BOTH, MERGE, SIDE, MIDDLE, ROOT]);
+    expect(html.indexOf('<tbody id="history-working-rows" class="working-rows">')).toBeLessThan(html.indexOf('<tbody class="commit-rows">'));
+    expect(html).toContain('aria-rowcount="7"');
+    expect(rowFor(html, UNSTAGED_CHANGES_ID)).toContain('tabindex="0"');
+    expect(rowFor(html, MERGE)).toContain('tabindex="-1"');
+  });
+
+  it("labels each row with its count, a full tooltip and no hash", () => {
+    const html = renderWorking();
+    const staged = rowHtml(html, STAGED_CHANGES_ID);
+    const unstaged = rowHtml(html, UNSTAGED_CHANGES_ID);
+
+    expect(staged).toContain('aria-label="Staged changes, 1 file"');
+    expect(staged).toContain('title="Staged changes: 1 file in the index compared with HEAD. Select to include them; they replay after any selected commits."');
+    expect(unstaged).toContain('aria-label="Unstaged changes, 3 files"');
+    expect(unstaged).toContain('title="Unstaged changes: 3 files on disk compared with the index, including 1 untracked. Unsaved editor text is not included."');
+    expect(unstaged).toContain('<td class="graph-cell" role="gridcell" title="Uncommitted changes on top of HEAD">');
+    expect(unstaged).toContain('<td class="hash-cell" role="gridcell" title="Not a commit"><code>—</code></td>');
+    expect(unstaged).toContain("graph-node lane-");
+    expect(unstaged).toContain("is-working");
+  });
+
+  it("names working changes by label when they are among several earliest selections", () => {
+    const comparison: ComparisonResult = { kind: "needsBase", minimumOids: [MIDDLE, STAGED_CHANGES_ID] };
+    const html = renderWorking({ selectedOids: [MIDDLE, STAGED_CHANGES_ID], comparison });
+
+    expect(html).toContain(`(<code>${MIDDLE.slice(0, 8)}</code>, Staged changes); pin a base to compare`);
+    expect(html).not.toContain("<code>working:");
+  });
+
+  it("marks conflicts on the Unstaged row and says when paths were cut off", () => {
+    const html = renderWorking({ workingChanges: { ...CHANGES, conflicted: 2, isTruncated: true } });
+    const unstaged = rowHtml(html, UNSTAGED_CHANGES_ID);
+
+    expect(unstaged).toContain('aria-label="Unstaged changes, 3+ files"');
+    expect(unstaged).toContain('<span class="working-conflicts" title="2 conflicted files use the HEAD version in the index.">2 conflicts</span>');
+    expect(unstaged).toContain("Only the first 5,000 paths are counted.");
+    expect(rowHtml(html, STAGED_CHANGES_ID)).not.toContain("working-conflicts");
+  });
+
+  it("joins the rows to HEAD with a dashed line only while HEAD is the first commit row", () => {
+    const linked = renderWorking();
+    const unlinked = renderWorking({}, { visibleOids: [SIDE, ROOT] });
+
+    expect(rowHtml(linked, MERGE)).toContain("graph-working");
+    expect(rowHtml(linked, STAGED_CHANGES_ID)).toMatch(/graph-working[^>]*y1="0"[\s\S]*graph-working/);
+    expect(rowHtml(unlinked, SIDE)).not.toContain("graph-working");
+    expect(rowHtml(unlinked, STAGED_CHANGES_ID).match(/graph-working/g)).toHaveLength(1);
+  });
+
+  it("shows no rows when none are visible", () => {
+    const html = renderWorking({}, { visibleWorkingIds: [] });
+
+    expect(rowIds(html)).toEqual([MERGE, SIDE, MIDDLE, ROOT]);
+    expect(rowHtml(html, MERGE)).not.toContain("graph-working");
+  });
+
+  it("describes a focused working change in the details", () => {
+    const html = renderWorking({}, focusing(STAGED_CHANGES_ID));
+    const details = html.slice(html.indexOf('<section id="history-details"'));
+
+    expect(details).toContain('<p class="details-subject" title="Staged changes">Staged changes</p>');
+    expect(details).toContain('<p class="details-working" title="Staged changes: 1 file in the index');
+    expect(rowFor(html, STAGED_CHANGES_ID)).toContain("is-focused");
+  });
+
+  it("names working changes in the status and in an unborn repository", () => {
+    const comparing = renderWorking({ selectedOids: [MIDDLE, STAGED_CHANGES_ID], operations: { isLoading: false, isResolvingBase: false, isComparing: true } });
+    const unborn = renderWorking({ history: { commits: [], refs: [], head: null, isTruncated: false } }, { visibleOids: [] });
+
+    expect(comparing).toContain("Comparing 1 selected commit and staged changes…");
+    expect(unborn).not.toContain("This repository has no commits");
+    expect(rowIds(unborn)).toEqual(BOTH);
+  });
+
+  describe("update", () => {
+    it("replaces only the working rows when their counts change", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const context = makeContext({ visibleWorkingIds: BOTH });
+      const state = makeState({ history: checkedOut, workingChanges: CHANGES });
+      const { page } = renderer.render(state, context);
+
+      const { update } = renderer.update({ ...state, workingChanges: { ...CHANGES, unstaged: 4 } }, context, page);
+
+      expect(update.regions).not.toHaveProperty("history-commits");
+      expect(update.regions["history-working-rows"]).toContain('aria-label="Unstaged changes, 4 files"');
+      expect(update.appendedRows).toBe("");
+    });
+
+    it("replaces the whole table when a row appears, linking HEAD to it", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const context = makeContext();
+      const state = makeState({ history: checkedOut, workingChanges: CHANGES });
+      const { page } = renderer.render(state, context);
+
+      const { update } = renderer.update(state, { ...context, visibleWorkingIds: [STAGED_CHANGES_ID] }, page);
+      const table = update.regions["history-commits"] ?? "";
+
+      expect(rowIds(table)).toEqual([STAGED_CHANGES_ID, MERGE, SIDE, MIDDLE, ROOT]);
+      expect(rowHtml(table, MERGE)).toContain("graph-working");
+      expect(update.regions).not.toHaveProperty("history-working-rows");
+    });
+  });
+});
+
 describe("HtmlHistoryRenderer graph width", () => {
   const LANE_WIDTH = 12;
   const DRAWN_LANES = 16;
@@ -715,6 +845,10 @@ describe("HtmlHistoryRenderer tooltips", () => {
       comparison: { kind: "blocked", base: { kind: "commit", oid: ROOT, subject: "Initial" }, orderedOids: [MIDDLE], failingOid: MIDDLE, paths: ["a.txt"], explanation: "conflict" },
     }),
     "no repository and no history": render({ history: null }, { repositories: [], activeRepositoryId: null, visibleOids: [] }),
+    "working-change rows": render(
+      { history: { ...history, head: { oid: MERGE, branch: "main" } }, workingChanges: { staged: 1, unstaged: 2, untracked: 1, conflicted: 1, isTruncated: false }, selectedOids: [STAGED_CHANGES_ID] },
+      { visibleWorkingIds: [UNSTAGED_CHANGES_ID, STAGED_CHANGES_ID] },
+    ),
     "a truncated history with Load more": render(
       { history: { commits: many, refs: [], head: null, isTruncated: true } },
       { visibleOids: many.map((entry) => entry.oid) },

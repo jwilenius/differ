@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../render/html/historyRenderer";
 import type { HistoryData } from "../model/historyTypes";
+import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
+import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
 import { A, B, C, D, E, commit, FakeElement, FakeEvent, FakeHost, FakeWebview, FILE_ID, FOCUS_DEBOUNCE_MS, FRAME_MS, history, NONCE, oid, open, OTHER_FILE_ID, OTHER_REPOSITORY_ID, publish, SNAPSHOT_ID } from "./historyClientFixture";
 
 // -------------------------------------------------------------------- tests
@@ -224,6 +226,7 @@ describe("history client", () => {
         activeRepositoryId: null,
         presentation: { search: "", branchChoice: null, branch: null, focusedOid: null, rowLimit: HISTORY_PAGE_SIZE },
         visibleOids: many.commits.map((entry) => entry.oid),
+        visibleWorkingIds: [],
         hiddenSelectedCount: 0,
         wireRevision: 3,
         openedFile: null,
@@ -482,6 +485,62 @@ describe("history client", () => {
     expect(second.intents()).toEqual([]);
   });
 
+  describe("working-change rows", () => {
+    const workingChanges: WorkingChangeSummary = { staged: 1, unstaged: 2, untracked: 1, conflicted: 0, isTruncated: false };
+
+    it("selects a working-change row like a commit", () => {
+      const webview = open({ workingChanges });
+
+      webview.click(webview.row(STAGED_CHANGES_ID));
+      webview.click(webview.row(B), { ctrlKey: true });
+
+      expect(webview.intents()).toEqual([
+        { type: "select", revision: 7, oids: [STAGED_CHANGES_ID], focusedOid: STAGED_CHANGES_ID },
+        { type: "select", revision: 7, oids: [STAGED_CHANGES_ID, B], focusedOid: B },
+      ]);
+    });
+
+    it("selects a Shift range from a working-change row into the commits", () => {
+      const webview = open({ workingChanges });
+
+      webview.click(webview.row(UNSTAGED_CHANGES_ID));
+      webview.click(webview.row(B), { shiftKey: true });
+
+      expect(webview.last()).toEqual({ type: "select", revision: 7, oids: [UNSTAGED_CHANGES_ID, STAGED_CHANGES_ID, A, B], focusedOid: B });
+    });
+
+    it("moves with arrow keys from the working-change rows into the commits", () => {
+      const webview = open({ workingChanges, focusedOid: UNSTAGED_CHANGES_ID });
+      webview.row(UNSTAGED_CHANGES_ID).focus();
+
+      webview.key(webview.row(UNSTAGED_CHANGES_ID), "ArrowDown");
+      webview.key(webview.row(STAGED_CHANGES_ID), "ArrowDown");
+
+      expect(webview.document.activeElement).toBe(webview.row(A));
+    });
+
+    it("appends the rows Load more adds below the commits, not the working-change rows", () => {
+      const host = new FakeHost();
+      const webview = host.open({ workingChanges, rowLimit: 2 });
+
+      webview.receive(host.update({ workingChanges, rowLimit: 4, revision: 8 }));
+
+      expect(webview.document.querySelectorAll("tr.commit-row").map((row) => row.dataset.oid)).toEqual([UNSTAGED_CHANGES_ID, STAGED_CHANGES_ID, A, B, C, D]);
+      expect(webview.document.querySelectorAll("tr.working-row").map((row) => row.dataset.oid)).toEqual([UNSTAGED_CHANGES_ID, STAGED_CHANGES_ID]);
+    });
+
+    it("replaces the working-change rows when their counts change, keeping the commit rows", () => {
+      const host = new FakeHost();
+      const webview = host.open({ workingChanges });
+      const rowA = webview.row(A);
+
+      webview.receive(host.update({ workingChanges: { ...workingChanges, staged: 3 }, revision: 8 }));
+
+      expect(webview.row(A)).toBe(rowA);
+      expect(webview.row(STAGED_CHANGES_ID).getAttribute("aria-label")).toBe("Staged changes, 3 files");
+    });
+  });
+
   describe("tooltips", () => {
     /** Visible buttons, inputs and selects without a tooltip, by ID or tag; a `hidden` one cannot be hovered. */
     function untitledControls(webview: FakeWebview): readonly string[] {
@@ -490,6 +549,17 @@ describe("history client", () => {
         .filter((element) => element.title.trim() === "")
         .map((element) => element.id || element.tagName);
     }
+
+    it("gives every working-change row and its cells a tooltip", () => {
+      const webview = open({ workingChanges: { staged: 1, unstaged: 2, untracked: 1, conflicted: 1, isTruncated: false } });
+      const rows = webview.document.querySelectorAll("tr.working-row");
+      const filledCells = rows.flatMap((row) => row.descendants()).filter((element) => element.tagName === "TD" && element.childNodes.length > 0);
+
+      expect(rows).toHaveLength(2);
+      expect(filledCells).toHaveLength(6);
+      expect([...rows, ...filledCells].filter((element) => element.title.trim() === "")).toEqual([]);
+      expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["Unstaged changes, 2 files", "Staged changes, 1 file"]);
+    });
 
     it("gives every visible control a tooltip once the client runs", () => {
       const webview = open({ selectedOids: [A], focusedOid: A });

@@ -21,6 +21,7 @@ const VALID_MESSAGES: readonly HistoryMessage[] = [
   { type: "refresh", revision: 3 },
   { type: "repository", revision: 3, repositoryId: ROOT_ID },
   { type: "chooseRepository", revision: 3 },
+  { type: "selectBranch", revision: 3 },
   { type: "presentation", revision: 3, search: "fix", branch: "refs/heads/jimw/foo-branch", focusedOid: null, rowLimit: 400 },
   { type: "presentation", revision: 3, search: "", branch: "refs/remotes/origin/main", focusedOid: OID, rowLimit: 200 },
   { type: "presentation", revision: 3, search: "", branch: "HEAD", focusedOid: null, rowLimit: 200 },
@@ -60,6 +61,7 @@ describe("parseHistoryMessage", () => {
     ["a missing revision", { type: "refresh" }],
     ["a missing field", { type: "openFile", revision: 1, snapshotId: SNAPSHOT_ID }],
     ["an extra field", { type: "refresh", revision: 1, path: "/etc/passwd" }],
+    ["a Select branch with a ref", { type: "selectBranch", revision: 1, ref: "refs/heads/main" }],
   ])("rejects %s", (_name, value) => {
     expect(parseHistoryMessage(value)).toBeNull();
   });

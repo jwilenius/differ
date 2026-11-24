@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitComparisonRepository, HistorySnapshotError } from "../git/gitComparisonRepository";
+import { HistoryGitError } from "../git/historyGitCommand";
 import { HistoryController } from "../model/historyController";
 import type { BaseSelection, ComparisonResult, ReadyResult } from "../model/historyTypes";
 import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
@@ -253,6 +254,17 @@ describe("GitComparisonRepository", () => {
     } finally {
       watcher.close();
     }
+  });
+
+  it("cancels a Select branch read when its caller aborts it", async () => {
+    linearHistory();
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await rejection(repository.findBranchCommits("refs/heads/main", controller.signal));
+
+    expect(error).toBeInstanceOf(HistoryGitError);
+    expect((error as HistoryGitError).kind).toBe("cancelled");
   });
 
   it("deletes every snapshot on dispose, including one finishing afterwards, and rejects later calls", async () => {

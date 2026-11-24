@@ -21,6 +21,7 @@ import type {
 } from "../model/historyTypes";
 import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
 import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
+import type { BranchCommits } from "../model/historyBranchCommits";
 import { HISTORY_PAGE_SIZE } from "../render/html/historyRenderer";
 import type { HistoryPublicState, HistoryUpdate } from "../render/html/historyRenderer";
 import {
@@ -107,6 +108,14 @@ class FakeRepository implements ClosableHistoryRepository {
   /** Returned by every working-change read. */
   workingChanges: WorkingChangeSummary | null = null;
   workingReadCount = 0;
+  /** Returned, or thrown, by every Select branch read. */
+  branchCommits: BranchCommits | Error = { kind: "noDefaultBranch", branch: "main" };
+  /** The branch ref of every Select branch read, in order. */
+  readonly branchReads: string[] = [];
+  /** The signal of every Select branch read, in order. */
+  readonly branchReadSignals: AbortSignal[] = [];
+  /** Keeps every Select branch read running until its signal aborts it. */
+  isBranchReadHeld = false;
   headReadCount = 0;
   /** Returned by every HEAD read instead of the history's HEAD, as for a HEAD attached to a ref outside the list. */
   headOid: string | null | undefined = undefined;
@@ -146,6 +155,17 @@ class FakeRepository implements ClosableHistoryRepository {
   readWorkingChanges(): Promise<WorkingChangeSummary | null> {
     this.workingReadCount += 1;
     return Promise.resolve(this.workingChanges);
+  }
+
+  findBranchCommits(branchRef: string, signal: AbortSignal): Promise<BranchCommits> {
+    this.branchReads.push(branchRef);
+    this.branchReadSignals.push(signal);
+    if (this.isBranchReadHeld) {
+      return new Promise((_, reject) => {
+        signal.addEventListener("abort", () => reject(new HistoryGitError("Git was cancelled.", "cancelled", "detail")));
+      });
+    }
+    return this.branchCommits instanceof Error ? Promise.reject(this.branchCommits) : Promise.resolve(this.branchCommits);
   }
 
   /** HEAD as the history the next load returns names it. */
@@ -295,6 +315,8 @@ describe("HistoryViewProvider", () => {
   let initialLoadFailure: Error | null;
   /** History each repository the provider creates loads. */
   let initialHistory: HistoryData;
+  /** `branchCommits` of each repository the provider creates, so its first Select branch read finds them. */
+  let initialBranchCommits: BranchCommits;
   let fileOpener: HistoryFileOpener & { calls: unknown[][]; openedFile: OpenedFile | null };
   let openedFileChanges: vscode.EventEmitter<void>;
   let log: string[];
@@ -310,6 +332,7 @@ describe("HistoryViewProvider", () => {
       createRepository: (root) => {
         const repository = new FakeRepository(initialHistory);
         repository.loadFailure = initialLoadFailure;
+        repository.branchCommits = initialBranchCommits;
         repositories.set(root, repository);
         return repository;
       },
@@ -348,6 +371,7 @@ describe("HistoryViewProvider", () => {
     repositories = new Map();
     initialLoadFailure = null;
     initialHistory = HISTORY;
+    initialBranchCommits = { kind: "noDefaultBranch", branch: "main" };
     log = [];
     openedFileChanges = new vscode.EventEmitter<void>();
     fileOpener = {
@@ -679,8 +703,10 @@ describe("HistoryViewProvider", () => {
 
     await send({ type: "presentation", search: "second", branch: "checked-out", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
     const searched = updates(view).at(-1)!;
+    const updateCount = updates(view).length;
     await send({ type: "presentation", search: "", branch: "refs/heads/feature", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
-    const filtered = updates(view).at(-1)!;
+    // A later update enables Select branch for the picked branch.
+    const filtered = updates(view)[updateCount]!;
 
     expect(searched.regions["history-commits"]).toContain(`data-oid="${C2}"`);
     expect(searched.regions["history-commits"]).not.toContain(`data-oid="${C3}"`);
@@ -1445,6 +1471,155 @@ describe("HistoryViewProvider", () => {
 
         expect(watcher.isDisposed).toBe(true);
       });
+    });
+  });
+
+  describe("Select branch", () => {
+    const BOTH: WorkingChangeSummary = { staged: 1, unstaged: 2, untracked: 0, conflicted: 0, isTruncated: false, contentKey: "k1" };
+    const ON_FEATURE: HistoryData = { ...HISTORY, head: { oid: F1, branch: "feature" } };
+    const FEATURE_COMMITS: BranchCommits = { kind: "commits", branch: "feature", base: "main", isUpstream: false, oids: [F1] };
+
+    /** The Select branch button's opening tag as shown. */
+    function button(): string {
+      return /<button id="history-select-branch"[^>]*>/.exec(shownHtml(view))![0];
+    }
+
+    async function openOnFeature(commits: BranchCommits): Promise<FakeRepository> {
+      initialHistory = ON_FEATURE;
+      initialBranchCommits = commits;
+      await open();
+      return repositories.get(ROOT_A)!;
+    }
+
+    it("selects the checked-out branch's commits and working changes, leaving the base as it is", async () => {
+      const repository = await openOnFeature(FEATURE_COMMITS);
+      repository.workingChanges = BOTH;
+      await send({ type: "refresh" });
+      await send({ type: "base", ref: "main" });
+      expect(button()).toBe('<button id="history-select-branch" class="icon-button" title="Select every commit on feature that is not on main, plus uncommitted changes" aria-label="Select branch commits">');
+
+      await send({ type: "selectBranch" });
+      await vi.advanceTimersByTimeAsync(COMPARE_DELAY_MS);
+      await settle();
+
+      expect(repository.branchReads).toEqual(["refs/heads/feature"]);
+      expect(publicState(view)).toMatchObject({ selectedOids: [STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID, F1], focusedOid: STAGED_CHANGES_ID });
+      expect(repository.compareRequests.map((request) => request.base)).toEqual([{ kind: "pinned", oid: C3, label: "main" }]);
+      expect(repository.resolvedRefs).toEqual(["main"]);
+    });
+
+    it("selects only the commits of a picked branch that is not checked out", async () => {
+      const repository = await openOnFeature(FEATURE_COMMITS);
+      repository.workingChanges = BOTH;
+      await send({ type: "refresh" });
+      repository.branchCommits = { kind: "commits", branch: "main", base: "origin/main", isUpstream: true, oids: [C3, C2] };
+
+      await send({ type: "presentation", search: "", branch: "refs/heads/main", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
+      expect(button()).toContain('title="Select commits on main not yet pushed to origin/main"');
+      await send({ type: "selectBranch" });
+
+      expect(repository.branchReads).toEqual(["refs/heads/feature", "refs/heads/main"]);
+      expect(publicState(view).selectedOids).toEqual([C3, C2]);
+    });
+
+    it.each([
+      [{ kind: "noUpstream", branch: "feature" } as const, "feature has no upstream branch to find unpushed commits against"],
+      [{ kind: "noDefaultBranch", branch: "feature" } as const, "No default branch found: there is no origin/HEAD, main or master"],
+      [{ ...FEATURE_COMMITS, oids: [] }, "No commits on feature beyond main"],
+    ])("disables the button and says why for %j", async (commits, title) => {
+      await openOnFeature(commits);
+
+      await send({ type: "selectBranch" });
+
+      expect(button()).toBe(`<button id="history-select-branch" class="icon-button" title="${title}" aria-label="Select branch commits" disabled>`);
+      expect(publicState(view).selectedOids).toEqual([]);
+    });
+
+    it("selects the loaded commits and says how many older ones were left out", async () => {
+      await openOnFeature({ ...FEATURE_COMMITS, oids: [F1, "9".repeat(40), "8".repeat(40)] });
+
+      await send({ type: "selectBranch" });
+
+      expect(publicState(view).selectedOids).toEqual([F1]);
+      expect(vscodeMock.messages.map((message) => message.text)).toEqual([
+        "2 older commit(s) of the branch are beyond the loaded history and were not selected.",
+      ]);
+    });
+
+    it("logs a failed read and reads again after a reload", async () => {
+      const repository = await openOnFeature(FEATURE_COMMITS);
+      repository.branchCommits = new Error("git broke");
+      repository.setHistory({ ...ON_FEATURE });
+      await send({ type: "refresh" });
+      expect(button()).toContain('title="Could not find the commits on feature; the jw-differ History output has details" aria-label="Select branch commits" disabled>');
+      expect(log.some((line) => line.includes("Could not find the commits of refs/heads/feature in /work/alpha"))).toBe(true);
+
+      repository.branchCommits = FEATURE_COMMITS;
+      repository.setHistory({ ...ON_FEATURE });
+      await send({ type: "refresh" });
+
+      expect(repository.branchReads).toEqual(["refs/heads/feature", "refs/heads/feature", "refs/heads/feature"]);
+      expect(button()).not.toContain(" disabled");
+    });
+
+    it("cancels a branch read once a pick of another branch supersedes it", async () => {
+      initialHistory = ON_FEATURE;
+      await open();
+      const repository = repositories.get(ROOT_A)!;
+      repository.isBranchReadHeld = true;
+      repository.setHistory({ ...ON_FEATURE });
+      await send({ type: "refresh" });
+      const [, featureRead] = repository.branchReadSignals;
+
+      await send({ type: "presentation", search: "", branch: "refs/heads/main", focusedOid: null, rowLimit: HISTORY_PAGE_SIZE });
+
+      expect(repository.branchReads.slice(1)).toEqual(["refs/heads/feature", "refs/heads/main"]);
+      expect(featureRead?.aborted).toBe(true);
+      expect(repository.branchReadSignals.at(-1)?.aborted).toBe(false);
+      expect(log.some((line) => line.includes("Could not find the commits"))).toBe(false);
+    });
+
+    it("cancels a branch read when another repository is shown, and reads again on return", async () => {
+      initialHistory = ON_FEATURE;
+      await open([ROOT_A, ROOT_B]);
+      const alpha = repositories.get(ROOT_A)!;
+      alpha.isBranchReadHeld = true;
+      alpha.setHistory({ ...ON_FEATURE });
+      await send({ type: "refresh" });
+      const alphaId = publicState(view).repositoryId;
+      const betaId = /<option value="([^"]+)">beta<\/option>/.exec(shownHtml(view))![1];
+
+      await send({ type: "repository", repositoryId: betaId });
+      expect(alpha.branchReadSignals.at(-1)?.aborted).toBe(true);
+      alpha.isBranchReadHeld = false;
+      alpha.branchCommits = FEATURE_COMMITS;
+      await send({ type: "repository", repositoryId: alphaId });
+
+      expect(alpha.branchReads).toHaveLength(3);
+      expect(button()).not.toContain(" disabled");
+    });
+
+    it("reads no branch commits while the view is hidden and reads them once it shows", async () => {
+      const repository = await openOnFeature(FEATURE_COMMITS);
+      view.fireDidChangeVisibility(false);
+      repository.setHistory({ ...ON_FEATURE });
+
+      await provider.refresh();
+      await settle();
+      expect(repository.branchReads).toEqual(["refs/heads/feature"]);
+
+      view.fireDidChangeVisibility(true);
+      loadDocument(view);
+      await settle();
+      expect(repository.branchReads).toEqual(["refs/heads/feature", "refs/heads/feature"]);
+      expect(button()).not.toContain(" disabled");
+    });
+
+    it("is disabled without an open repository", async () => {
+      await open([]);
+
+      expect(button()).toContain('title="No repository is open to select a branch in"');
+      expect(button()).toContain(" disabled>");
     });
   });
 

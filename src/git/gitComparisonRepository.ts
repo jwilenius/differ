@@ -18,6 +18,7 @@ import { resolveHistoryComparison } from "./historyComparisonResolver";
 import type { LoadedParents, ResolvedHistoryComparison } from "./historyComparisonResolver";
 import { replaySelection } from "./gitSelectionReplay";
 import type { ReplayBlockedResult, ReplayOptions, ReplaySession } from "./gitSelectionReplay";
+import type { BranchCommits } from "../model/historyBranchCommits";
 import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
 
 /** The replay options, which already cover reading the source repository and deleting released snapshots. */
@@ -75,6 +76,11 @@ export class GitComparisonRepository implements HistoryRepository {
 
   readWorkingChanges(signal: AbortSignal): Promise<WorkingChangeSummary | null> {
     return this.run(signal, (linked) => readWorkingChangeSummary(this.root, linked, this.options.env));
+  }
+
+  /** What Select branch picks for `branchRef`. */
+  findBranchCommits(branchRef: string, signal: AbortSignal): Promise<BranchCommits> {
+    return this.run(signal, (linked) => this.history.readBranchCommits(branchRef, linked));
   }
 
   /** Absolute path of the repository's index file; only `dispose` cancels the read. */

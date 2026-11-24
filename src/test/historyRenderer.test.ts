@@ -65,6 +65,7 @@ function makeContext(overrides: Partial<HistoryRenderContext> = {}): HistoryRend
     hiddenSelectedCount: 0,
     wireRevision: 7,
     openedFile: null,
+    selectBranch: { isEnabled: true, title: "Select every commit on feature that is not on main" },
     ...overrides,
   };
 }
@@ -362,6 +363,19 @@ describe("HtmlHistoryRenderer", () => {
       expect(update.appendedRows).toBe("");
     });
 
+    it("sends Select branch again only when its state changes", () => {
+      const renderer = new HtmlHistoryRenderer();
+      const context = makeContext();
+      const { page } = renderer.render(makeState(), context);
+
+      const unchanged = renderer.update(makeState(), { ...context, wireRevision: 8 }, page);
+      const changed = renderer.update(makeState(), { ...context, wireRevision: 9, selectBranch: { isEnabled: false, title: "Finding the commits on feature…" } }, unchanged.page);
+
+      expect(unchanged.update.regions).not.toHaveProperty("history-select-branch");
+      expect(changed.update.regions["history-select-branch"]).toContain('title="Finding the commits on feature…"');
+      expect(changed.update.regions["history-select-branch"]).toContain(" disabled>");
+    });
+
     it("sends a change of the file the diff panel shows as state alone", () => {
       const renderer = new HtmlHistoryRenderer();
       const listed: ComparisonFile = { id: "f-open", status: "added", base: null, result: { path: "a.txt", blob: oid(10), mode: "100644" }, contentKind: "text" };
@@ -609,7 +623,7 @@ describe("HtmlHistoryRenderer", () => {
     const html = render({ selectedOids: [MERGE] });
 
     expect(html).toContain('role="grid" aria-label="Commits" aria-multiselectable="true"');
-    for (const id of ["history-repository", "history-search", "history-branch-input", "history-branch-list", "history-branch-local-only", "history-base-input"]) {
+    for (const id of ["history-repository", "history-search", "history-branch-input", "history-branch-list", "history-branch-local-only", "history-select-branch", "history-base-input"]) {
       expect(html).toMatch(new RegExp(`id="${id}"[^>]*aria-label="[^"]+"`));
     }
     expect(html).toContain('role="combobox"');
@@ -618,6 +632,14 @@ describe("HtmlHistoryRenderer", () => {
     expect(html).toContain('<button id="history-clear-selection" class="tool" title="Deselect every commit">Clear</button>');
     expect(html).toContain('<button id="history-branch-local-only" class="option-toggle" title="Show local branches only" aria-label="Show local branches only" aria-pressed="false"><svg ');
     expect(html).toContain('<option value="" selected>All branches</option>');
+  });
+
+  it("renders Select branch with its action as the tooltip, disabled when it cannot act", () => {
+    const enabled = render();
+    const disabled = render({}, { selectBranch: { isEnabled: false, title: "<main> has no upstream & so on" } });
+
+    expect(enabled).toContain('<button id="history-select-branch" class="icon-button" title="Select every commit on feature that is not on main" aria-label="Select branch commits"><svg ');
+    expect(disabled).toContain('<button id="history-select-branch" class="icon-button" title="&lt;main&gt; has no upstream &amp; so on" aria-label="Select branch commits" disabled><svg ');
   });
 
   it("reports an empty repository and a load error", () => {
@@ -855,7 +877,10 @@ describe("HtmlHistoryRenderer tooltips", () => {
       selectedOids: [MIDDLE],
       comparison: { kind: "blocked", base: { kind: "commit", oid: ROOT, subject: "Initial" }, orderedOids: [MIDDLE], failingOid: MIDDLE, paths: ["a.txt"], explanation: "conflict" },
     }),
-    "no repository and no history": render({ history: null }, { repositories: [], activeRepositoryId: null, visibleOids: [] }),
+    "no repository and no history": render(
+      { history: null },
+      { repositories: [], activeRepositoryId: null, visibleOids: [], selectBranch: { isEnabled: false, title: "No repository is open to select a branch in" } },
+    ),
     "working-change rows": render(
       { history: { ...history, head: { oid: MERGE, branch: "main" } }, workingChanges: { staged: 1, unstaged: 2, untracked: 1, conflicted: 1, isTruncated: false, contentKey: "k1" }, selectedOids: [STAGED_CHANGES_ID] },
       { visibleWorkingIds: [UNSTAGED_CHANGES_ID, STAGED_CHANGES_ID] },

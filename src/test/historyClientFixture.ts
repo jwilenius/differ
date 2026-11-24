@@ -669,6 +669,7 @@ function pageFor(publication: Publication): { readonly state: HistoryState; read
     hiddenSelectedCount: 0,
     wireRevision: publication.revision ?? 7,
     openedFile: publication.openFileId ? { snapshotId: SNAPSHOT_ID, fileId: publication.openFileId } : null,
+    selectBranch: { isEnabled: true, title: "Select every commit on main that is not on origin/main" },
   };
   return { state, context };
 }

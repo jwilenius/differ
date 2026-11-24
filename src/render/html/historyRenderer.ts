@@ -48,6 +48,12 @@ export interface HistoryPresentation {
   readonly rowLimit: number;
 }
 
+/** The Select branch button: whether a click selects anything, and the tooltip saying what or why not. */
+export interface SelectBranchButton {
+  readonly isEnabled: boolean;
+  readonly title: string;
+}
+
 /** Everything besides the domain state that one page needs; computed by the host. */
 export interface HistoryPageContext {
   readonly repositories: readonly HistoryRepositoryOption[];
@@ -63,6 +69,7 @@ export interface HistoryPageContext {
   readonly wireRevision: number;
   /** The file jw-differ's diff panel shows, of whichever comparison it was opened from. */
   readonly openedFile: OpenedFile | null;
+  readonly selectBranch: SelectBranchButton;
 }
 
 /** A page context plus what only a whole document needs. */
@@ -203,6 +210,8 @@ const BRANCH_INPUT_TITLE = "Branch filter: click or type to choose a branch";
 const BASE_LABEL_TITLE = "Comparison base: the commit the selected changes are replayed onto and compared against";
 const BASE_INPUT_TITLE = "Commit, branch or tag to pin as the base; press Enter or Pin";
 const PIN_TITLE = "Pin the base to the commit, branch or tag typed in the box (Enter)";
+/** A branch line leaving a main line, as in a branch graph. */
+const SELECT_BRANCH_ICON = `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="4.5" r="1.5"/><path d="M4.5 5v6M11.5 6c0 3.5-7 2-7 5"/></g></svg>`;
 /** A funnel drawn like VS Code's filter codicon, in the toggle's text colour. */
 const FILTER_ICON = `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 3h12l-4.5 5.5V13l-3 1.5v-6z" fill="none" stroke="currentColor" stroke-linejoin="round"/></svg>`;
 
@@ -254,6 +263,7 @@ const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string;
  * Client contract: controls `#history-repository` (select, root IDs),
  * `#history-choose-repository`, `#history-refresh`, `#history-search`,
  * `#history-branch` (select, `CHECKED_OUT_BRANCH`, branch ref or `""` = all), `#history-branch-local-only`,
+ * `#history-select-branch`,
  * `#history-base-automatic`, `#history-base-input` + `#history-base-pin`, `#history-clear-selection`,
  * `#history-load-more[data-row-limit]`; rows `#history-commits tr.commit-row[data-oid]`;
  * `select.mainline-select[data-oid]` (value = one-based parent);
@@ -438,6 +448,7 @@ type RegionId =
   | typeof WORKING_ROWS_ID
   | "history-repository"
   | "history-branch"
+  | "history-select-branch"
   | "history-base-automatic"
   | "history-base-input"
   | "history-base-current"
@@ -454,6 +465,7 @@ function renderRegions(view: HistoryView, rows: HistoryRowSet, branchFilter: str
   return {
     "history-repository": renderRepositorySelect(view.context),
     "history-branch": branchFilter,
+    "history-select-branch": renderSelectBranch(view.context.selectBranch),
     ...renderBaseControls(view),
     "history-selection": renderSelectionSummary(view),
     "history-status": renderStatus(view),
@@ -476,7 +488,7 @@ function renderToolbar(presentation: HistoryPresentation, regions: Regions): str
   return `<header class="history-toolbar" role="toolbar" aria-label="History controls">
 <span class="toolbar-group">${regions["history-repository"]}<button id="history-choose-repository" class="tool" title="Open another repository folder">Open…</button><button id="history-refresh" class="tool" title="Reload history" aria-label="Refresh history">⟳</button></span>
 <input id="history-search" class="search" type="search" placeholder="Search subject or hash" aria-label="Search commits by subject or hash" title="${SEARCH_TITLE}" value="${escapeHtml(presentation.search)}">
-<span class="toolbar-group"><span class="branch-filter"><input id="history-branch-input" class="branch-input" type="text" role="combobox" aria-label="Branch filter" title="${BRANCH_INPUT_TITLE}" aria-autocomplete="list" aria-expanded="false" aria-controls="history-branch-list" autocomplete="off" spellcheck="false"><ul id="history-branch-list" class="branch-list" role="listbox" aria-label="Branches" hidden></ul>${regions["history-branch"]}</span><button id="history-branch-local-only" class="option-toggle" title="Show local branches only" aria-label="Show local branches only" aria-pressed="false">${FILTER_ICON}</button></span>
+<span class="toolbar-group"><span class="branch-filter"><input id="history-branch-input" class="branch-input" type="text" role="combobox" aria-label="Branch filter" title="${BRANCH_INPUT_TITLE}" aria-autocomplete="list" aria-expanded="false" aria-controls="history-branch-list" autocomplete="off" spellcheck="false"><ul id="history-branch-list" class="branch-list" role="listbox" aria-label="Branches" hidden></ul>${regions["history-branch"]}</span><button id="history-branch-local-only" class="option-toggle" title="Show local branches only" aria-label="Show local branches only" aria-pressed="false">${FILTER_ICON}</button>${regions["history-select-branch"]}</span>
 <span class="toolbar-group base-control" role="group" aria-label="Comparison base">
 <span class="label" title="${BASE_LABEL_TITLE}">Base:</span>
 ${regions["history-base-automatic"]}
@@ -486,6 +498,12 @@ ${regions["history-base-current"]}
 </span>
 ${regions["history-selection"]}
 </header>`;
+}
+
+function renderSelectBranch(button: SelectBranchButton): string {
+  const title = escapeHtml(button.title);
+  const disabled = button.isEnabled ? "" : " disabled";
+  return `<button id="history-select-branch" class="icon-button" title="${title}" aria-label="Select branch commits"${disabled}>${SELECT_BRANCH_ICON}</button>`;
 }
 
 function renderRepositorySelect(context: HistoryPageContext): string {

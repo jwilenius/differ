@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import type { BranchCommits } from "../model/historyBranchCommits";
-import { LOCAL_BRANCH_PREFIX, REF_NAMESPACES } from "../model/historyRefNames";
+import { LOCAL_BRANCH_PREFIX, REF_NAMESPACES, shortRefName } from "../model/historyRefNames";
 import type { HistoryCommit, HistoryData, HistoryHead, HistoryRef } from "../model/historyTypes";
 import { runHistoryGit } from "./historyGitCommand";
 import type { HistoryGitResult } from "./historyGitCommand";
@@ -341,12 +341,6 @@ function defaultBranchRef(records: ReadonlyMap<string, BranchRefRecord>): string
 /** `refs/heads/<name>` for `refs/remotes/origin/<name>`, the local branch that usually tracks it; else `refName`. */
 function localBranchOf(refName: string): string {
   return refName.startsWith(ORIGIN_BRANCH_PREFIX) ? LOCAL_BRANCH_PREFIX + refName.slice(ORIGIN_BRANCH_PREFIX.length) : refName;
-}
-
-/** `refName` without its namespace prefix, as `HistoryRef.name` shows it; `HEAD` unchanged. */
-function shortRefName(refName: string): string {
-  const namespace = REF_NAMESPACES.find((candidate) => refName.startsWith(candidate.prefix));
-  return namespace ? refName.slice(namespace.prefix.length) : refName;
 }
 
 /** One revision per line, for commands reading `--stdin` instead of arguments that could exceed OS limits. */

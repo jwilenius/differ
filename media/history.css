@@ -258,8 +258,9 @@ input::placeholder {
   color: var(--vscode-list-focusHighlightForeground, var(--vscode-list-highlightForeground, inherit));
 }
 
-/* An icon toggle in the colours of the find widget's toggles. */
-.option-toggle {
+/* An icon toggle in the colours of the find widget's toggles, and an icon button beside one. */
+.option-toggle,
+.icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -271,7 +272,8 @@ input::placeholder {
   cursor: pointer;
 }
 
-.option-toggle:hover {
+.option-toggle:hover,
+.icon-button:hover:not(:disabled) {
   background: var(--vscode-inputOption-hoverBackground, var(--vscode-toolbar-hoverBackground));
 }
 

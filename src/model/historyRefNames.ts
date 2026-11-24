@@ -9,3 +9,9 @@ export const REF_NAMESPACES: ReadonlyArray<{ readonly prefix: string; readonly k
   { prefix: "refs/remotes/", kind: "remoteBranch" },
   { prefix: "refs/tags/", kind: "tag" },
 ];
+
+/** `refName` without its namespace prefix, as `HistoryRef.name` shows it; any other name, such as `HEAD`, unchanged. */
+export function shortRefName(refName: string): string {
+  const namespace = REF_NAMESPACES.find((candidate) => refName.startsWith(candidate.prefix));
+  return namespace ? refName.slice(namespace.prefix.length) : refName;
+}

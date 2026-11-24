@@ -3,17 +3,24 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { GitComparisonRepository } from "../../git/gitComparisonRepository";
 import { HistoryGitError } from "../../git/historyGitCommand";
+import { selectBranchAction, selectBranchTarget } from "../../model/historyBranchCommits";
+import type { BranchCommits, BranchCommitsLookup, SelectBranchAction } from "../../model/historyBranchCommits";
 import { CHECKED_OUT_BRANCH, isPickedBranch, resolveBranchChoice } from "../../model/historyBranchFilter";
 import type { BranchFilter } from "../../model/historyBranchFilter";
 import { HistoryController } from "../../model/historyController";
 import { shortHash } from "../../model/historyLabels";
 import type { HistoryData, HistoryRepository, HistoryState } from "../../model/historyTypes";
-import { isWorkingChangeId, WORKING_CHANGE_REPLAY_ORDER, workingChangeLabel } from "../../model/historyWorkingChanges";
+import {
+  isWorkingChangeId,
+  presentWorkingChangeIds,
+  WORKING_CHANGE_REPLAY_ORDER,
+  workingChangeLabel,
+} from "../../model/historyWorkingChanges";
 import type { WorkingChangeId } from "../../model/historyWorkingChanges";
 import { VisibleCommitCache, visibleWorkingChangeIds } from "../../model/historyVisibility";
 import type { CommitFilter } from "../../model/historyVisibility";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../../render/html/historyRenderer";
-import type { HistoryPage, HistoryPageContext, HistoryPresentation } from "../../render/html/historyRenderer";
+import type { HistoryPage, HistoryPageContext, HistoryPresentation, SelectBranchButton } from "../../render/html/historyRenderer";
 import { GitIndexWatchers } from "./gitIndexWatchers";
 import type { HistoryFileOpener } from "./historyDiffProvider";
 import { parseHistoryMessage } from "./historyMessages";
@@ -43,6 +50,8 @@ export const COMPARISON_CHANGED_MESSAGE = "This comparison has changed — open 
 
 /** Port implementation the provider owns per repository root; disposal resolves once private files are gone. */
 export interface ClosableHistoryRepository extends HistoryRepository {
+  /** What Select branch picks for `branchRef`, a full ref name or `HEAD`. */
+  findBranchCommits(branchRef: string, signal: AbortSignal): Promise<BranchCommits>;
   /** Absolute path of the index file, watched so staging or committing elsewhere refreshes the working changes. */
   findIndexFile(): Promise<string>;
   /** The commit HEAD names now, null while unborn; a working-change refresh reloads the history when it moved. */
@@ -75,6 +84,16 @@ interface HistorySession {
   readonly controller: HistoryController;
   presentation: HistoryPresentation;
   compareTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Select branch's commits for one branch ref, read against one loaded history. */
+  branchCommits: BranchCommitsEntry | null;
+}
+
+interface BranchCommitsEntry {
+  readonly ref: string;
+  readonly history: HistoryData;
+  readonly lookup: BranchCommitsLookup;
+  /** Cancels the read while `lookup` is reading. */
+  readonly reading: AbortController;
 }
 
 /** What the last publication showed, so intents computed from it can be checked. */
@@ -97,6 +116,10 @@ const INITIAL_PRESENTATION: HistoryPresentation = {
   focusedOid: null,
   rowLimit: HISTORY_PAGE_SIZE,
 };
+
+const NO_SELECT_BRANCH_TITLE = "No repository is open to select a branch in";
+const READING_BRANCH_COMMITS: BranchCommitsLookup = { kind: "reading" };
+const FAILED_BRANCH_COMMITS: BranchCommitsLookup = { kind: "failed" };
 
 const EMPTY_STATE: HistoryState = {
   revision: 0,
@@ -190,8 +213,9 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       view.onDidDispose(() => this.detachView()),
       view.onDidChangeVisibility(() => {
         if (view.visible) {
-          // Refreshes are skipped while hidden.
+          // Refreshes and Select branch reads are skipped while hidden.
           this.scheduleWorkingRefresh();
+          this.readBranchCommits();
         } else {
           this.publish();
         }
@@ -309,6 +333,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       controller: new HistoryController(withErrorLogging(repository, (error) => this.logError(root, error))),
       presentation: INITIAL_PRESENTATION,
       compareTimer: undefined,
+      branchCommits: null,
     };
     this.sessions.push(session);
     return session;
@@ -316,6 +341,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
 
   private activate(session: HistorySession): void {
     if (this.active !== undefined && this.active !== session) {
+      this.cancelBranchCommits(this.active);
       // The new index is watched once found; until then, and if it is never found, no other repository's is.
       this.indexWatchers.watch([]);
     }
@@ -458,6 +484,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         return this.openFile(message.snapshotId, message.fileId);
       case "refresh":
         return this.refresh();
+      case "selectBranch":
+        return this.selectBranch();
       case "repository":
         return this.switchRepository(message.repositoryId);
       case "chooseRepository":
@@ -487,6 +515,23 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       this.scheduleCompare(session);
     }
     this.publish();
+  }
+
+  /** Replaces the selection with the branch's commits and, when it is checked out, its working changes. */
+  private selectBranch(): void {
+    const session = this.publishedSession();
+    if (!session) {
+      return;
+    }
+    const action = this.selectBranchActionOf(session);
+    if (action.ids.length === 0) {
+      return;
+    }
+    if (action.unloadedCount > 0) {
+      const count = action.unloadedCount;
+      void vscode.window.showInformationMessage(`${count} older commit(s) of the branch are beyond the loaded history and were not selected.`);
+    }
+    this.select(action.ids, action.ids[0] ?? null);
   }
 
   private async setBase(ref: string | null): Promise<void> {
@@ -703,6 +748,68 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  // ----------------------------------------------------------- select branch
+
+  /** What Select branch does in `session` now; starts reading the target's commits when they are not known yet. */
+  private selectBranchActionOf(session: HistorySession): SelectBranchAction {
+    const { history, workingChanges } = session.controller.getState();
+    const isLoaded = (oid: string): boolean => session.controller.hasCommit(oid);
+    const { branchChoice, branch } = session.presentation;
+    const target = selectBranchTarget(history, branchChoice, branch, isLoaded);
+    const lookup = target === null || history === null ? READING_BRANCH_COMMITS : this.lookUpBranchCommits(session, target.ref, history);
+    return selectBranchAction(target, lookup, presentWorkingChangeIds(workingChanges), isLoaded);
+  }
+
+  /**
+   * The commits of `ref` as read against `history`, or reading when not read yet; each newly loaded history reads them
+   * again, as either branch may have moved. Nothing is read while the view is hidden. A finished read publishes.
+   */
+  private lookUpBranchCommits(session: HistorySession, ref: string, history: HistoryData): BranchCommitsLookup {
+    const known = session.branchCommits;
+    if (known?.ref === ref && known.history === history) {
+      return known.lookup;
+    }
+    if (!this.view?.visible) {
+      return READING_BRANCH_COMMITS;
+    }
+    known?.reading.abort();
+    const entry: BranchCommitsEntry = { ref, history, lookup: READING_BRANCH_COMMITS, reading: new AbortController() };
+    session.branchCommits = entry;
+    void session.repository.findBranchCommits(ref, entry.reading.signal).then(
+      (commits): BranchCommitsLookup => commits,
+      (error: unknown): BranchCommitsLookup => {
+        if (!isCancellation(error)) {
+          this.logError(`Could not find the commits of ${ref} in ${session.root}`, error);
+        }
+        return FAILED_BRANCH_COMMITS;
+      },
+    ).then((lookup) => {
+      const isCurrent = session.branchCommits === entry && !this.isDisposed;
+      if (isCurrent) {
+        session.branchCommits = { ...entry, lookup };
+        if (this.active === session) {
+          this.publish();
+        }
+      }
+    });
+    return READING_BRANCH_COMMITS;
+  }
+
+  /** Starts reading the active repository's Select branch commits unless they are known; a finished read publishes. */
+  private readBranchCommits(): void {
+    if (this.active) {
+      this.selectBranchActionOf(this.active);
+    }
+  }
+
+  /** Stops a read no shown page waits for; the next publication of `session` starts it again. */
+  private cancelBranchCommits(session: HistorySession): void {
+    if (session.branchCommits?.lookup === READING_BRANCH_COMMITS) {
+      session.branchCommits.reading.abort();
+      session.branchCommits = null;
+    }
+  }
+
   /** Publishes the synchronous state change now and the settled state once `operation` completes. */
   private async follow(operation: Promise<void>): Promise<void> {
     this.publish();
@@ -746,6 +853,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       hiddenSelectedCount: this.hiddenSelectedCount(state, filter, visibleWorkingIds),
       wireRevision,
       openedFile: this.options.fileOpener.openedFile,
+      selectBranch: this.selectBranchButton(session),
     };
 
     if (!view.visible || this.document === null) {
@@ -771,6 +879,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       void view.webview.postMessage(patch.update);
       this.shownPage = patch.page;
     }
+  }
+
+  private selectBranchButton(session: HistorySession | undefined): SelectBranchButton {
+    if (session === undefined) {
+      return { isEnabled: false, title: NO_SELECT_BRANCH_TITLE };
+    }
+    const action = this.selectBranchActionOf(session);
+    return { isEnabled: action.ids.length > 0, title: action.title };
   }
 
   /** Selected commits and working changes that the filters hide. */

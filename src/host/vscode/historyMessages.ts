@@ -21,6 +21,7 @@ export type HistoryMessage =
   | { readonly type: "mainline"; readonly revision: number; readonly oid: string; readonly parentNumber: number }
   | { readonly type: "openFile"; readonly revision: number; readonly snapshotId: string; readonly fileId: string }
   | { readonly type: "refresh"; readonly revision: number }
+  | { readonly type: "selectBranch"; readonly revision: number }
   | { readonly type: "repository"; readonly revision: number; readonly repositoryId: string }
   | { readonly type: "chooseRepository"; readonly revision: number }
   | {
@@ -58,6 +59,7 @@ const SCHEMAS: Readonly<Record<HistoryMessageType, MessageSchema>> = {
   mainline: { fields: ["oid", "parentNumber"], parse: parseMainline },
   openFile: { fields: ["snapshotId", "fileId"], parse: parseOpenFile },
   refresh: { fields: [], parse: (_fields, revision) => ({ type: "refresh", revision }) },
+  selectBranch: { fields: [], parse: (_fields, revision) => ({ type: "selectBranch", revision }) },
   repository: { fields: ["repositoryId"], parse: parseRepository },
   chooseRepository: { fields: [], parse: (_fields, revision) => ({ type: "chooseRepository", revision }) },
   presentation: { fields: ["search", "branch", "focusedOid", "rowLimit"], parse: parsePresentation },

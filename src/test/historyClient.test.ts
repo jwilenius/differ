@@ -193,6 +193,7 @@ describe("history client", () => {
     webview.key(webview.element("history-base-input"), "Enter");
     webview.change(webview.find("select.mainline-select", (element) => element.dataset.oid === A), "2");
     webview.click(webview.element("history-clear-selection"));
+    webview.click(webview.element("history-select-branch"));
 
     expect(webview.intents()).toEqual([
       { type: "refresh", revision: 7 },
@@ -202,6 +203,7 @@ describe("history client", () => {
       { type: "base", revision: 7, ref: "v1.0" },
       { type: "mainline", revision: 7, oid: A, parentNumber: 2 },
       { type: "select", revision: 7, oids: [], focusedOid: null },
+      { type: "selectBranch", revision: 7 },
     ]);
   });
 
@@ -230,6 +232,7 @@ describe("history client", () => {
         hiddenSelectedCount: 0,
         wireRevision: 3,
         openedFile: null,
+        selectBranch: { isEnabled: false, title: "No checked-out commit to select a branch from" },
       },
     );
     const webview = new FakeWebview().load(html);

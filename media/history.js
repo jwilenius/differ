@@ -292,6 +292,7 @@
     "history-base-pin": pinBase,
     "history-load-more": (button) => sendPresentation({ rowLimit: Number(button.dataset.rowLimit) }),
     "history-branch-local-only": toggleLocalBranchesOnly,
+    "history-select-branch": () => post("selectBranch", {}),
   };
 
   document.addEventListener("click", (event) => {

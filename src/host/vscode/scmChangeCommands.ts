@@ -16,10 +16,18 @@ export const OPEN_STAGED_CHANGE_COMMAND = "jwDiffer.openStagedChange";
 const GIT_OPEN_CHANGE_COMMAND = "git.openChange";
 
 /**
- * What a command receives from Source Control: the clicked change, or every selected change when the clicked one is
- * selected. A URI names a file directly, as when run with `executeCommand`.
+ * What a command receives from Source Control: the clicked change, or every selected change, in the view's order, when
+ * the clicked one is selected. A URI names a file directly, as when run with `executeCommand`.
  */
 type ChangeTarget = vscode.Uri | vscode.SourceControlResourceState;
+
+/**
+ * The Git extension's numbers for the Source Control groups a command's icon shows in, which its resource states carry
+ * as `resourceGroupType`: Staged Changes, and Changes with Untracked Changes. Not VS Code API, so a state without one
+ * counts as in the group.
+ */
+const INDEX_GROUP_TYPES: readonly number[] = [1];
+const WORKING_TREE_GROUP_TYPES: readonly number[] = [2, 3];
 
 /** The diff tab the changes open in. */
 type ChangePanels = Pick<TwoWayDiffPanels, "open">;
@@ -34,8 +42,9 @@ const UNREADABLE_DESCRIPTIONS: Readonly<Record<UnreadableChangeReason, string>> 
 /**
  * Registers the commands that open the Source Control view's uncommitted changes in the jw-differ diff tab: the
  * unstaged change of a file in Changes, and the staged change of a file in Staged Changes. Each opens the first
- * change it is given, or without one, as from the Command Palette, the active editor's file. Only the latest request
- * opens, so a slow read never replaces a change clicked after it. `platform` decides whether file paths ignore case.
+ * change it is given from its own group, or without one, as from the Command Palette, the active editor's file. Only
+ * the latest request opens, so a slow read never replaces a change clicked after it. `platform` decides whether file
+ * paths ignore case.
  */
 export function registerScmChangeCommands(
   diffPanels: ChangePanels,
@@ -44,9 +53,9 @@ export function registerScmChangeCommands(
 ): vscode.Disposable {
   let latestRequest = 0;
   const readWorkingTree: ChangeReader = (uri) => readWorkingTreeChange(uri.fsPath, unsavedText(uri, platform));
-  const open = async (read: ChangeReader, targets: readonly unknown[]): Promise<void> => {
+  const open = async (read: ChangeReader, groupTypes: readonly number[], targets: readonly unknown[]): Promise<void> => {
     const request = ++latestRequest;
-    const target = firstTarget(targets);
+    const target = firstTarget(targets, groupTypes);
     if (target === undefined) {
       void vscode.window.showInformationMessage("Open a file to see its changes in jw-differ.");
       return;
@@ -55,8 +64,11 @@ export function registerScmChangeCommands(
   };
 
   return vscode.Disposable.from(
-    vscode.commands.registerCommand(OPEN_WORKING_TREE_CHANGE_COMMAND, (...targets: unknown[]) => open(readWorkingTree, targets)),
-    vscode.commands.registerCommand(OPEN_STAGED_CHANGE_COMMAND, (...targets: unknown[]) => open(readStaged, targets)),
+    vscode.commands.registerCommand(
+      OPEN_WORKING_TREE_CHANGE_COMMAND,
+      (...targets: unknown[]) => open(readWorkingTree, WORKING_TREE_GROUP_TYPES, targets),
+    ),
+    vscode.commands.registerCommand(OPEN_STAGED_CHANGE_COMMAND, (...targets: unknown[]) => open(readStaged, INDEX_GROUP_TYPES, targets)),
   );
 }
 
@@ -86,14 +98,25 @@ function readStaged(uri: vscode.Uri): Promise<ChangeReadResult> {
   return readStagedChange(uri.fsPath);
 }
 
-/** The first change a menu passed; the active editor's file when none was passed. */
-function firstTarget(targets: readonly unknown[]): ChangeTarget | undefined {
-  const [first] = targets;
-  if (first instanceof vscode.Uri || isResourceState(first)) {
-    return first;
+/**
+ * The first change a menu passed from the command's own groups: a selection can span groups, and the clicked change is
+ * in the group whose icon was clicked. The first change at all when none is, and the active editor's file when none
+ * was passed.
+ */
+function firstTarget(targets: readonly unknown[], groupTypes: readonly number[]): ChangeTarget | undefined {
+  const changes = targets.filter((target) => target instanceof vscode.Uri || isResourceState(target));
+  const [first] = changes;
+  if (first !== undefined) {
+    return changes.find((change) => isInGroups(change, groupTypes)) ?? first;
   }
   const activeUri = vscode.window.activeTextEditor?.document.uri;
   return activeUri?.scheme === "file" ? activeUri : undefined;
+}
+
+/** Whether `change` is in one of the Git extension's groups `groupTypes`; true when it does not say. */
+function isInGroups(change: ChangeTarget, groupTypes: readonly number[]): boolean {
+  const groupType = change instanceof vscode.Uri ? undefined : (change as { readonly resourceGroupType?: unknown }).resourceGroupType;
+  return typeof groupType !== "number" || groupTypes.includes(groupType);
 }
 
 function isResourceState(value: unknown): value is vscode.SourceControlResourceState {

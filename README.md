@@ -228,8 +228,7 @@ _The jw-differ icon on a changed file (left) and on a merge-conflict file (right
   stages are in the index, Changes compares against HEAD. Line endings are compared as LF, so a CRLF checkout
   (`core.autocrlf`) shows only real edits.
 - Binary, non-UTF-8, over-16-MiB, submodule and directory changes open in VS Code's diff instead, with a short note.
-- Multi-selection: the icon and menu open one diff, the clicked file's, or the first selected file when the clicked
-  file is part of the selection.
+- Multi-selection: the icon and menu open one diff, the clicked file's, or, when the clicked file is part of the selection, the first selected file in the clicked file's group, as VS Code passes the selection without saying which file was clicked.
 - **jw-differ: Open Changes in jw-differ** in the Command Palette opens the active file's unstaged change.
 - jw-differ cannot replace VS Code's own click on a change: the Git extension opens its built-in diff or merge editor,
   and VS Code offers extensions no supported way to take over Source Control diffs.

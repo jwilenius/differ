@@ -58,6 +58,11 @@ function resourceState(uri: vscode.Uri): vscode.SourceControlResourceState {
   return { resourceUri: uri };
 }
 
+/** A row of a Git extension group, numbered as its `resourceGroupType`: 0 Merge, 1 Staged, 2 Changes, 3 Untracked. */
+function groupedState(uri: vscode.Uri, resourceGroupType: number): vscode.SourceControlResourceState {
+  return Object.assign(resourceState(uri), { resourceGroupType });
+}
+
 /** What the request shows: its title and each side's label, path and text. */
 function shown(request: TwoWayDiffRequest | undefined): unknown {
   return request && {
@@ -120,6 +125,25 @@ describe(OPEN_WORKING_TREE_CHANGE_COMMAND, () => {
     const second = commit("b.txt", "b\n");
 
     await vscode.commands.executeCommand(OPEN_WORKING_TREE_CHANGE_COMMAND, resourceState(first), resourceState(second));
+
+    expect(requests.map((request) => request.title)).toEqual(["a.txt (Index ↔ Working Tree)"]);
+  });
+
+  it("opens the first selected change of Changes when the selection also holds staged and conflicted files", async () => {
+    const conflicted = commit("a.txt", "a\n");
+    const staged = commit("b.txt", "b\n");
+    const changed = commit("c.txt", "c\n");
+    const selection = [groupedState(conflicted, 0), groupedState(staged, 1), groupedState(changed, 2)];
+
+    await vscode.commands.executeCommand(OPEN_WORKING_TREE_CHANGE_COMMAND, ...selection);
+
+    expect(requests.map((request) => request.title)).toEqual(["c.txt (Index ↔ Working Tree)"]);
+  });
+
+  it("opens the only change it is given whatever its group", async () => {
+    const uri = commit("a.txt", "a\n");
+
+    await vscode.commands.executeCommand(OPEN_WORKING_TREE_CHANGE_COMMAND, groupedState(uri, 1));
 
     expect(requests.map((request) => request.title)).toEqual(["a.txt (Index ↔ Working Tree)"]);
   });
@@ -241,5 +265,18 @@ describe(OPEN_STAGED_CHANGE_COMMAND, () => {
       result: ["Index", "new.txt", "kept\nlines\nhere\n"],
     });
     expect(vscodeMock.executedCommands.at(-1)).toEqual({ command: "git.openChange", args: [state] });
+  });
+
+  it("opens the first selected change of Staged Changes when the selection also holds other groups' files", async () => {
+    const conflicted = commit("a.txt", "a\n");
+    const staged = commit("b.txt", "b\n");
+    fs.writeFileSync(staged.fsPath, "staged\n");
+    runGit(root, "add", "b.txt");
+    const changed = commit("c.txt", "c\n");
+    const selection = [groupedState(conflicted, 0), groupedState(staged, 1), groupedState(changed, 2)];
+
+    await vscode.commands.executeCommand(OPEN_STAGED_CHANGE_COMMAND, ...selection);
+
+    expect(requests.map((request) => request.title)).toEqual(["b.txt (HEAD ↔ Index)"]);
   });
 });

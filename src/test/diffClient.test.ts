@@ -176,6 +176,7 @@ class FakeElement {
   disabled = false;
   hidden = false;
   textContent = "";
+  title = "";
   readonly dataset: Record<string, string> = {};
   readonly style: Record<string, string> = {};
   readonly attributes: Record<string, string> = {};
@@ -258,6 +259,7 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
     "prev",
     "next",
     "open-native",
+    "status",
     "file-step",
     "current-base",
     "current-result",
@@ -821,5 +823,82 @@ describe("diff client working copy", () => {
     const keys = (manifest.contributes.keybindings ?? []).map((binding) => binding.key.toLowerCase());
 
     expect(keys.filter((key) => key.split(/[+ ]/).includes("f4"))).toEqual([]);
+  });
+});
+
+describe("diff client tooltips", () => {
+  const MARKED_SECOND = "Difference 2 of 3 is marked; F7 / Shift+F7 or ↓/↑ go to the next / previous";
+
+  afterEach(() => vi.useRealTimers());
+
+  it("says in the status's tooltip which difference is marked as F7 and the buttons move it", () => {
+    const { elements, document } = startClient();
+    expect(elements.status.title).toBe("Difference 1 of 3 is marked; F7 / Shift+F7 or ↓/↑ go to the next / previous");
+
+    document.fire("keydown", { key: "F7" });
+    expect(elements.status.title).toBe(MARKED_SECOND);
+
+    elements.next.fire("click");
+    elements.prev.fire("click");
+    expect(elements.status.title).toBe(MARKED_SECOND);
+  });
+
+  it("says no difference is marked after restoring a re-render's scroll offsets", () => {
+    const before = startClient();
+    before.elements["scroll-result"].scrollTop = 80;
+    before.elements["scroll-result"].fire("scroll");
+
+    const after = startClient(BLOCKS, { state: before.savedState() });
+
+    expect(after.elements.status.title).toBe("3 differences, none marked since the view was redrawn; F7 or ↓ goes to the next");
+  });
+
+  it("says why the navigation buttons are disabled when there are no differences", () => {
+    const { elements } = startClient([]);
+
+    expect(elements.prev.title).toBe("No differences to go to");
+    expect(elements.next.title).toBe("No differences to go to");
+  });
+
+  it("leaves the navigation buttons' own tooltips while there are differences", () => {
+    const { elements } = startClient();
+
+    expect(elements.prev.title).toBe("");
+    expect(elements.next.title).toBe("");
+  });
+
+  it("explains the file-step hint while it shows and drops the tooltip with it", () => {
+    vi.useFakeTimers();
+    const { elements, document } = startClient(BLOCKS, { files: { hasPrevious: true, hasNext: true } });
+    const hint = elements["file-step"];
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    expect(hint.title).toBe("Press Shift+F7 again within 2.5 seconds to open the previous file of the Changed files list at its last difference");
+
+    vi.advanceTimersByTime(2_500);
+    expect(hint.title).toBe("");
+  });
+
+  it("explains the hints at either end of the file list", () => {
+    vi.useFakeTimers();
+    const { elements, document } = startClient(BLOCKS, { files: { hasPrevious: false, hasNext: true }, startAt: "last" });
+    const hint = elements["file-step"];
+
+    document.fire("keydown", { key: "F7" });
+    expect(hint.title).toBe("Press F7 again within 2.5 seconds to open the next file of the Changed files list at its first difference");
+
+    for (let step = 0; step < 3; step++) {
+      document.fire("keydown", { key: "F7", shiftKey: true });
+    }
+    expect(hint.textContent).toBe("No previous files");
+    expect(hint.title).toBe("No earlier file of the Changed files list has differences to show");
+  });
+
+  it("explains the hint after the last file's last change", () => {
+    const { elements, document } = startClient(BLOCKS, { files: { hasPrevious: true, hasNext: false }, startAt: "last" });
+
+    document.fire("keydown", { key: "F7" });
+
+    expect(elements["file-step"].title).toBe("No later file of the Changed files list has differences to show");
   });
 });

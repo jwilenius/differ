@@ -27,6 +27,7 @@
   const fileStepHint = document.getElementById("file-step");
   /** The marked change's number in the status; absent when there are no differences. */
   const currentNumber = document.getElementById("current-number");
+  const status = document.getElementById("status");
   const anchors = buildAnchors(data.blocks, data.baseLineCount, data.resultLineCount);
   const scrollers = { base: document.getElementById("scroll-base"), result: document.getElementById("scroll-result") };
   const svg = document.getElementById("connectors");
@@ -169,11 +170,23 @@
 
   function offerFileStep(direction, hasFile) {
     endFileStep();
-    const hints = direction > 0
-      ? ["Press F7 again to go to the next file", "No more files"]
-      : ["Press Shift+F7 again to go to the previous file", "No previous files"];
-    fileStepHint.textContent = hasFile ? hints[0] : hints[1];
+    const hint = fileStepHintOf(direction, hasFile);
+    fileStepHint.textContent = hint.text;
+    fileStepHint.title = hint.title;
     pendingFileStep = { direction, timer: setTimeout(endFileStep, FILE_STEP_WINDOW_MS) };
+  }
+
+  /** The hint's text, and its tooltip, which says what pressing the key again does. */
+  function fileStepHintOf(direction, hasFile) {
+    const seconds = FILE_STEP_WINDOW_MS / 1000;
+    if (direction > 0) {
+      return hasFile
+        ? { text: "Press F7 again to go to the next file", title: `Press F7 again within ${seconds} seconds to open the next file of the Changed files list at its first difference` }
+        : { text: "No more files", title: "No later file of the Changed files list has differences to show" };
+    }
+    return hasFile
+      ? { text: "Press Shift+F7 again to go to the previous file", title: `Press Shift+F7 again within ${seconds} seconds to open the previous file of the Changed files list at its last difference` }
+      : { text: "No previous files", title: "No earlier file of the Changed files list has differences to show" };
   }
 
   function endFileStep() {
@@ -183,6 +196,7 @@
     clearTimeout(pendingFileStep.timer);
     pendingFileStep = null;
     fileStepHint.textContent = "";
+    fileStepHint.title = "";
   }
 
   /**
@@ -242,11 +256,17 @@
     }
   }
 
+  /** The status's number and tooltip, worded as the renderer words them. */
   function showCurrentNumber() {
     if (currentNumber === null) {
       return;
     }
-    currentNumber.textContent = currentIndex === -1 ? NO_CURRENT_NUMBER : String(currentIndex + 1);
+    const count = data.blocks.length;
+    const isMarked = currentIndex !== -1;
+    currentNumber.textContent = isMarked ? String(currentIndex + 1) : NO_CURRENT_NUMBER;
+    status.title = isMarked
+      ? `Difference ${currentIndex + 1} of ${count} is marked; F7 / Shift+F7 or ↓/↑ go to the next / previous`
+      : `${count} difference${count === 1 ? "" : "s"}, none marked since the view was redrawn; F7 or ↓ goes to the next`;
   }
 
   /** Spans the marker across the visible width, so the text scrolling sideways leaves its sides in view. */
@@ -300,6 +320,9 @@
 
   for (const button of [document.getElementById("prev"), document.getElementById("next")]) {
     button.disabled = data.blocks.length === 0;
+    if (button.disabled) {
+      button.title = "No differences to go to";
+    }
   }
   const saved = vscode.getState();
   if (saved && saved.key === scrollStateKey) {

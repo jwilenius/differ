@@ -55,15 +55,23 @@ interface PaneInput {
   readonly side: PaneSide;
   readonly lines: readonly string[];
   readonly highlight: HighlightedText;
-  /** Change kind per line, or undefined for an unchanged line. */
-  readonly lineKinds: ReadonlyMap<number, DiffBlockKind>;
+  /** The difference a line belongs to, or undefined for an unchanged line. */
+  readonly lineDifferences: ReadonlyMap<number, LineDifference>;
+  readonly differenceCount: number;
   /** Empty ranges by the line they precede; the line count stands for "after the last line". */
   readonly gaps: ReadonlyMap<number, DiffBlockKind>;
   readonly words: ReadonlyMap<number, readonly WordSpan[]>;
 }
 
+/** A changed line's block: its kind and 1-based number, as the status counts differences. */
+interface LineDifference {
+  readonly kind: DiffBlockKind;
+  readonly number: number;
+}
+
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
 const LINE_SEPARATOR = "\n";
+const SIDE_NAMES: Readonly<Record<PaneSide, string>> = { base: "Left side", result: "Right side" };
 
 /**
  * Renders IntelliJ's side-by-side diff: base text and gutter, a connector
@@ -78,7 +86,8 @@ const LINE_SEPARATOR = "\n";
  * is the live region showing the file-step hint. Each pane's `.lines` ends with
  * `#current-base` / `#current-result`, the hidden marker the client places over
  * the change navigated to. While there are differences, `#current-number` in the
- * status holds that change's 1-based number, which the client keeps up to date.
+ * status `#status` holds that change's 1-based number, which the client keeps up
+ * to date along with the status's tooltip.
  */
 export class HtmlTwoWayDiffRenderer {
   render(input: TwoWayDiffInput, context: TwoWayDiffRenderContext): string {
@@ -149,7 +158,7 @@ function renderToolbar(diff: TwoWayDiff, startAt: StartChange): string {
     <button id="prev" class="tool" title="Previous Difference (Shift+F7)" aria-label="Previous difference">↑</button>
     <button id="next" class="tool" title="Next Difference (F7)" aria-label="Next difference">↓</button>
   </span>
-  <span class="status" role="status" aria-live="polite">${renderStatus(diff.blocks.length, startAt)}</span>
+  <span id="status" class="status" role="status" aria-live="polite" title="${describeStatus(diff.blocks.length, startAt)}">${renderStatus(diff.blocks.length, startAt)}</span>
   <button id="open-native" class="tool text" title="Show this comparison in VS Code's built-in diff editor">Open in VS Code diff</button>
 </header>`;
 }
@@ -163,29 +172,40 @@ function renderStatus(count: number, startAt: StartChange): string {
   return `<span id="current-number">${current}</span> / ${count} difference${count === 1 ? "" : "s"}`;
 }
 
+/** The status's tooltip; `diff.js` words it alike once it moves the number. */
+function describeStatus(count: number, startAt: StartChange): string {
+  if (count === 0) {
+    return "The two sides have no line differences";
+  }
+  const current = startAt === "last" ? count : 1;
+  return `Difference ${current} of ${count} is marked; F7 / Shift+F7 or ↓/↑ go to the next / previous`;
+}
+
+/** The tooltip names the side and shows the full path, which the header may cut short. */
 function renderHeader(side: PaneSide, label: string, filePath: string): string {
-  return `<div class="pane-header pane-${side}"><b>${escapeHtml(label)}</b><span class="path">${escapeHtml(filePath)}</span></div>`;
+  const title = `${SIDE_NAMES[side]}: ${label}\n${filePath}`;
+  return `<div class="pane-header pane-${side}" title="${escapeHtml(title)}"><b>${escapeHtml(label)}</b><span class="path">${escapeHtml(filePath)}</span></div>`;
 }
 
 function createPane(side: PaneSide, text: string, highlight: HighlightedText, diff: TwoWayDiff): PaneInput {
-  const lineKinds = new Map<number, DiffBlockKind>();
+  const lineDifferences = new Map<number, LineDifference>();
   const gaps = new Map<number, DiffBlockKind>();
   const words = new Map<number, readonly WordSpan[]>();
 
-  for (const block of diff.blocks) {
+  diff.blocks.forEach((block, index) => {
     const range: LineRange = block[side];
     if (range.start === range.end) {
       gaps.set(range.start, block.kind);
     }
     for (let line = range.start; line < range.end; line++) {
-      lineKinds.set(line, block.kind);
+      lineDifferences.set(line, { kind: block.kind, number: index + 1 });
     }
     for (const entry of side === "base" ? block.baseWords : block.resultWords) {
       words.set(entry.line, entry.spans);
     }
-  }
+  });
 
-  return { side, lines: text.split(LINE_SEPARATOR), highlight, lineKinds, gaps, words };
+  return { side, lines: text.split(LINE_SEPARATOR), highlight, lineDifferences, differenceCount: diff.blocks.length, gaps, words };
 }
 
 function renderPane(pane: PaneInput): string {
@@ -201,7 +221,8 @@ function renderPane(pane: PaneInput): string {
  */
 function renderLine(pane: PaneInput, rawText: string, index: number): string {
   const text = rawText.endsWith("\r") ? rawText.slice(0, -1) : rawText;
-  const kind = pane.lineKinds.get(index);
+  const difference = pane.lineDifferences.get(index);
+  const kind = difference?.kind;
   const gapBefore = pane.gaps.get(index);
   const gapAfter = index === pane.lines.length - 1 ? pane.gaps.get(pane.lines.length) : undefined;
   const classes = [
@@ -212,8 +233,15 @@ function renderLine(pane: PaneInput, rawText: string, index: number): string {
   ].filter(Boolean).join(" ");
   const code = renderCode(text, pane.highlight.lines[index] ?? [], pane.words.get(index) ?? [], pane.side);
   // diff.css draws the number, which keeps it out of the page text that VS Code's find widget searches.
-  const number = `<span class="num" data-number="${index + 1}"></span>`;
+  const number = `<span class="num" data-number="${index + 1}" title="${describeLine(index + 1, difference, pane.differenceCount)}"></span>`;
   const content = pane.side === "base" ? `<span class="code">${code}</span>${number}` : `${number}<span class="code">${code}</span>`;
 
   return `<div class="${classes}">${content}</div>`;
+}
+
+/** A line number's tooltip: the line, and the difference it is part of. */
+function describeLine(number: number, difference: LineDifference | undefined, differenceCount: number): string {
+  return difference === undefined
+    ? `Line ${number}`
+    : `Line ${number}, in difference ${difference.number} of ${differenceCount} (${difference.kind})`;
 }

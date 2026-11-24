@@ -362,9 +362,10 @@ button:focus-visible {
   color: var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground));
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
   box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
-  pointer-events: none;
 }
 
+/* Hidden, it must not catch the pointer; shown, it takes the pointer over its own small box so it can be hovered for its tooltip. */
 .file-step:empty {
   opacity: 0;
+  pointer-events: none;
 }

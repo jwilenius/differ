@@ -94,8 +94,8 @@ describe("HtmlTwoWayDiffRenderer", () => {
   it("puts each pane's own lines and line numbers in order, gutter facing the strip, numbers out of Ctrl+F's text", () => {
     const html = render("one\ntwo", "one\ntwo\nthree");
 
-    expect(lineOf(html, "base", 1).markup).toBe(`<span class="code"><span class="tk-base-0">two</span></span><span class="num" data-number="2"></span>`);
-    expect(lineOf(html, "result", 2).markup).toMatch(/^<span class="num" data-number="3"><\/span><span class="code">/);
+    expect(lineOf(html, "base", 1).markup).toBe(`<span class="code"><span class="tk-base-0">two</span></span><span class="num" data-number="2" title="Line 2"></span>`);
+    expect(lineOf(html, "result", 2).markup).toMatch(/^<span class="num" data-number="3" title="[^"]*"><\/span><span class="code">/);
     expect(html.split(`id="scroll-base"`)[1].split(`id="scroll-result"`)[0].match(/class="line[ "]/g)).toHaveLength(2);
   });
 
@@ -126,10 +126,10 @@ describe("HtmlTwoWayDiffRenderer", () => {
   });
 
   it("numbers the change the view opens at in a polite live status", () => {
-    const status = (html: string) => /<span class="status"[^>]*>(.*?)<\/span>\n/.exec(html)![1];
+    const status = (html: string) => /<span id="status" class="status"[^>]*>(.*?)<\/span>\n/.exec(html)![1];
 
-    expect(render("a\nold\nb", "a\nnew\nb\nc")).toContain(
-      `<span class="status" role="status" aria-live="polite"><span id="current-number">1</span> / 2 differences</span>`,
+    expect(render("a\nold\nb", "a\nnew\nb\nc")).toMatch(
+      /<span id="status" class="status" role="status" aria-live="polite" title="[^"]*"><span id="current-number">1<\/span> \/ 2 differences<\/span>/,
     );
     expect(status(render("a\nold\nb", "a\nnew\nb\nc", { startAt: "last" })))
       .toBe(`<span id="current-number">2</span> / 2 differences`);
@@ -167,7 +167,7 @@ describe("HtmlTwoWayDiffRenderer", () => {
   it("drops the carriage return of CRLF lines so each stays on one row", () => {
     const html = render("a\r\nb\r\n", "a\r\nb\r\n");
 
-    expect(lineOf(html, "base", 0).markup).toBe(`<span class="code"><span class="tk-base-0">a</span></span><span class="num" data-number="1"></span>`);
+    expect(lineOf(html, "base", 0).markup).toBe(`<span class="code"><span class="tk-base-0">a</span></span><span class="num" data-number="1" title="Line 1"></span>`);
     expect(html).not.toContain("\r");
   });
 
@@ -200,7 +200,7 @@ describe("HtmlTwoWayDiffRenderer", () => {
   it("says when there are no differences, with no change number", () => {
     const html = render("same", "same");
 
-    expect(html).toContain(`<span class="status" role="status" aria-live="polite">No differences</span>`);
+    expect(html).toContain(`<span id="status" class="status" role="status" aria-live="polite" title="The two sides have no line differences">No differences</span>`);
     expect(html).not.toContain("current-number");
   });
 
@@ -228,5 +228,51 @@ describe("HtmlTwoWayDiffRenderer", () => {
 
   it("has a polite live region for the file-step hint", () => {
     expect(render("a", "b")).toContain(`<div id="file-step" class="file-step" role="status" aria-live="polite"></div>`);
+  });
+
+  describe("tooltips", () => {
+    /** The `title` of the first element carrying `marker` in its opening tag. */
+    function titleOf(html: string, marker: string): string {
+      const tag = new RegExp(`<[^>]*${marker}[^>]*>`).exec(html)![0];
+      return /title="([^"]*)"/.exec(tag)![1];
+    }
+
+    it("says which difference the status marks and how to move between them", () => {
+      expect(titleOf(render("a\nold\nb", "a\nnew\nb\nc"), `id="status"`))
+        .toBe("Difference 1 of 2 is marked; F7 / Shift+F7 or ↓/↑ go to the next / previous");
+      expect(titleOf(render("a\nold\nb", "a\nnew\nb\nc", { startAt: "last" }), `id="status"`))
+        .toBe("Difference 2 of 2 is marked; F7 / Shift+F7 or ↓/↑ go to the next / previous");
+    });
+
+    it("names each pane's side and label and shows its full path, which the header may cut short", () => {
+      const html = render("a", "b", { resultPath: "src/deeply/nested/folder/a.ts" });
+
+      expect(titleOf(html, `class="pane-header pane-base"`)).toBe("Left side: 1807da6c\nsrc/a.ts");
+      expect(titleOf(html, `class="pane-header pane-result"`)).toBe("Right side: 2 selected commits\nsrc/deeply/nested/folder/a.ts");
+    });
+
+    it("escapes the labels and paths in the pane headers' tooltips", () => {
+      const html = render("a", "b", { baseLabel: `"><b>`, basePath: `a"b` });
+
+      expect(titleOf(html, `class="pane-header pane-base"`)).toBe("Left side: &quot;&gt;&lt;b&gt;\na&quot;b");
+    });
+
+    it("numbers each gutter line and names the difference a changed line is part of", () => {
+      const html = render("a\nold\nb\ngone\nc", "a\nnew\nb\nc\nadded");
+      const numberTitle = (side: "base" | "result", index: number) => /title="([^"]*)"/.exec(lineOf(html, side, index).markup)![1];
+
+      expect(numberTitle("base", 0)).toBe("Line 1");
+      expect(numberTitle("base", 1)).toBe("Line 2, in difference 1 of 3 (modified)");
+      expect(numberTitle("base", 3)).toBe("Line 4, in difference 2 of 3 (deleted)");
+      expect(numberTitle("result", 3)).toBe("Line 4");
+      expect(numberTitle("result", 4)).toBe("Line 5, in difference 3 of 3 (added)");
+    });
+
+    it("gives every toolbar button a tooltip", () => {
+      const buttons = [...render("a", "b").matchAll(/<button[^>]*>/g)].map((match) => match[0]);
+
+      expect(buttons).toHaveLength(3);
+      expect(buttons.filter((button) => !/ title="[^"]+"/.test(button))).toEqual([]);
+    });
   });
 });

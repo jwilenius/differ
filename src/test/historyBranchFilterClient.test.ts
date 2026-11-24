@@ -191,6 +191,27 @@ describe("history branch filter", () => {
     expect(webview.activeBranch()).toBe("fix/bug");
   });
 
+  it("names the chosen branch in the input's tooltip and each branch in its option's", () => {
+    const webview = open({ refs: BRANCHES, branch: { ref: "refs/heads/fix/bug", tipOid: C } });
+    const input = webview.element("history-branch-input");
+
+    expect(input.title).toBe("Branch filter: fix/bug. Click or type to choose another branch; ↑/↓ move, Enter picks, Escape closes");
+    webview.click(input);
+
+    expect(webview.element("history-branch-list").querySelectorAll("li").map((option) => option.title))
+      .toEqual(["All branches", "Checked out branch", "main", "feature/branch-filter", "fix/bug", "origin/main"]);
+  });
+
+  it("names a picked branch in the input's tooltip at once", () => {
+    const webview = open({ refs: BRANCHES });
+    const input = webview.element("history-branch-input");
+    expect(input.title).toMatch(/^Branch filter: All branches\./);
+
+    webview.pickBranch("bug");
+
+    expect(input.title).toMatch(/^Branch filter: fix\/bug\./);
+  });
+
   it("restores the chosen branch's name when Escape closes the list on a query", () => {
     const webview = open({ refs: BRANCHES, branch: { ref: "refs/heads/fix/bug", tipOid: C } });
     const input = webview.element("history-branch-input");
@@ -351,6 +372,19 @@ describe("history branch filter", () => {
       expect(webview.element("history-branch-local-only").getAttribute("aria-pressed")).toBe("false");
     });
 
+    it("says in its tooltip what a click does now", () => {
+      const webview = open({ refs: BRANCHES });
+      const toggle = webview.element("history-branch-local-only");
+      expect(toggle.title).toMatch(/^Show local branches only in the branch list/);
+
+      webview.click(toggle);
+      expect(toggle.title).toMatch(/^Showing local branches only in the branch list; click to list remote branches too/);
+      expect(toggle.getAttribute("aria-label")).toBe("Show local branches only");
+
+      webview.click(toggle);
+      expect(toggle.title).toMatch(/^Show local branches only in the branch list/);
+    });
+
     it("leaves out remote branches while pressed, keeping All branches and Checked out branch", () => {
       const webview = open({ refs: BRANCHES });
       const toggle = webview.element("history-branch-local-only");
@@ -489,6 +523,15 @@ describe("history branch filter", () => {
       webview.receive(host.update({ selectedOids: [B], focusedOid: B, revision: 8 }));
 
       expect(webview.element("history-branch-input").placeholder).toBe("All branches");
+    });
+
+    it("names the host's branch choice in the input's tooltip after an update", () => {
+      const host = new FakeHost();
+      const webview = host.open({ refs: BRANCHES });
+
+      webview.receive(host.update({ refs: BRANCHES, branch: { ref: "refs/heads/main", tipOid: A }, revision: 8 }));
+
+      expect(webview.element("history-branch-input").title).toMatch(/^Branch filter: main\./);
     });
 
     it("keeps an open branch list, its query, active option and focus across an update", () => {

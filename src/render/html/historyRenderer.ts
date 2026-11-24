@@ -162,6 +162,15 @@ const LANE_COLOR_COUNT = 8;
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
 const COMMIT_TABLE_ID = "history-commits";
 const ISO_MINUTE_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
+const ISO_SECOND_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})?/;
+/** How rows are selected; the selection count and the subject column explain it on hover. */
+const SELECTION_GESTURES = "Click selects one commit; Ctrl/Cmd+click adds or removes one; Shift+click selects the range from the last commit clicked without Shift, Ctrl/Cmd+Shift+click adds that range; ↑/↓ move, Shift+↑/↓ extend, Space toggles";
+const SEARCH_TITLE = "Search commits by subject or hash (literal, ignores case); filtering never changes the selection";
+/** The client names the chosen branch in its tooltip once it runs. */
+const BRANCH_INPUT_TITLE = "Branch filter: click or type to choose a branch";
+const BASE_LABEL_TITLE = "Comparison base: the commit the selected changes are replayed onto and compared against";
+const BASE_INPUT_TITLE = "Commit, branch or tag to pin as the base; press Enter or Pin";
+const PIN_TITLE = "Pin the base to the commit, branch or tag typed in the box (Enter)";
 /** A funnel drawn like VS Code's filter codicon, in the toggle's text colour. */
 const FILTER_ICON = `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 3h12l-4.5 5.5V13l-3 1.5v-6z" fill="none" stroke="currentColor" stroke-linejoin="round"/></svg>`;
 
@@ -176,6 +185,21 @@ const FAILED_OPERATION_LABELS: Readonly<Record<HistoryOperation, string>> = {
   load: "load history",
   resolveBase: "resolve the base",
   compare: "compare",
+};
+
+const COLUMN_HEADERS = [
+  `<th class="graph-cell" scope="col" title="Commit graph: lines join each commit to its parents; dashed lines pass commits the filters hide"><span class="sr-only">Graph</span></th>`,
+  `<th scope="col" title="Commit subject, after its branch and tag labels. ${SELECTION_GESTURES}">Subject</th>`,
+  `<th scope="col" title="Commit author">Author</th>`,
+  `<th scope="col" title="Author date, in the author's time zone">Date</th>`,
+  `<th scope="col" title="Abbreviated commit hash">Hash</th>`,
+].join("");
+
+const REF_KIND_LABELS: Readonly<Record<HistoryRefKind, string>> = {
+  head: "Detached HEAD",
+  localBranch: "Local branch",
+  remoteBranch: "Remote branch",
+  tag: "Tag",
 };
 
 const FILE_STATUS_LABELS: Readonly<Record<FileStatus, { readonly letter: string; readonly name: string }>> = {
@@ -396,13 +420,13 @@ function renderRegions(view: HistoryView, rows: HistoryRowSet, branchFilter: str
 function renderToolbar(presentation: HistoryPresentation, regions: Regions): string {
   return `<header class="history-toolbar" role="toolbar" aria-label="History controls">
 <span class="toolbar-group">${regions["history-repository"]}<button id="history-choose-repository" class="tool" title="Open another repository folder">Open…</button><button id="history-refresh" class="tool" title="Reload history" aria-label="Refresh history">⟳</button></span>
-<input id="history-search" class="search" type="search" placeholder="Search subject or hash" aria-label="Search commits by subject or hash" value="${escapeHtml(presentation.search)}">
-<span class="toolbar-group"><span class="branch-filter"><input id="history-branch-input" class="branch-input" type="text" role="combobox" aria-label="Branch filter" aria-autocomplete="list" aria-expanded="false" aria-controls="history-branch-list" autocomplete="off" spellcheck="false"><ul id="history-branch-list" class="branch-list" role="listbox" aria-label="Branches" hidden></ul>${regions["history-branch"]}</span><button id="history-branch-local-only" class="option-toggle" title="Show local branches only" aria-label="Show local branches only" aria-pressed="false">${FILTER_ICON}</button></span>
+<input id="history-search" class="search" type="search" placeholder="Search subject or hash" aria-label="Search commits by subject or hash" title="${SEARCH_TITLE}" value="${escapeHtml(presentation.search)}">
+<span class="toolbar-group"><span class="branch-filter"><input id="history-branch-input" class="branch-input" type="text" role="combobox" aria-label="Branch filter" title="${BRANCH_INPUT_TITLE}" aria-autocomplete="list" aria-expanded="false" aria-controls="history-branch-list" autocomplete="off" spellcheck="false"><ul id="history-branch-list" class="branch-list" role="listbox" aria-label="Branches" hidden></ul>${regions["history-branch"]}</span><button id="history-branch-local-only" class="option-toggle" title="Show local branches only" aria-label="Show local branches only" aria-pressed="false">${FILTER_ICON}</button></span>
 <span class="toolbar-group base-control" role="group" aria-label="Comparison base">
-<span class="label">Base:</span>
+<span class="label" title="${BASE_LABEL_TITLE}">Base:</span>
 ${regions["history-base-automatic"]}
 ${regions["history-base-input"]}
-<button id="history-base-pin" class="tool">Pin</button>
+<button id="history-base-pin" class="tool" title="${PIN_TITLE}">Pin</button>
 ${regions["history-base-current"]}
 </span>
 ${regions["history-selection"]}
@@ -413,9 +437,11 @@ function renderRepositorySelect(context: HistoryPageContext): string {
   const options = context.repositories
     .map((repository) => option(repository.id, repository.name, repository.id === context.activeRepositoryId))
     .join("");
+  const active = context.repositories.find((repository) => repository.id === context.activeRepositoryId);
+  const title = active === undefined ? "Repository whose history is shown" : `Repository whose history is shown: ${active.name}`;
   return context.repositories.length === 0
-    ? `<select id="history-repository" aria-label="Repository" disabled><option value="">No repository</option></select>`
-    : `<select id="history-repository" aria-label="Repository">${options}</select>`;
+    ? `<select id="history-repository" aria-label="Repository" title="No Git repository is open; use Open… to choose a folder" disabled><option value="">No repository</option></select>`
+    : `<select id="history-repository" aria-label="Repository" title="${escapeHtml(title)}">${options}</select>`;
 }
 
 function renderBranchFilter(view: HistoryView): string {
@@ -448,11 +474,35 @@ function renderBaseControls(view: HistoryView): Pick<Regions, "history-base-auto
   const base = view.state.base;
   const isAutomatic = base.kind === "automatic";
   const typed = isAutomatic ? "" : base.label;
+  const automaticTitle = isAutomatic
+    ? "The base is chosen automatically: the parent of the earliest selected commit"
+    : "Unpin the base and choose it automatically: the parent of the earliest selected commit";
   return {
-    "history-base-automatic": `<button id="history-base-automatic" class="tool" aria-pressed="${isAutomatic}">Automatic</button>`,
-    "history-base-input": `<input id="history-base-input" type="text" placeholder="Commit, branch or tag" aria-label="Pin base to a commit, branch or tag" value="${escapeHtml(typed)}">`,
-    "history-base-current": `<span id="history-base-current" class="base-current">${describeBase(view)}</span>`,
+    "history-base-automatic": `<button id="history-base-automatic" class="tool" title="${automaticTitle}" aria-pressed="${isAutomatic}">Automatic</button>`,
+    "history-base-input": `<input id="history-base-input" type="text" placeholder="Commit, branch or tag" aria-label="Pin base to a commit, branch or tag" title="${BASE_INPUT_TITLE}" value="${escapeHtml(typed)}">`,
+    "history-base-current": `<span id="history-base-current" class="base-current" title="${escapeHtml(describeBaseInFull(view))}">${describeBase(view)}</span>`,
   };
+}
+
+/** Plain text of the base the toolbar shows, with the full hash and subject that it may cut short. */
+function describeBaseInFull(view: HistoryView): string {
+  const base = view.state.base;
+  if (base.kind === "pinned") {
+    const subject = view.commitOf(base.oid)?.subject;
+    const pinned = `Pinned base: ${base.label} ${base.oid}`;
+    return subject === undefined ? pinned : `${pinned} ${subject}`;
+  }
+  const comparison = view.state.comparison;
+  if (comparison === null) {
+    return "Automatic base: the parent of the earliest selected commit, shown once the comparison is ready";
+  }
+  if (comparison.kind === "needsBase") {
+    return "Automatic base: none, as the selection has several earliest commits; pin a base";
+  }
+  const resolved = comparison.base;
+  return resolved.kind === "commit"
+    ? `Automatic base: ${resolved.oid} ${resolved.subject}`
+    : "Automatic base: the empty tree, as the earliest selected commit is a root commit";
 }
 
 /** Pinned label + hash, or what Automatic resolved to for the current comparison. */
@@ -479,12 +529,16 @@ function describeBase(view: HistoryView): string {
 function renderSelectionSummary(view: HistoryView): string {
   const count = view.state.selectedOids.length;
   const hidden = view.context.hiddenSelectedCount;
+  const hiddenTitle = `${plural(hidden, "selected commit")} hidden by the search or branch filter; they stay selected and compared`;
   const hiddenText = hidden > 0
-    ? ` <span id="history-hidden-selected" class="hidden-selected">${hidden} hidden by filters</span>`
+    ? ` <span id="history-hidden-selected" class="hidden-selected" title="${hiddenTitle}">${hidden} hidden by filters</span>`
     : "";
+  const clear = count === 0
+    ? `<button id="history-clear-selection" class="tool" title="Nothing to clear: no commits are selected" disabled>Clear</button>`
+    : `<button id="history-clear-selection" class="tool" title="Deselect every commit">Clear</button>`;
   return `<span id="history-selection" class="toolbar-group selection-summary">
-<span id="history-selection-count" aria-live="polite">${count} selected${hiddenText}</span>
-<button id="history-clear-selection" class="tool"${count === 0 ? " disabled" : ""}>Clear</button>
+<span id="history-selection-count" aria-live="polite" title="${plural(count, "commit")} selected. ${SELECTION_GESTURES}">${count} selected${hiddenText}</span>
+${clear}
 </span>`;
 }
 
@@ -492,7 +546,7 @@ function renderSelectionSummary(view: HistoryView): string {
 
 function renderStatus(view: HistoryView): string {
   const status = describeStatus(view);
-  return `<div id="history-status" class="history-status status-${status.tone}" role="status" aria-live="polite">${status.text}</div>`;
+  return `<div id="history-status" class="history-status status-${status.tone}" role="status" aria-live="polite" title="${escapeHtml(textOf(status.text))}">${status.text}</div>`;
 }
 
 /** One line covering the most relevant of the controller's states; text is already escaped. */
@@ -556,7 +610,7 @@ function renderCommitTable(view: HistoryView, rows: readonly VisibleGraphRow[], 
     : rows[0]?.row.oid ?? null;
   const body = rows.map((entry) => renderCommitRow(view, entry, graphColumns, entry.row.oid === focusedOid)).join("\n");
   return `<table id="${COMMIT_TABLE_ID}" class="commit-table" role="grid" aria-label="Commits" aria-multiselectable="true" aria-rowcount="${view.context.visibleOids.length + 1}">
-<thead><tr role="row"><th class="graph-cell" scope="col"><span class="sr-only">Graph</span></th><th scope="col">Subject</th><th scope="col">Author</th><th scope="col">Date</th><th scope="col">Hash</th></tr></thead>
+<thead><tr role="row">${COLUMN_HEADERS}</tr></thead>
 <tbody>
 ${body}
 </tbody>
@@ -567,14 +621,14 @@ ${body}
 function renderCommitFooter(view: HistoryView, rowCount: number): string {
   const remaining = view.context.visibleOids.length - rowCount;
   const loadMore = remaining > 0
-    ? `<button id="history-load-more" class="load-more" data-row-limit="${rowCount + HISTORY_PAGE_SIZE}">Load more (${formatCount(remaining)} more)</button>`
+    ? `<button id="history-load-more" class="load-more" data-row-limit="${rowCount + HISTORY_PAGE_SIZE}" title="Show the next ${plural(Math.min(remaining, HISTORY_PAGE_SIZE), "commit")}">Load more (${formatCount(remaining)} more)</button>`
     : "";
   const history = view.state.history;
   const truncatedNote = history?.isTruncated
-    ? `<p id="history-truncated" class="truncated-note">${describeLoadedCount(history)}. Older history is not loaded; raise the <code>jwDiffer.historyMaxCommits</code> setting to load more.</p>`
+    ? `<p id="history-truncated" class="truncated-note" title="The jwDiffer.historyMaxCommits setting caps how many commits are loaded">${describeLoadedCount(history)}. Older history is not loaded; raise the <code>jwDiffer.historyMaxCommits</code> setting to load more.</p>`
     : "";
   return `<div id="history-commit-footer">
-${rowCount === 0 ? `<p class="empty">No commits match the filters</p>` : ""}
+${rowCount === 0 ? `<p class="empty" title="The search or branch filter hides every loaded commit">No commits match the filters</p>` : ""}
 ${loadMore}
 ${truncatedNote}
 </div>`;
@@ -587,21 +641,38 @@ function renderCommitRow(view: HistoryView, entry: VisibleGraphRow, graphColumns
   const isFocused = commit.oid === view.context.presentation.focusedOid;
   const classes = ["commit-row", isSelected ? "is-selected" : "", isFocused ? "is-focused" : ""].filter(Boolean).join(" ");
   const current = isFocused ? ` aria-current="true"` : "";
-  const graphTitle = entry.row.width > DRAWN_LANE_COUNT ? ` title="${OVERFLOW_TITLE}"` : "";
+  const graphTitle = entry.row.width > DRAWN_LANE_COUNT ? `${describeParents(commit)}\n${OVERFLOW_TITLE}` : describeParents(commit);
 
   return `<tr class="${classes}" role="row" data-oid="${escapeHtml(commit.oid)}" aria-selected="${isSelected}" tabindex="${hasTabStop ? 0 : -1}"${current}>`
-    + `<td class="graph-cell" role="gridcell"${graphTitle}>${renderGraph(entry, graphColumns, commit.parents.length > 1)}</td>`
-    + `<td class="subject-cell" role="gridcell">${renderRefLabels(view, commit.oid)}<span class="subject">${escapeHtml(commit.subject)}</span></td>`
-    + `<td class="author-cell" role="gridcell">${escapeHtml(commit.author)}</td>`
-    + `<td class="date-cell" role="gridcell"><time datetime="${escapeHtml(commit.authoredDate)}">${escapeHtml(formatDate(commit.authoredDate))}</time></td>`
-    + `<td class="hash-cell" role="gridcell"><code>${shortHash(commit.oid)}</code></td>`
+    + `<td class="graph-cell" role="gridcell" title="${escapeHtml(graphTitle)}">${renderGraph(entry, graphColumns, commit.parents.length > 1)}</td>`
+    + `<td class="subject-cell" role="gridcell" title="${escapeHtml(commit.subject)}">${renderRefLabels(view, commit.oid)}<span class="subject">${escapeHtml(commit.subject)}</span></td>`
+    + `<td class="author-cell" role="gridcell" title="${escapeHtml(commit.author)}">${escapeHtml(commit.author)}</td>`
+    + `<td class="date-cell" role="gridcell" title="${escapeHtml(formatFullDate(commit.authoredDate))}">${renderDate(commit.authoredDate)}</td>`
+    + `<td class="hash-cell" role="gridcell" title="${escapeHtml(commit.oid)}"><code>${shortHash(commit.oid)}</code></td>`
     + `</tr>`;
+}
+
+/** The graph cell's tooltip: what the node's lines join. */
+function describeParents(commit: HistoryCommit): string {
+  const parents = commit.parents.map(abbreviate).join(", ");
+  switch (commit.parents.length) {
+    case 0:
+      return "Root commit: no parents";
+    case 1:
+      return `Parent: ${parents}`;
+    default:
+      return `Merge commit; parents: ${parents}`;
+  }
 }
 
 function renderRefLabels(view: HistoryView, oid: string): string {
   return (view.refs.get(oid) ?? [])
-    .map((ref) => `<span class="ref-label ${REF_CLASSES[ref.kind]}">${escapeHtml(ref.name)}</span>`)
+    .map((ref) => `<span class="ref-label ${REF_CLASSES[ref.kind]}" title="${escapeHtml(describeRef(ref))}">${escapeHtml(ref.name)}</span>`)
     .join("");
+}
+
+function describeRef(ref: HistoryRef): string {
+  return ref.kind === "head" ? REF_KIND_LABELS.head : `${REF_KIND_LABELS[ref.kind]}: ${ref.name}`;
 }
 
 // ------------------------------------------------------------------ graph
@@ -694,7 +765,7 @@ function requireLaneNumber(value: number): number {
 function renderFiles(view: HistoryView): string {
   const comparison = view.state.comparison;
   return `<section id="history-files" class="files-pane" aria-labelledby="history-files-heading">
-<h2 id="history-files-heading">Changed files</h2>
+<h2 id="history-files-heading" title="Net changes from the base to the replayed selection; double-click a file or press Enter on it to open its diff">Changed files</h2>
 ${comparison?.kind === "ready" ? renderFileList(comparison.snapshotId, comparison.files) : ""}
 ${comparison?.kind === "blocked" ? renderBlockedPaths(comparison.paths) : ""}
 </section>`;
@@ -702,7 +773,7 @@ ${comparison?.kind === "blocked" ? renderBlockedPaths(comparison.paths) : ""}
 
 function renderFileList(snapshotId: string, files: readonly ComparisonFile[]): string {
   if (files.length === 0) {
-    return `<p class="empty">No net changes</p>`;
+    return `<p class="empty" title="The selected changes cancel out">No net changes</p>`;
   }
   const items = files.map((file) => `<li>${renderFileButton(snapshotId, file)}</li>`).join("\n");
   return `<ul id="history-file-list" class="file-list" aria-label="Changed files; press Enter or double-click to open a diff">\n${items}\n</ul>`;
@@ -717,7 +788,7 @@ function renderFileButton(snapshotId: string, file: ComparisonFile): string {
   const origin = isRenamed ? ` <span class="file-origin">← ${escapeHtml(oldPath)}</span>` : "";
   const meta = details.length > 0 ? ` <span class="file-meta">${escapeHtml(details.join("; "))}</span>` : "";
   const label = isRenamed ? `${status.name}: ${oldPath} → ${path}` : `${status.name}: ${path}`;
-  const title = [path, ...details].join("\n");
+  const title = [label, ...details, "Double-click or press Enter to open its diff"].join("\n");
 
   return `<button class="file-row status-${file.status}" data-snapshot-id="${escapeHtml(snapshotId)}" data-file-id="${escapeHtml(file.id)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(title)}">`
     + `<span class="file-status" aria-hidden="true">${status.letter}</span> <span class="file-path">${escapeHtml(path)}</span>${origin}${meta}</button>`;
@@ -742,8 +813,8 @@ function describeFileDetails(file: ComparisonFile): readonly string[] {
 }
 
 function renderBlockedPaths(paths: readonly string[]): string {
-  const items = paths.map((path) => `<li>${escapeHtml(path)}</li>`).join("");
-  return `<p class="blocked-note">No files can be opened until the replay applies cleanly. Conflicting paths:</p>
+  const items = paths.map((path) => `<li title="${escapeHtml(`Conflicting path: ${path}`)}">${escapeHtml(path)}</li>`).join("");
+  return `<p class="blocked-note" title="Change the selection or the base and the replay is tried again">No files can be opened until the replay applies cleanly. Conflicting paths:</p>
 <ul class="blocked-paths">${items}</ul>`;
 }
 
@@ -754,13 +825,18 @@ function renderReplay(view: HistoryView): string {
   const oids = hasOrder ? comparison.orderedOids : view.state.selectedOids;
   const failingOid = comparison?.kind === "blocked" ? comparison.failingOid : null;
   const items = oids.map((oid) => {
-    const failing = oid === failingOid ? ` class="is-failing"` : "";
-    return `<li data-oid="${escapeHtml(oid)}"${failing}>${commitLabel(view, oid)}${renderMainlineSelect(view, oid)}</li>`;
+    const isFailing = oid === failingOid;
+    const failing = isFailing ? ` class="is-failing"` : "";
+    const title = isFailing ? `${describeCommit(view, oid)}\nReplay stopped at this commit` : describeCommit(view, oid);
+    return `<li data-oid="${escapeHtml(oid)}"${failing} title="${escapeHtml(title)}">${commitLabel(view, oid)}${renderMainlineSelect(view, oid)}</li>`;
   });
   const heading = hasOrder ? "Replay order" : "Selected commits";
+  const headingTitle = hasOrder
+    ? "The selected commits in the order Git replays them onto the base, oldest first"
+    : "The selected commits, in selection order until Git has ordered them";
 
   return `<section id="history-replay" class="replay-pane" aria-labelledby="history-replay-heading">
-<h2 id="history-replay-heading">${heading}</h2>
+<h2 id="history-replay-heading" title="${headingTitle}">${heading}</h2>
 ${items.length > 0 ? `<ol class="replay-order">${items.join("")}</ol>` : ""}
 </section>`;
 }
@@ -773,30 +849,37 @@ function renderMainlineSelect(view: HistoryView, oid: string): string {
   const chosen = view.state.mainlines.find((choice) => choice.oid === oid)?.parentNumber ?? 1;
   const options = commit.parents.map((parent, index) => {
     const subject = view.commitOf(parent)?.subject ?? "";
-    return option(String(index + 1), `Parent ${index + 1}: ${shortHash(parent)} ${subject}`.trimEnd(), index + 1 === chosen);
+    const label = `Parent ${index + 1}: ${abbreviate(parent)} ${subject}`.trimEnd();
+    const title = `Parent ${index + 1}: ${describeCommit(view, parent)}`;
+    return `<option value="${index + 1}" title="${escapeHtml(title)}"${index + 1 === chosen ? " selected" : ""}>${escapeHtml(label)}</option>`;
   });
-  return ` <select class="mainline-select" data-oid="${escapeHtml(commit.oid)}" aria-label="Compare merge ${shortHash(commit.oid)} against parent">${options.join("")}</select>`;
+  const title = `Merge ${abbreviate(commit.oid)} is compared against parent ${chosen}: ${describeCommit(view, commit.parents[chosen - 1] ?? "")}`;
+  return ` <select class="mainline-select" data-oid="${escapeHtml(commit.oid)}" aria-label="Compare merge ${shortHash(commit.oid)} against parent" title="${escapeHtml(title)}">${options.join("")}</select>`;
 }
 
 function renderDetails(view: HistoryView): string {
   const focusedOid = view.context.presentation.focusedOid;
   const commit = focusedOid === null ? undefined : view.commitOf(focusedOid);
-  const body = commit ? renderCommitDetails(view, commit) : `<p class="empty">Focus a commit to see its details</p>`;
+  const body = commit
+    ? renderCommitDetails(view, commit)
+    : `<p class="empty" title="Click a commit, or move to it with ↑/↓, to show its hash, author, date and parents">Focus a commit to see its details</p>`;
   return `<section id="history-details" class="details-pane" aria-labelledby="history-details-heading">
-<h2 id="history-details-heading">Commit details</h2>
+<h2 id="history-details-heading" title="The focused commit's subject, labels, hash, author, date and parents">Commit details</h2>
 ${body}
 </section>`;
 }
 
 function renderCommitDetails(view: HistoryView, commit: HistoryCommit): string {
-  const parents = commit.parents.map((parent) => `<code>${shortHash(parent)}</code>`).join(" ") || "none (root commit)";
-  return `<p class="details-subject">${escapeHtml(commit.subject)}</p>
+  const parents = commit.parents
+    .map((parent) => `<code title="${escapeHtml(describeCommit(view, parent))}">${shortHash(parent)}</code>`)
+    .join(" ") || "none (root commit)";
+  return `<p class="details-subject" title="${escapeHtml(commit.subject)}">${escapeHtml(commit.subject)}</p>
 <p class="details-refs">${renderRefLabels(view, commit.oid)}</p>
 <dl class="details-fields">
-<dt>Hash</dt><dd><code>${escapeHtml(commit.oid)}</code></dd>
-<dt>Author</dt><dd>${escapeHtml(commit.author)}</dd>
-<dt>Date</dt><dd><time datetime="${escapeHtml(commit.authoredDate)}">${escapeHtml(formatDate(commit.authoredDate))}</time></dd>
-<dt>Parents</dt><dd>${parents}</dd>
+<dt>Hash</dt><dd title="${escapeHtml(commit.oid)}"><code>${escapeHtml(commit.oid)}</code></dd>
+<dt>Author</dt><dd title="${escapeHtml(commit.author)}">${escapeHtml(commit.author)}</dd>
+<dt>Date</dt><dd title="${escapeHtml(formatFullDate(commit.authoredDate))}">${renderDate(commit.authoredDate)}</dd>
+<dt>Parents</dt><dd title="${commit.parents.length === 0 ? "A root commit has no parents" : escapeHtml(commit.parents.join("\n"))}">${parents}</dd>
 </dl>`;
 }
 
@@ -813,6 +896,12 @@ function commitLabel(view: HistoryView, oid: string): string {
   return `<code>${shortHash(oid)}</code>${suffix}`;
 }
 
+/** Full hash plus subject when the commit is loaded; plain text, for tooltips. */
+function describeCommit(view: HistoryView, oid: string): string {
+  const subject = view.commitOf(oid)?.subject;
+  return subject === undefined ? oid : `${oid} ${subject}`;
+}
+
 /** Escaped short hash for markup. */
 function shortHash(oid: string): string {
   return escapeHtml(abbreviate(oid));
@@ -822,6 +911,33 @@ function shortHash(oid: string): string {
 function formatDate(isoDate: string): string {
   const match = ISO_MINUTE_PATTERN.exec(isoDate);
   return match ? `${match[1]} ${match[2]}` : isoDate;
+}
+
+/** `YYYY-MM-DD HH:MM:SS ±HH:MM` in the author's own time zone, for tooltips; unexpected formats are shown as given. */
+function formatFullDate(isoDate: string): string {
+  const match = ISO_SECOND_PATTERN.exec(isoDate);
+  if (!match) {
+    return isoDate;
+  }
+  const [, date, time, zone] = match;
+  if (zone === undefined) {
+    return `${date} ${time}`;
+  }
+  return `${date} ${time} ${zone === "Z" ? "+00:00" : zone}`;
+}
+
+function renderDate(isoDate: string): string {
+  return `<time datetime="${escapeHtml(isoDate)}">${escapeHtml(formatDate(isoDate))}</time>`;
+}
+
+/** Plain text of escaped markup such as a status line, for its tooltip. */
+function textOf(markup: string): string {
+  return markup
+    .replace(/<[^>]*>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&amp;/g, "&");
 }
 
 /** How much of a truncated history is shown; the commit cap is the number of loaded commits. */

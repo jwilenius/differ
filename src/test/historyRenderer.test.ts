@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../render/html/historyRenderer";
 import type { HistoryPublicState, HistoryRenderContext, HistoryUpdate } from "../render/html/historyRenderer";
-import type { ComparisonFile, ComparisonResult, HistoryCommit, HistoryData, HistoryState } from "../model/historyTypes";
+import type { ComparisonFile, ComparisonResult, HistoryCommit, HistoryData, HistoryState, ReadyResult } from "../model/historyTypes";
 
 const NONCE = "abcdefghijklmnopqrstuvwxyz012345";
 
@@ -202,8 +202,8 @@ describe("HtmlHistoryRenderer", () => {
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain(`Automatic: <code>${MIDDLE.slice(0, 8)}</code>`);
     expect(html).toContain(`<select class="mainline-select" data-oid="${MERGE}"`);
-    expect(html).toContain(`<option value="1">Parent 1: ${MIDDLE.slice(0, 8)} Middle work</option>`);
-    expect(html).toContain(`<option value="2" selected>Parent 2: ${SIDE.slice(0, 8)} Side work</option>`);
+    expect(html).toContain(`<option value="1" title="Parent 1: ${MIDDLE} Middle work">Parent 1: ${MIDDLE.slice(0, 8)} Middle work</option>`);
+    expect(html).toContain(`<option value="2" title="Parent 2: ${SIDE} Side work" selected>Parent 2: ${SIDE.slice(0, 8)} Side work</option>`);
     expect(html).toContain("Replay order");
   });
 
@@ -212,14 +212,14 @@ describe("HtmlHistoryRenderer", () => {
 
     expect(html).toContain('aria-pressed="false"');
     expect(html).toContain(`<span class="base-pinned">v1</span> <code>${ROOT.slice(0, 8)}</code>`);
-    expect(html).toContain('id="history-base-input" type="text" placeholder="Commit, branch or tag" aria-label="Pin base to a commit, branch or tag" value="v1"');
+    expect(html).toContain('id="history-base-input" type="text" placeholder="Commit, branch or tag" aria-label="Pin base to a commit, branch or tag" title="Commit, branch or tag to pin as the base; press Enter or Pin" value="v1"');
   });
 
   it("announces loading and comparing in a live status", () => {
     const loading = render({ operations: { isLoading: true, isResolvingBase: false, isComparing: false } });
     const comparing = render({ selectedOids: [MIDDLE], operations: { isLoading: false, isResolvingBase: false, isComparing: true } });
 
-    expect(loading).toContain('role="status" aria-live="polite">Loading history…');
+    expect(loading).toContain('role="status" aria-live="polite" title="Loading history…">Loading history…');
     expect(comparing).toContain("Comparing 1 selected commit…");
   });
 
@@ -244,8 +244,8 @@ describe("HtmlHistoryRenderer", () => {
     const html = render({ selectedOids: [ROOT, MIDDLE], comparison });
 
     expect(html).toContain(`Replay stopped at <code>${MIDDLE.slice(0, 8)}</code>`);
-    expect(html).toContain("<li>src/&lt;a&gt;.ts</li>");
-    expect(html).toContain(`<li data-oid="${MIDDLE}" class="is-failing">`);
+    expect(html).toContain('<li title="Conflicting path: src/&lt;a&gt;.ts">src/&lt;a&gt;.ts</li>');
+    expect(html).toContain(`<li data-oid="${MIDDLE}" class="is-failing" title="${MIDDLE} Middle work\nReplay stopped at this commit">`);
     expect(html).toContain("Automatic: empty tree");
     expect(html).not.toContain("data-file-id");
   });
@@ -272,7 +272,8 @@ describe("HtmlHistoryRenderer", () => {
 
     expect(html).toContain(`data-snapshot-id="${SNAPSHOT_ID}" data-file-id="f-rename" aria-label="Renamed: old.txt → new.txt"`);
     expect(html).toContain("Mode 100644 → 100755");
-    expect(html).toContain('title="logo.png\nBinary file"');
+    expect(html).toContain('title="Added: logo.png\nBinary file\nDouble-click or press Enter to open its diff"');
+    expect(html).toContain('title="Renamed: old.txt → new.txt\nMode 100644 → 100755\nDouble-click or press Enter to open its diff"');
     expect(publicState(html).snapshotId).toBe(SNAPSHOT_ID);
   });
 
@@ -295,7 +296,7 @@ describe("HtmlHistoryRenderer", () => {
     const { html } = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
 
     expect(html.match(/<tr class="commit-row/g)).toHaveLength(HISTORY_PAGE_SIZE);
-    expect(html).toContain(`id="history-load-more" class="load-more" data-row-limit="${HISTORY_PAGE_SIZE * 2}">Load more (1 more)`);
+    expect(html).toContain(`id="history-load-more" class="load-more" data-row-limit="${HISTORY_PAGE_SIZE * 2}" title="Show the next 1 commit">Load more (1 more)`);
   });
 
   it("lays out the graph only through the last rendered row on render and Load more, and not on selection change", () => {
@@ -470,8 +471,8 @@ describe("HtmlHistoryRenderer", () => {
 
     const { html } = new HtmlHistoryRenderer().render(state, makeContext({ visibleOids: many.map((entry) => entry.oid) }));
 
-    expect(html).toContain('role="status" aria-live="polite">Showing the newest 1,234 commits; select commits to see their changes');
-    expect(html).toContain('<p id="history-truncated" class="truncated-note">Showing the newest 1,234 commits. Older history is not loaded; raise the <code>jwDiffer.historyMaxCommits</code> setting to load more.</p>');
+    expect(html).toContain('role="status" aria-live="polite" title="Showing the newest 1,234 commits; select commits to see their changes">Showing the newest 1,234 commits; select commits to see their changes');
+    expect(html).toContain('<p id="history-truncated" class="truncated-note" title="The jwDiffer.historyMaxCommits setting caps how many commits are loaded">Showing the newest 1,234 commits. Older history is not loaded; raise the <code>jwDiffer.historyMaxCommits</code> setting to load more.</p>');
     expect(html).toContain("Load more (1,034 more)");
   });
 
@@ -609,7 +610,7 @@ describe("HtmlHistoryRenderer", () => {
     expect(html).toContain('role="combobox"');
     expect(html).toContain('aria-controls="history-branch-list"');
     expect(html).toContain('<select id="history-branch" hidden>');
-    expect(html).toContain('<button id="history-clear-selection" class="tool">Clear</button>');
+    expect(html).toContain('<button id="history-clear-selection" class="tool" title="Deselect every commit">Clear</button>');
     expect(html).toContain('<button id="history-branch-local-only" class="option-toggle" title="Show local branches only" aria-label="Show local branches only" aria-pressed="false"><svg ');
     expect(html).toContain('<option value="" selected>All branches</option>');
   });
@@ -659,7 +660,7 @@ describe("HtmlHistoryRenderer graph width", () => {
   it("explains the collapsed lanes on rows that reach the overflow column", () => {
     const html = renderAll(wideHistory(24));
 
-    expect(rowHtml(html, oid(1_000))).not.toMatch(/<td class="graph-cell"[^>]* title=/);
+    expect(rowHtml(html, oid(1_000))).toContain(`<td class="graph-cell" role="gridcell" title="Parent: ${oid(2_000).slice(0, 8)}">`);
     expect(rowHtml(html, oid(1_000 + 20))).toMatch(/<td class="graph-cell" role="gridcell" title="[^"]*too wide[^"]*">/);
   });
 
@@ -669,7 +670,159 @@ describe("HtmlHistoryRenderer graph width", () => {
     expect(new Set(numbers(html, /<svg class="graph" width="(\d+)"/g))).toEqual(new Set([DRAWN_LANES * LANE_WIDTH]));
     expect(html).not.toContain("is-overflow");
     expect(html).not.toContain("graph-clipped");
-    expect(html).not.toMatch(/<td class="graph-cell"[^>]* title=/);
+    expect(html).not.toContain("too wide");
     expect(rowHtml(html, oid(1_000 + 15))).toContain(`<circle class="graph-node lane-7" cx="${15 * LANE_WIDTH + 6}" cy="11" r="3.5"/>`);
+  });
+});
+
+describe("HtmlHistoryRenderer tooltips", () => {
+  /** The opening tag of every visible button, input and select; a `hidden` one cannot be hovered. */
+  function controls(html: string): readonly string[] {
+    return [...html.matchAll(/<(?:button|input|select)\b[^>]*>/g)].map((match) => match[0]).filter((tag) => !/\shidden[\s>]/.test(tag));
+  }
+
+  function titleOf(tag: string): string | undefined {
+    const match = / title="([^"]*)"/.exec(tag);
+    return match ? decodeAttribute(match[1]!) : undefined;
+  }
+
+  /** The opening tag of the element with `id`. */
+  function tagById(html: string, id: string): string {
+    const match = new RegExp(`<[a-z]+ id="${id}"[^>]*>`).exec(html);
+    if (!match) {
+      throw new Error(`no #${id}`);
+    }
+    return match[0];
+  }
+
+  function readyWith(fields: Partial<ReadyResult>): ReadyResult {
+    return { kind: "ready", snapshotId: SNAPSHOT_ID, base: { kind: "commit", oid: ROOT, subject: "Initial" }, orderedOids: [MIDDLE], files: [], ...fields };
+  }
+
+  const files: readonly ComparisonFile[] = [
+    { id: "f-a", status: "modified", base: { path: "a.txt", blob: oid(10), mode: "100644" }, result: { path: "a.txt", blob: oid(11), mode: "100644" }, contentKind: "text" },
+  ];
+  const many = Array.from({ length: HISTORY_PAGE_SIZE + 1 }, (_, index) => commit(oid(100 + index), `c${index}`, index === HISTORY_PAGE_SIZE ? [] : [oid(101 + index)]));
+  const pages: Readonly<Record<string, string>> = {
+    "a ready comparison of a merge": render(
+      { selectedOids: [MERGE, MIDDLE], comparison: readyWith({ files, orderedOids: [MIDDLE, MERGE] }) },
+      { hiddenSelectedCount: 1, presentation: { search: "", branchChoice: null, branch: null, focusedOid: MERGE, rowLimit: HISTORY_PAGE_SIZE } },
+    ),
+    "a pinned base and a blocked replay": render({
+      base: { kind: "pinned", oid: ROOT, label: "v1" },
+      selectedOids: [MIDDLE],
+      comparison: { kind: "blocked", base: { kind: "commit", oid: ROOT, subject: "Initial" }, orderedOids: [MIDDLE], failingOid: MIDDLE, paths: ["a.txt"], explanation: "conflict" },
+    }),
+    "no repository and no history": render({ history: null }, { repositories: [], activeRepositoryId: null, visibleOids: [] }),
+    "a truncated history with Load more": render(
+      { history: { commits: many, refs: [], head: null, isTruncated: true } },
+      { visibleOids: many.map((entry) => entry.oid) },
+    ),
+  };
+
+  it.each(Object.keys(pages))("gives every visible button, input and select a tooltip with %s", (name) => {
+    const tags = controls(pages[name]!);
+
+    expect(tags.length).toBeGreaterThan(5);
+    expect(tags.filter((tag) => !titleOf(tag)?.trim())).toEqual([]);
+  });
+
+  it("explains every column header and toolbar label", () => {
+    const html = render();
+    const headers = [...html.matchAll(/<th\b[^>]*>/g)].map((match) => match[0]);
+
+    expect(headers).toHaveLength(5);
+    expect(headers.filter((tag) => !titleOf(tag))).toEqual([]);
+    expect(html).toMatch(/<span class="label" title="[^"]+">Base:<\/span>/);
+    expect(titleOf(tagById(html, "history-search"))).toContain("subject or hash");
+  });
+
+  it("shows each cell's full value: subject, author, date with its time zone and hash", () => {
+    const html = render();
+    const row = rowHtml(html, MERGE);
+
+    expect(row).toContain('<td class="subject-cell" role="gridcell" title="Merge side">');
+    expect(row).toContain('<td class="author-cell" role="gridcell" title="Ada">');
+    expect(row).toContain('<td class="date-cell" role="gridcell" title="2026-03-04 05:06:07 +02:00">');
+    expect(row).toContain(`<td class="hash-cell" role="gridcell" title="${MERGE}">`);
+    expect(row).toContain(`<td class="graph-cell" role="gridcell" title="Merge commit; parents: ${MIDDLE.slice(0, 8)}, ${SIDE.slice(0, 8)}">`);
+    expect(rowHtml(html, ROOT)).toContain('<td class="graph-cell" role="gridcell" title="Root commit: no parents">');
+    expect(row).toContain('<span class="ref-label ref-local" title="Local branch: main">main</span>');
+    expect(rowHtml(html, ROOT)).toContain('<span class="ref-label ref-tag" title="Tag: v1">v1</span>');
+  });
+
+  it("shows UTC dates with an explicit offset and unexpected dates as given", () => {
+    const dated = (authoredDate: string): HistoryData => ({ ...history, commits: [{ ...commit(ROOT, "Initial", []), authoredDate }] });
+
+    expect(render({ history: dated("2026-03-04T05:06:07Z") }, { visibleOids: [ROOT] })).toContain('title="2026-03-04 05:06:07 +00:00"');
+    expect(render({ history: dated("yesterday") }, { visibleOids: [ROOT] })).toContain('<td class="date-cell" role="gridcell" title="yesterday">');
+  });
+
+  it("names the full hashes, author and date in the commit details", () => {
+    const html = render({}, { presentation: { search: "", branchChoice: null, branch: null, focusedOid: MERGE, rowLimit: HISTORY_PAGE_SIZE } });
+    const details = html.slice(html.indexOf('<section id="history-details"'));
+
+    expect(details).toContain('<p class="details-subject" title="Merge side">');
+    expect(details).toContain(`<dd title="${MERGE}">`);
+    expect(details).toContain('<dd title="Ada">Ada</dd>');
+    expect(details).toContain('<dd title="2026-03-04 05:06:07 +02:00">');
+    expect(details).toContain(`<code title="${MIDDLE} Middle work">${MIDDLE.slice(0, 8)}</code>`);
+  });
+
+  it("says why Clear is disabled and what it does when enabled", () => {
+    expect(titleOf(tagById(render(), "history-clear-selection"))).toBe("Nothing to clear: no commits are selected");
+    expect(titleOf(tagById(render({ selectedOids: [MIDDLE] }), "history-clear-selection"))).toBe("Deselect every commit");
+  });
+
+  it("says what Automatic does in its current state", () => {
+    const pinned = render({ base: { kind: "pinned", oid: ROOT, label: "v1" } });
+
+    expect(titleOf(tagById(render(), "history-base-automatic"))).toMatch(/^The base is chosen automatically/);
+    expect(titleOf(tagById(pinned, "history-base-automatic"))).toMatch(/^Unpin the base/);
+  });
+
+  it("shows the base in full: pinned label, full hash and subject, or what Automatic resolved to", () => {
+    const pinned = render({ base: { kind: "pinned", oid: ROOT, label: "v1" } });
+    const automatic = render({ selectedOids: [MIDDLE], comparison: ready([]) });
+    const emptyTree = render({ selectedOids: [ROOT], comparison: readyWith({ base: { kind: "emptyTree" } }) });
+
+    expect(titleOf(tagById(pinned, "history-base-current"))).toBe(`Pinned base: v1 ${ROOT} Initial`);
+    expect(titleOf(tagById(automatic, "history-base-current"))).toBe(`Automatic base: ${ROOT} Initial`);
+    expect(titleOf(tagById(emptyTree, "history-base-current"))).toMatch(/^Automatic base: the empty tree/);
+    expect(titleOf(tagById(render(), "history-base-current"))).toMatch(/^Automatic base: the parent of the earliest selected commit, shown once/);
+  });
+
+  it("says no automatic base exists while the selection has several earliest commits", () => {
+    const html = render({ selectedOids: [MIDDLE, SIDE], comparison: { kind: "needsBase", minimumOids: [MIDDLE, SIDE] } });
+
+    expect(titleOf(tagById(html, "history-base-current"))).toBe("Automatic base: none, as the selection has several earliest commits; pin a base");
+  });
+
+  it("names the active repository, and says how to open one when there is none", () => {
+    expect(titleOf(tagById(render(), "history-repository"))).toBe("Repository whose history is shown: differ");
+    expect(titleOf(tagById(render({}, { repositories: [], activeRepositoryId: null }), "history-repository"))).toMatch(/^No Git repository is open/);
+  });
+
+  it("counts the selection and the selected commits the filters hide", () => {
+    const html = render({ selectedOids: [MERGE, MIDDLE] }, { hiddenSelectedCount: 1 });
+
+    expect(titleOf(tagById(html, "history-selection-count"))).toMatch(/^2 commits selected\. Click selects one commit/);
+    expect(titleOf(tagById(html, "history-hidden-selected"))).toMatch(/^1 selected commit hidden by the search or branch filter/);
+  });
+
+  it("gives the status line its full text, without markup", () => {
+    const html = render({ selectedOids: [MIDDLE, SIDE], comparison: { kind: "needsBase", minimumOids: [MIDDLE, SIDE] } });
+
+    expect(titleOf(tagById(html, "history-status"))).toBe(`The selection has several earliest commits (${MIDDLE.slice(0, 8)}, ${SIDE.slice(0, 8)}); pin a base to compare`);
+    expect(titleOf(tagById(render({ error: { operation: "load", message: "a <b> & \"c\"" } }), "history-status"))).toBe('Could not load history: a <b> & "c"');
+  });
+
+  it("names the chosen parent of a merge in full", () => {
+    const comparison = readyWith({ orderedOids: [MERGE] });
+    const html = render({ selectedOids: [MERGE], mainlines: [{ oid: MERGE, parentNumber: 2 }], comparison });
+    const select = /<select class="mainline-select"[^>]*>/.exec(html)![0];
+
+    expect(titleOf(select)).toBe(`Merge ${MERGE.slice(0, 8)} is compared against parent 2: ${SIDE} Side work`);
+    expect(html).toContain(`<li data-oid="${MERGE}" title="${MERGE} Merge side">`);
   });
 });

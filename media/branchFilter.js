@@ -130,7 +130,7 @@
     function showChosenBranch(branch) {
       shownBranch = branch;
       input.placeholder = branch.label;
-      input.title = branch.label;
+      input.title = `Branch filter: ${branch.label}. Click or type to choose another branch; ↑/↓ move, Enter picks, Escape closes`;
       if (!isBranchListOpen()) {
         input.value = branch.label;
       }
@@ -243,6 +243,8 @@
       option.setAttribute("aria-setsize", String(matchingBranches.length));
       option.setAttribute("aria-posinset", String(index + 1));
       option.dataset.index = String(index);
+      // The list cuts long names short.
+      option.title = branch.label;
       let offset = 0;
       for (const range of fuzzyMatch.fuzzyMatchRanges(query, branch.label) || []) {
         const mark = document.createElement("mark");

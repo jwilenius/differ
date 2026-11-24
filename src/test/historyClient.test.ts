@@ -482,6 +482,45 @@ describe("history client", () => {
     expect(second.intents()).toEqual([]);
   });
 
+  describe("tooltips", () => {
+    /** Visible buttons, inputs and selects without a tooltip, by ID or tag; a `hidden` one cannot be hovered. */
+    function untitledControls(webview: FakeWebview): readonly string[] {
+      return webview.document.descendants()
+        .filter((element) => ["BUTTON", "INPUT", "SELECT"].includes(element.tagName) && !element.hidden)
+        .filter((element) => element.title.trim() === "")
+        .map((element) => element.id || element.tagName);
+    }
+
+    it("gives every visible control a tooltip once the client runs", () => {
+      const webview = open({ selectedOids: [A], focusedOid: A });
+
+      expect(webview.document.querySelectorAll("button").length).toBeGreaterThan(5);
+      expect(untitledControls(webview)).toEqual([]);
+    });
+
+    it("keeps every visible control's tooltip across updates", () => {
+      const host = new FakeHost();
+      const webview = host.open();
+
+      webview.receive(host.update({ selectedOids: [A, B], focusedOid: B, revision: 8 }));
+      expect(untitledControls(webview)).toEqual([]);
+
+      webview.receive(host.update({ selectedOids: [], revision: 9 }));
+      expect(untitledControls(webview)).toEqual([]);
+      expect(webview.element("history-clear-selection").title).toBe("Nothing to clear: no commits are selected");
+    });
+
+    it("says what Clear does once an update enables it", () => {
+      const host = new FakeHost();
+      const webview = host.open();
+      expect(webview.element("history-clear-selection").hasAttribute("disabled")).toBe(true);
+
+      webview.receive(host.update({ selectedOids: [B], focusedOid: B, revision: 8 }));
+
+      expect(webview.element("history-clear-selection").title).toBe("Deselect every commit");
+    });
+  });
+
   describe("updates", () => {
     it("marks the new selection on the rows it already shows and echoes the new revision", () => {
       const host = new FakeHost();

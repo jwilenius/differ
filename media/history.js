@@ -403,8 +403,12 @@
     showLocalBranchesOnly();
   }
 
+  /** The tooltip says what a click does now; the accessible name stays, `aria-pressed` tells the state. */
   function showLocalBranchesOnly() {
     localOnlyToggle.setAttribute("aria-pressed", String(view.isLocalBranchesOnly));
+    localOnlyToggle.title = view.isLocalBranchesOnly
+      ? "Showing local branches only in the branch list; click to list remote branches too"
+      : "Show local branches only in the branch list; the history shown is unchanged";
   }
 
   /** The select is a region: an update may have replaced it. */

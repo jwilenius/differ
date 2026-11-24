@@ -17,6 +17,7 @@ const CONTEXT: TwoWayDiffRenderContext = {
   basePath: "src/a.ts",
   resultPath: "src/a.ts",
   title: "a.ts (1807da6c ↔ 2 selected commits)",
+  page: 4,
 };
 
 function unstyled(text: string): HighlightedText {
@@ -123,6 +124,10 @@ describe("HtmlTwoWayDiffRenderer", () => {
     });
     expect(html).toContain(`<svg id="connectors"`);
     expect(html).toMatch(/id="prev"[\s\S]*id="next"[\s\S]*id="open-native"/);
+  });
+
+  it("stamps the page with its number, which the client sends back with every message", () => {
+    expect(render("a", "b")).toContain(`<main class="diff" id="diff" data-page="4" data-diff=`);
   });
 
   it("numbers the change the view opens at in a polite live status", () => {

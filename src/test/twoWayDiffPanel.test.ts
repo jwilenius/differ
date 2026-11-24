@@ -82,6 +82,16 @@ function onlyPanel(): FakeWebviewPanel {
   return vscodeMock.webviewPanels[0];
 }
 
+/** The number of the diff page the panel shows, which its script stamps on every message. */
+function shownPage(): number {
+  return Number(/id="diff" data-page="(\d+)"/.exec(onlyPanel().webview.html)?.[1]);
+}
+
+/** Delivers a message as the diff page the panel shows posts it. */
+function post(message: Readonly<Record<string, unknown>>): void {
+  onlyPanel().webview.fireDidReceiveMessage({ ...message, page: shownPage() });
+}
+
 describe("TwoWayDiffPanels", () => {
   let logged: string[];
 
@@ -164,8 +174,8 @@ describe("TwoWayDiffPanels", () => {
     const opened = request();
     await panels(highlighter(() => Promise.resolve(BLUE))).open(opened);
 
-    onlyPanel().webview.fireDidReceiveMessage({ type: "ready" });
-    onlyPanel().webview.fireDidReceiveMessage({ type: "openNative" });
+    post({ type: "ready" });
+    post({ type: "openNative" });
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(opened.nativeOpens).toBe(1);
@@ -175,7 +185,7 @@ describe("TwoWayDiffPanels", () => {
     const opened = request({ openNative: () => Promise.reject(new Error("no editor")) });
     await panels(highlighter(() => Promise.resolve(BLUE))).open(opened);
 
-    onlyPanel().webview.fireDidReceiveMessage({ type: "openNative" });
+    post({ type: "openNative" });
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(vscodeMock.messages).toEqual([{ level: "error", text: "jw-differ could not open the VS Code diff editor." }]);
@@ -206,18 +216,53 @@ describe("TwoWayDiffPanels", () => {
     };
     await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ adjacentFiles: { previous: record("previous"), next: record("next") } }));
 
-    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next" });
-    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "previous" });
-    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "sideways" });
+    post({ type: "openAdjacentFile", direction: "next" });
+    post({ type: "openAdjacentFile", direction: "previous" });
+    post({ type: "openAdjacentFile", direction: "sideways" });
     await settle();
 
     expect(opened).toEqual(["next", "previous"]);
   });
 
+  it("drops a message the page of a replaced diff sent, so its step never moves on from the shown file", async () => {
+    const opened: string[] = [];
+    const record = (name: string) => () => {
+      opened.push(name);
+      return Promise.resolve();
+    };
+    const diffPanels = panels(highlighter(() => Promise.resolve(BLUE)));
+    await diffPanels.open(request({ adjacentFiles: { next: record("after first") } }));
+    const firstPage = shownPage();
+    await diffPanels.open(request({ adjacentFiles: { next: record("after second") } }));
+
+    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next", page: firstPage });
+    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next" });
+    await settle();
+    expect(opened).toEqual([]);
+
+    post({ type: "openAdjacentFile", direction: "next" });
+    await settle();
+    expect(shownPage()).not.toBe(firstPage);
+    expect(opened).toEqual(["after second"]);
+  });
+
+  it("keeps the page number when new colours redraw the same diff", async () => {
+    let colors = BLUE;
+    await panels(highlighter(() => Promise.resolve(colors))).open(request());
+    const page = shownPage();
+    expect(page).toBeGreaterThan(0);
+
+    colors = RED;
+    changeColorThemeKind(ColorThemeKind.Light);
+    await vi.waitFor(() => expect(onlyPanel().webview.html).toContain("#ff0000"));
+
+    expect(shownPage()).toBe(page);
+  });
+
   it("ignores a file step the shown diff cannot take", async () => {
     await panels(highlighter(() => Promise.resolve(BLUE))).open(request());
 
-    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next" });
+    post({ type: "openAdjacentFile", direction: "next" });
     await settle();
 
     expect(vscodeMock.messages).toEqual([]);
@@ -228,7 +273,7 @@ describe("TwoWayDiffPanels", () => {
     const failing = () => Promise.reject(new Error("This comparison is no longer available."));
     await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ adjacentFiles: { next: failing } }));
 
-    onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next" });
+    post({ type: "openAdjacentFile", direction: "next" });
     await settle();
 
     expect(vscodeMock.messages).toEqual([
@@ -242,7 +287,7 @@ describe("TwoWayDiffPanels", () => {
     await panels(highlighter(() => Promise.resolve(BLUE))).open(opened);
 
     onlyPanel().dispose();
-    onlyPanel().webview.fireDidReceiveMessage({ type: "openNative" });
+    post({ type: "openNative" });
 
     expect(opened.releases).toBe(1);
     expect(opened.nativeOpens).toBe(0);
@@ -295,7 +340,7 @@ describe("TwoWayDiffPanels", () => {
     await diffPanels.open(first);
     await diffPanels.open(second);
 
-    onlyPanel().webview.fireDidReceiveMessage({ type: "openNative" });
+    post({ type: "openNative" });
     await new Promise((resolve) => setImmediate(resolve));
 
     expect([first.nativeOpens, second.nativeOpens]).toEqual([0, 1]);
@@ -514,7 +559,7 @@ describe("TwoWayDiffPanels", () => {
     /** Opens a diff with `changes` and sends the message F4 posts for `line`. */
     async function pressF4(changes: Partial<TwoWayDiffRequest>, line: unknown): Promise<void> {
       await panels(highlighter(() => Promise.resolve(BLUE))).open(request(changes));
-      onlyPanel().webview.fireDidReceiveMessage({ type: "openWorkingCopy", line });
+      post({ type: "openWorkingCopy", line });
     }
 
     function rightSide(text: string): TwoWayDiffRequest["result"] {
@@ -599,7 +644,7 @@ describe("TwoWayDiffPanels", () => {
       const uri = workingCopy("a\n");
       await pressF4({ workingCopy: uri }, -1);
       for (const line of [1.5, "2", undefined]) {
-        onlyPanel().webview.fireDidReceiveMessage({ type: "openWorkingCopy", line });
+        post({ type: "openWorkingCopy", line });
       }
       await settle();
 

@@ -23,6 +23,8 @@ export interface TwoWayDiffRenderContext {
   readonly basePath: string;
   readonly resultPath: string;
   readonly title: string;
+  /** Numbers the page among those the panel showed; the client stamps it on every message it sends. */
+  readonly page: number;
   /** The comparison's neighbouring files; absent when the diff has no file list, so F7 stops at either end. */
   readonly fileList?: FileListNeighbours;
   /** Defaults to the first change. */
@@ -79,6 +81,7 @@ const SIDE_NAMES: Readonly<Record<PaneSide, string>> = { base: "Left side", resu
  * client script draws the ribbons and keeps the panes scrolled together.
  *
  * Client contract: `#diff[data-diff]` holds {@link TwoWayDiffClientData};
+ * `#diff[data-page]` the page's number, which every message carries back;
  * scrollers `#scroll-base` / `#scroll-result` contain one `.line` per text line
  * (all the same height); `svg#connectors` sits in `.strip`; buttons `#prev`,
  * `#next`, `#open-native`; `#diff[data-start-at]` is a {@link StartChange},
@@ -115,7 +118,7 @@ export class HtmlTwoWayDiffRenderer {
 </head>
 <body>
 ${renderToolbar(diff, context.startAt ?? "first")}
-<main class="diff" id="diff" data-diff="${escapeHtml(JSON.stringify(clientData(diff)))}"${renderNavigationData(context)}>
+<main class="diff" id="diff" data-page="${context.page}" data-diff="${escapeHtml(JSON.stringify(clientData(diff)))}"${renderNavigationData(context)}>
 ${renderHeader("base", context.baseLabel, context.basePath)}
 <div class="strip-header"></div>
 ${renderHeader("result", context.resultLabel, context.resultPath)}

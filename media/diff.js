@@ -22,6 +22,13 @@
   const diffElement = document.getElementById("diff");
   const diffJson = diffElement.dataset.diff;
   const data = JSON.parse(diffJson);
+  /** Stamped on every message, so the host can drop those this page sends after another diff replaced it. */
+  const page = Number(diffElement.dataset.page);
+
+  function post(message) {
+    vscode.postMessage({ ...message, page });
+  }
+
   /** The neighbours in the comparison's file list, or null when this diff has no list and F7 stops at the ends. */
   const fileList = diffElement.dataset.files ? JSON.parse(diffElement.dataset.files) : null;
   const fileStepHint = document.getElementById("file-step");
@@ -162,7 +169,7 @@
     const isConfirmed = pendingFileStep !== null && pendingFileStep.direction === direction;
     if (isConfirmed && hasFile) {
       endFileStep();
-      vscode.postMessage({ type: "openAdjacentFile", direction: direction > 0 ? "next" : "previous" });
+      post({ type: "openAdjacentFile", direction: direction > 0 ? "next" : "previous" });
       return;
     }
     offerFileStep(direction, hasFile);
@@ -213,7 +220,7 @@
     const line = isMarkedInView()
       ? data.blocks[currentIndex].result[0]
       : Math.floor(scrollers.result.scrollTop / lineHeight);
-    vscode.postMessage({ type: "openWorkingCopy", line });
+    post({ type: "openWorkingCopy", line });
   }
 
   /** Scrolls block `index` into view near the top and marks it as the current change. */
@@ -305,7 +312,7 @@
     endFileStep();
     navigate(1);
   });
-  document.getElementById("open-native").addEventListener("click", () => vscode.postMessage({ type: "openNative" }));
+  document.getElementById("open-native").addEventListener("click", () => post({ type: "openNative" }));
   document.addEventListener("keydown", (event) => {
     if (event.key === "F4") {
       openWorkingCopy(event);
@@ -333,5 +340,5 @@
     goTo(diffElement.dataset.startAt === "last" ? data.blocks.length - 1 : 0);
   }
   scheduleDraw();
-  vscode.postMessage({ type: "ready" });
+  post({ type: "ready" });
 })();

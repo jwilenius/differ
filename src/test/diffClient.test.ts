@@ -58,6 +58,8 @@ const BLOCKS: readonly ClientBlock[] = [
 ];
 const BASE_LINES = 12;
 const RESULT_LINES = 15;
+/** The page number the renderer stamps on `#diff`, which every message carries back. */
+const PAGE = 3;
 
 describe("diff client geometry", () => {
   const geometry = loadGeometry();
@@ -270,6 +272,7 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
   elements["current-base"].hidden = true;
   elements["current-result"].hidden = true;
   elements.diff.dataset.diff = JSON.stringify({ blocks, baseLineCount: BASE_LINES, resultLineCount: RESULT_LINES });
+  elements.diff.dataset.page = String(PAGE);
   if (start.files) {
     elements.diff.dataset.files = JSON.stringify(start.files);
   }
@@ -329,7 +332,7 @@ describe("diff client wiring", () => {
 
     elements["open-native"].fire("click");
 
-    expect(messages).toEqual([{ type: "ready" }, { type: "openNative" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openNative", page: PAGE }]);
   });
 
   it("starts at the first difference and steps with F7 and Shift+F7", () => {
@@ -617,7 +620,7 @@ describe("diff client current change", () => {
 
     const after = startClient([], { state: before.savedState() });
 
-    expect(after.messages).toEqual([{ type: "ready" }]);
+    expect(after.messages).toEqual([{ type: "ready", page: PAGE }]);
   });
 
   it("outlines the current change's ribbon", () => {
@@ -656,7 +659,7 @@ describe("diff client file steps", () => {
     document.fire("keydown", { key: "F7" });
 
     expect(elements["file-step"].textContent).toBe(NEXT_HINT);
-    expect(messages).toEqual([{ type: "ready" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
     expect(elements["scroll-result"].scrollTop).toBe(9 * 20 - 25);
   });
 
@@ -668,7 +671,7 @@ describe("diff client file steps", () => {
     vi.advanceTimersByTime(STEP_WINDOW_MS - 1);
     document.fire("keydown", { key: "F7" });
 
-    expect(messages).toEqual([{ type: "ready" }, { type: "openAdjacentFile", direction: "next" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "next", page: PAGE }]);
     expect(elements["file-step"].textContent).toBe("");
   });
 
@@ -683,7 +686,7 @@ describe("diff client file steps", () => {
     document.fire("keydown", { key: "F7" });
 
     expect(elements["file-step"].textContent).toBe(NEXT_HINT);
-    expect(messages).toEqual([{ type: "ready" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
   });
 
   it("says there are no more files after the last file's last change", () => {
@@ -695,7 +698,7 @@ describe("diff client file steps", () => {
     document.fire("keydown", { key: "F7" });
 
     expect(elements["file-step"].textContent).toBe("No more files");
-    expect(messages).toEqual([{ type: "ready" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
   });
 
   it("ends the offer when a toolbar button moves the view", () => {
@@ -709,7 +712,7 @@ describe("diff client file steps", () => {
     document.fire("keydown", { key: "F7" });
 
     expect(elements["file-step"].textContent).toBe(NEXT_HINT);
-    expect(messages).toEqual([{ type: "ready" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
   });
 
   it("offers and opens the previous file with Shift+F7 at the first change", () => {
@@ -718,10 +721,10 @@ describe("diff client file steps", () => {
 
     document.fire("keydown", { key: "F7", shiftKey: true });
     expect(elements["file-step"].textContent).toBe(PREVIOUS_HINT);
-    expect(messages).toEqual([{ type: "ready" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
     document.fire("keydown", { key: "F7", shiftKey: true });
 
-    expect(messages).toEqual([{ type: "ready" }, { type: "openAdjacentFile", direction: "previous" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "previous", page: PAGE }]);
   });
 
   it("says there are no previous files before the first file's first change", () => {
@@ -740,7 +743,7 @@ describe("diff client file steps", () => {
     document.fire("keydown", { key: "F7", shiftKey: true });
 
     expect(elements["file-step"].textContent).toBe(PREVIOUS_HINT);
-    expect(messages).toEqual([{ type: "ready" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
   });
 
   it("keeps stepping between changes in the middle of a file and clears the hint once it moves", () => {
@@ -754,7 +757,7 @@ describe("diff client file steps", () => {
     expect(elements["file-step"].textContent).toBe("");
     document.fire("keydown", { key: "F7", shiftKey: true });
     expect(elements["file-step"].textContent).toBe("");
-    expect(messages).toEqual([{ type: "ready" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
   });
 
   it("keeps today's behaviour when the diff has no file list", () => {
@@ -765,7 +768,7 @@ describe("diff client file steps", () => {
     document.fire("keydown", { key: "F7" });
 
     expect(elements["file-step"].textContent).toBe("");
-    expect(messages).toEqual([{ type: "ready" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
   });
 
   it("starts at the last change of a file reached with Shift+F7", () => {
@@ -782,7 +785,7 @@ describe("diff client working copy", () => {
 
     const event = document.fire("keydown", { key: "F4" });
 
-    expect(messages).toEqual([{ type: "ready" }, { type: "openWorkingCopy", line: 4 }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openWorkingCopy", line: 4, page: PAGE }]);
     expect(event).toEqual({ isDefaultPrevented: true, isPropagationStopped: true });
   });
 
@@ -794,7 +797,7 @@ describe("diff client working copy", () => {
 
     document.fire("keydown", { key: "F4" });
 
-    expect(messages.at(-1)).toEqual({ type: "openWorkingCopy", line: 12 });
+    expect(messages.at(-1)).toEqual({ type: "openWorkingCopy", line: 12, page: PAGE });
   });
 
   it("asks for the top visible line when no change is marked", () => {
@@ -802,7 +805,7 @@ describe("diff client working copy", () => {
 
     document.fire("keydown", { key: "F4" });
 
-    expect(messages.at(-1)).toEqual({ type: "openWorkingCopy", line: 0 });
+    expect(messages.at(-1)).toEqual({ type: "openWorkingCopy", line: 0, page: PAGE });
   });
 
   it("leaves F4 with a modifier to VS Code", () => {
@@ -812,7 +815,7 @@ describe("diff client working copy", () => {
       document.fire("keydown", { key: "F4", ...modifier }),
     );
 
-    expect(messages).toEqual([{ type: "ready" }]);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
     expect(events.every((event) => !event.isDefaultPrevented && !event.isPropagationStopped)).toBe(true);
   });
 

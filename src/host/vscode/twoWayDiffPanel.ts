@@ -79,6 +79,8 @@ type SideHighlights = readonly [base: HighlightedText, result: HighlightedText];
 interface OpenPanel {
   readonly panel: vscode.WebviewPanel;
   request: TwoWayDiffRequest;
+  /** The number of the page showing `request`; messages a page of an earlier comparison sent are dropped. */
+  page: number;
 }
 
 /**
@@ -94,6 +96,8 @@ export class TwoWayDiffPanels implements vscode.Disposable {
   private refreshHighlighting: AbortController | null = null;
   /** Counts colour changes, so an `open` that highlighted across one re-highlights after showing. */
   private colorGeneration = 0;
+  /** Counts the comparisons shown, numbering their pages. */
+  private pageCount = 0;
   private readonly subscriptions: readonly vscode.Disposable[];
 
   constructor(private readonly options: TwoWayDiffPanelsOptions) {
@@ -143,10 +147,11 @@ export class TwoWayDiffPanels implements vscode.Disposable {
   }
 
   private show(request: TwoWayDiffRequest, highlights: SideHighlights): void {
+    const page = ++this.pageCount;
     const isNewPanel = this.current === null;
-    const open = this.current ?? this.createPanel(request);
+    const open = this.current ?? this.createPanel(request, page);
     try {
-      open.panel.webview.html = this.render(open.panel.webview, request, highlights);
+      open.panel.webview.html = this.render(open.panel.webview, request, highlights, page);
     } catch (error) {
       if (isNewPanel) {
         open.panel.dispose();
@@ -162,6 +167,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
 
     const previous = open.request;
     open.request = request;
+    open.page = page;
     open.panel.title = request.title;
     open.panel.reveal(undefined, false);
     request.shown?.();
@@ -190,23 +196,23 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       return;
     }
     try {
-      open.panel.webview.html = this.render(open.panel.webview, shown, highlights);
+      open.panel.webview.html = this.render(open.panel.webview, shown, highlights, open.page);
     } catch (error) {
       this.options.log(`Re-rendering ${shown.title} in the new colours failed. ${messageOf(error)}`);
     }
   }
 
-  private createPanel(request: TwoWayDiffRequest): OpenPanel {
+  private createPanel(request: TwoWayDiffRequest, page: number): OpenPanel {
     const panel = vscode.window.createWebviewPanel(
       VIEW_TYPE,
       request.title,
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       { enableScripts: true, enableFindWidget: true, retainContextWhenHidden: true, localResourceRoots: [this.options.mediaRoot] },
     );
-    const open: OpenPanel = { panel, request };
+    const open: OpenPanel = { panel, request, page };
     this.current = open;
 
-    const messages = panel.webview.onDidReceiveMessage((message: unknown) => this.handleMessage(message, open.request));
+    const messages = panel.webview.onDidReceiveMessage((message: unknown) => this.handleMessage(message, open));
     panel.onDidDispose(() => {
       messages.dispose();
       if (this.current === open) {
@@ -249,7 +255,12 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     ]);
   }
 
-  private render(webview: vscode.Webview, request: TwoWayDiffRequest, [baseHighlight, resultHighlight]: SideHighlights): string {
+  private render(
+    webview: vscode.Webview,
+    request: TwoWayDiffRequest,
+    [baseHighlight, resultHighlight]: SideHighlights,
+    page: number,
+  ): string {
     const { base, result } = request;
     const wordLevel = vscode.workspace.getConfiguration("jwDiffer").get<boolean>("wordLevelHighlighting", true);
     const diff = buildTwoWayDiff(base.text, result.text, { wordLevel });
@@ -270,6 +281,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
         basePath: base.path,
         resultPath: result.path,
         title: request.title,
+        page,
         ...(request.adjacentFiles === undefined ? {} : { fileList: neighboursOf(request.adjacentFiles) }),
         ...(request.startAt === undefined ? {} : { startAt: request.startAt }),
       },
@@ -280,10 +292,17 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     return webview.asWebviewUri(vscode.Uri.joinPath(this.options.mediaRoot, fileName)).toString();
   }
 
-  /** The webview is untrusted input; only `openNative`, `openAdjacentFile` and `openWorkingCopy` need an answer. */
-  private async handleMessage(raw: unknown, request: TwoWayDiffRequest): Promise<void> {
+  /**
+   * The webview is untrusted input; only `openNative`, `openAdjacentFile` and `openWorkingCopy` need an answer. A
+   * message the page of an earlier comparison sent before it was replaced is dropped: it was meant for that comparison.
+   */
+  private async handleMessage(raw: unknown, open: OpenPanel): Promise<void> {
     const message = parsePanelMessage(raw);
-    switch (message?.type) {
+    if (message === null || message.page !== open.page) {
+      return;
+    }
+    const request = open.request;
+    switch (message.type) {
       case "openNative":
         return this.openNative(request);
       case "openAdjacentFile":
@@ -343,26 +362,38 @@ export class TwoWayDiffPanels implements vscode.Disposable {
   }
 }
 
-/** Messages the diff webview sends; `ready` needs no answer. `line` counts the right side's lines from 0. */
-type PanelMessage =
+/**
+ * Messages the diff webview sends, each with the number of the page that sent it; `ready` needs no answer. `line`
+ * counts the right side's lines from 0.
+ */
+type PanelMessage = { readonly page: number } & (
   | { readonly type: "openNative" }
   | { readonly type: "openAdjacentFile"; readonly direction: FileDirection }
-  | { readonly type: "openWorkingCopy"; readonly line: number };
+  | { readonly type: "openWorkingCopy"; readonly line: number }
+);
 
 function parsePanelMessage(raw: unknown): PanelMessage | null {
   if (typeof raw !== "object" || raw === null) {
     return null;
   }
-  const { type, direction, line } = raw as { readonly type?: unknown; readonly direction?: unknown; readonly line?: unknown };
+  const { type, direction, line, page } = raw as {
+    readonly type?: unknown;
+    readonly direction?: unknown;
+    readonly line?: unknown;
+    readonly page?: unknown;
+  };
+  if (typeof page !== "number") {
+    return null;
+  }
   if (type === "openNative") {
-    return { type };
+    return { type, page };
   }
   if (type === "openWorkingCopy") {
     const isLine = typeof line === "number" && Number.isInteger(line) && line >= 0;
-    return isLine ? { type, line } : null;
+    return isLine ? { type, line, page } : null;
   }
   const isFileDirection = direction === "previous" || direction === "next";
-  return type === "openAdjacentFile" && isFileDirection ? { type, direction } : null;
+  return type === "openAdjacentFile" && isFileDirection ? { type, direction, page } : null;
 }
 
 /**

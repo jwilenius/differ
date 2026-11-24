@@ -20,7 +20,13 @@ import type { WorkingChangeId } from "../../model/historyWorkingChanges";
 import { VisibleCommitCache, visibleWorkingChangeIds } from "../../model/historyVisibility";
 import type { CommitFilter } from "../../model/historyVisibility";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../../render/html/historyRenderer";
-import type { HistoryPage, HistoryPageContext, HistoryPresentation, SelectBranchButton } from "../../render/html/historyRenderer";
+import type {
+  HistoryOpenedFileUpdate,
+  HistoryPage,
+  HistoryPageContext,
+  HistoryPresentation,
+  SelectBranchButton,
+} from "../../render/html/historyRenderer";
 import { GitIndexWatchers } from "./gitIndexWatchers";
 import type { HistoryFileOpener } from "./historyDiffProvider";
 import { parseHistoryMessage } from "./historyMessages";
@@ -192,7 +198,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         this.reloadLoadedSessions();
       }
     });
-    this.openedFileSubscription = options.fileOpener.onDidChangeOpenedFile(() => this.publish());
+    this.openedFileSubscription = options.fileOpener.onDidChangeOpenedFile(() => this.publishOpenedFile());
     this.workingChangeTriggers = vscode.Disposable.from(
       this.indexWatchers,
       vscode.workspace.onDidSaveTextDocument(() => this.scheduleWorkingRefresh()),
@@ -879,6 +885,24 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       void view.webview.postMessage(patch.update);
       this.shownPage = patch.page;
     }
+  }
+
+  /**
+   * Tells a shown document which file the diff panel shows, keeping its revision: stepping through files must not
+   * make a search or branch pick sent meanwhile stale. Any other document gets a full publication, which carries it.
+   */
+  private publishOpenedFile(): void {
+    const view = this.view;
+    if (this.isDisposed || !view?.visible || this.shownPage === null) {
+      this.publish();
+      return;
+    }
+    const update: HistoryOpenedFileUpdate = {
+      type: "openedFile",
+      revision: this.published.wireRevision,
+      openedFile: this.options.fileOpener.openedFile,
+    };
+    void view.webview.postMessage(update);
   }
 
   private selectBranchButton(session: HistorySession | undefined): SelectBranchButton {

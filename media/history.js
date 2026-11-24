@@ -445,7 +445,17 @@
     if (isNewer) {
       applyUpdate(message);
     }
+    if (message && message.type === "openedFile" && message.revision === published.revision) {
+      applyOpenedFile(message.openedFile);
+    }
   });
+
+  /** Marks the file the diff panel now shows; the revision stays, so intents sent meanwhile remain current. */
+  function applyOpenedFile(openedFile) {
+    const isListed = openedFile !== null && openedFile.snapshotId === published.snapshotId;
+    published = { ...published, openFileId: isListed ? openedFile.fileId : null };
+    showOpenFile();
+  }
 
   function applyUpdate(update) {
     const active = document.activeElement;

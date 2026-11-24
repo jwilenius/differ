@@ -651,6 +651,33 @@ describe("history client", () => {
       expect(fileRow(FILE_ID).scrolledIntoView).toHaveLength(1);
     });
 
+    it("moves the open-file mark on an opened-file message, keeping the revision intents carry", () => {
+      const host = new FakeHost();
+      const webview = host.open({ selectedOids: [B], openFileId: FILE_ID });
+      const fileRow = (id: string): FakeElement => webview.find("button.file-row", (element) => element.dataset.fileId === id);
+
+      webview.receive({ type: "openedFile", revision: 7, openedFile: { snapshotId: SNAPSHOT_ID, fileId: OTHER_FILE_ID } });
+
+      expect(fileRow(FILE_ID).classList.contains("is-open")).toBe(false);
+      expect(fileRow(OTHER_FILE_ID).classList.contains("is-open")).toBe(true);
+      expect(fileRow(OTHER_FILE_ID).scrolledIntoView).toEqual([{ block: "nearest" }]);
+      fileRow(FILE_ID).dispatch(new FakeEvent("dblclick", fileRow(FILE_ID)));
+      expect(webview.last()).toEqual({ type: "openFile", revision: 7, snapshotId: SNAPSHOT_ID, fileId: FILE_ID });
+    });
+
+    it("ignores an opened-file message sent to another revision, and unmarks a file of another snapshot", () => {
+      const host = new FakeHost();
+      const webview = host.open({ selectedOids: [B], openFileId: FILE_ID });
+      const fileRow = (id: string): FakeElement => webview.find("button.file-row", (element) => element.dataset.fileId === id);
+
+      webview.receive({ type: "openedFile", revision: 6, openedFile: { snapshotId: SNAPSHOT_ID, fileId: OTHER_FILE_ID } });
+      expect(fileRow(FILE_ID).classList.contains("is-open")).toBe(true);
+      webview.receive({ type: "openedFile", revision: 7, openedFile: { snapshotId: "another-snapshot", fileId: OTHER_FILE_ID } });
+
+      expect(fileRow(FILE_ID).classList.contains("is-open")).toBe(false);
+      expect(fileRow(OTHER_FILE_ID).classList.contains("is-open")).toBe(false);
+    });
+
     it("deselects the file whose diff tab closed, leaving it neither marked nor focused", () => {
       const host = new FakeHost();
       const webview = host.open({ selectedOids: [B] });

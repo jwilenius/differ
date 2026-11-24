@@ -23,7 +23,7 @@ import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingC
 import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
 import type { BranchCommits } from "../model/historyBranchCommits";
 import { HISTORY_PAGE_SIZE } from "../render/html/historyRenderer";
-import type { HistoryPublicState, HistoryUpdate } from "../render/html/historyRenderer";
+import type { HistoryOpenedFileUpdate, HistoryPublicState, HistoryUpdate } from "../render/html/historyRenderer";
 import {
   changeConfiguration,
   changeWindowFocus,
@@ -242,16 +242,24 @@ function documentState(view: FakeWebviewView): HistoryPublicState {
   return JSON.parse(decodeHtml(match![1])) as HistoryPublicState;
 }
 
-/** Updates posted to the current document. */
+type PostedMessage = HistoryUpdate | HistoryOpenedFileUpdate;
+
+/** Publications posted to the current document. */
 function updates(view: FakeWebviewView): readonly HistoryUpdate[] {
-  return view.webview.postedSinceHtml as readonly HistoryUpdate[];
+  return (view.webview.postedSinceHtml as readonly PostedMessage[]).filter((message) => message.type === "update");
 }
 
-/** What the panel shows: the last assigned document patched by every update posted to it, as the client applies them. */
+/** What the panel shows: the last assigned document patched by every message posted to it, as the client applies them. */
 function page(view: FakeWebviewView): { readonly html: string; readonly state: HistoryPublicState } {
   let html = view.webview.html;
   let state = documentState(view);
-  for (const update of updates(view)) {
+  for (const update of view.webview.postedSinceHtml as readonly PostedMessage[]) {
+    if (update.type === "openedFile") {
+      const { openedFile } = update;
+      const isListed = update.revision === state.revision && openedFile?.snapshotId === state.snapshotId;
+      state = { ...state, openFileId: isListed ? openedFile.fileId : null };
+      continue;
+    }
     html = Object.entries(update.regions).reduce((patched, [id, markup]) => replaceElement(patched, id, markup), html);
     const tableEnd = html.indexOf("</tbody>", html.indexOf(`<tbody class="commit-rows">`));
     html = html.slice(0, tableEnd) + update.appendedRows + html.slice(tableEnd);
@@ -430,21 +438,46 @@ describe("HistoryViewProvider", () => {
     expect(file.id).toBe(FILE_ID);
   });
 
-  it("marks the file the diff panel shows with a state-only update until its tab closes", async () => {
+  it("marks the file the diff panel shows, without a new revision, until its tab closes", async () => {
     await open();
     await selectAndCompare([C3]);
+    const { revision } = publicState(view);
     const posted = updates(view).length;
 
     showInDiffPanel({ snapshotId: SNAPSHOT_ID, fileId: FILE_ID });
 
-    expect(updates(view)).toHaveLength(posted + 1);
-    const update = updates(view).at(-1)!;
-    expect(update.state.openFileId).toBe(FILE_ID);
-    expect(update.regions).toEqual({});
-    expect(update.appendedRows).toBe("");
+    expect(view.webview.postedSinceHtml.at(-1)).toEqual({
+      type: "openedFile",
+      revision,
+      openedFile: { snapshotId: SNAPSHOT_ID, fileId: FILE_ID },
+    });
+    expect(publicState(view)).toMatchObject({ revision, openFileId: FILE_ID });
     showInDiffPanel(null);
-    expect(publicState(view).openFileId).toBeNull();
+    expect(publicState(view)).toMatchObject({ revision, openFileId: null });
+    expect(updates(view)).toHaveLength(posted);
     expect(view.webview.htmlWrites).toBe(1);
+  });
+
+  it("applies a search typed while the diff panel stepped to another file", async () => {
+    await open();
+    await selectAndCompare([C3]);
+    const { revision } = publicState(view);
+
+    showInDiffPanel({ snapshotId: SNAPSHOT_ID, fileId: FILE_ID });
+    view.webview.fireDidReceiveMessage({ type: "presentation", revision, search: "Third", branch: "checked-out", focusedOid: C3, rowLimit: 200 });
+    await settle();
+
+    expect(publicState(view)).toMatchObject({ search: "Third", openFileId: FILE_ID });
+  });
+
+  it("marks the file the diff panel shows in the document a hidden panel gets", async () => {
+    await open();
+    await selectAndCompare([C3]);
+    view.fireDidChangeVisibility(false);
+
+    showInDiffPanel({ snapshotId: SNAPSHOT_ID, fileId: FILE_ID });
+
+    expect(documentState(view).openFileId).toBe(FILE_ID);
   });
 
   it("unmarks the open file once the selection no longer lists it", async () => {

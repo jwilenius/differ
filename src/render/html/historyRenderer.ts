@@ -144,6 +144,16 @@ export interface HistoryUpdate {
   readonly appendedRows: string;
 }
 
+/**
+ * Host-to-webview message marking the file the diff panel shows, posted without a new wire revision so intents the
+ * page sends meanwhile stay current. A document showing `revision` marks the file when its snapshot is listed.
+ */
+export interface HistoryOpenedFileUpdate {
+  readonly type: "openedFile";
+  readonly revision: number;
+  readonly openedFile: OpenedFile | null;
+}
+
 export interface HistoryPatch {
   readonly update: HistoryUpdate;
   /** The page once the update is applied. */

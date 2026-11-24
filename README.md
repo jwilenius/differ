@@ -50,6 +50,7 @@ _The jw-differ history button in the Explorer's folder header (left) and Source 
 - Click the jw-differ button (two panes joined by a ribbon) in the Explorer's folder header or the Source Control
   header (Git repositories), run **jw-differ: Open Git History**, or open the **jw-differ** tab in the bottom panel.
   **jw-differ: Refresh Git History** (also the ↻ button in the view title) reloads commits and refs.
+  They also reload by themselves when HEAD has moved, as after a commit or checkout elsewhere, the next time the uncommitted-change rows refresh.
 - The header buttons open the bottom panel and leave the side bar alone: it keeps showing the Explorer or Source
   Control. jw-differ adds no Activity Bar icon. Like other buttons in a section header (the Explorer's folder, or
   Source Control's **Changes** on newer VS Code), they show while the pointer is over the side bar unless
@@ -101,6 +102,33 @@ the left; changed files, replay order and commit details on the right.
   reloads the panel. Larger values make loading and searching slower and use more of the extension host's memory.
 - The graph draws at most 16 lanes. Commits on later lanes share a 17th overflow column with a dimmed dotted marker,
   and lines into it fade out at its edge; hovering such a row's graph explains this.
+- **Select branch** (the branch icon next to the funnel) selects the commits of the filtered branch that are not on the default branch (`origin/HEAD`, else `main`, else `master`).
+  The filtered branch is the checked-out one unless you picked another.
+  When that branch is checked out, the uncommitted-change rows are selected too.
+  On the default branch itself it selects the commits not yet pushed to its upstream.
+  Without an upstream or a default branch the button is disabled, and its tooltip says why.
+  It replaces the selection and leaves the base as it is.
+  Branch commits older than the loaded history are not selected; a message says how many.
+
+### Uncommitted changes
+
+- Up to two rows above HEAD show uncommitted changes, each with its file count: **Staged changes** (index ↔ HEAD) and **Unstaged changes** (files on disk ↔ index).
+- A row shows only while it has changes, and only while the branch filter shows all branches or the checked-out branch.
+- Unstaged changes include untracked files unless `status.showUntrackedFiles` is `no`.
+  Clean filters (Git LFS, line-ending conversion) apply as in `git status`.
+- Only saved files count; unsaved editor text is not included.
+- The rows refresh when the index changes (staging, committing, checkout), when a file is saved, when the window regains focus and when the panel is shown.
+  Nothing is read while the panel is hidden.
+  Each refresh first reads HEAD; when it has moved since the history loaded, the whole history reloads instead.
+  A selected comparison that includes them is computed again only when their content changed.
+- Select them like commits: alone, together, or with any commits.
+  They always replay last, Staged before Unstaged, on top of the selected commits.
+  Selected commits that are not on HEAD can make them conflict; replay then stops as it does for commits.
+- During a merge, conflicted files take the HEAD version (stage 2) from the index; the Unstaged row shows how many.
+- Submodule content changes are left out; a submodule stays at the commit the index records.
+- At most 5,000 changed paths are counted and compared; the count then reads `5,000+ files` and the row's tooltip says so.
+  A comparison that includes Unstaged changes is then incomplete: the Changed files pane heads its list with "Incomplete: only the first 5,000 changed files are compared".
+  Staged changes are always compared in full, from the whole index.
 
 ### Comparison base
 
@@ -165,6 +193,13 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
 
 - Read-only: no checkout, staging, commits, ref changes or hooks; the working tree and index are never touched. Replay
   runs in a private temporary repository that borrows the source's objects and is deleted afterwards.
+  Uncommitted changes are read through private copies of the index, without Git's optional index refresh, so the index is never locked or rewritten.
+  Side effects touch only timestamps and filter caches, never what Git or VS Code Source Control shows:
+  - Git refreshes the modification time of existing object files and packs under `.git/objects` that it would otherwise write again, both when replaying selected commits and when hashing changed working files.
+    Content and the list of files stay the same; `git gc` may only keep unreachable objects up to about two weeks longer.
+  - With split index (`core.splitIndex`), each read of the index refreshes the modification time of the `.git/sharedindex.*` file, as plain `git status` does.
+  - Clean filters run as in `git status` or `git add`, so a filter such as Git LFS may store files in its own cache under `.git`, and custom filters run their own code.
+  - No index, ref, config, hook or working file is ever written, so Git in a terminal and VS Code Source Control see no difference.
 - Local repositories only; no network fetches. Shallow clones load, but a comparison that needs history beyond the
   shallow boundary fails until you deepen the clone with Git.
 - Files that are binary, not valid UTF-8, or over 16 MiB open as an explanation (type, size, mode) rather than a text

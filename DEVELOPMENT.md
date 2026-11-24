@@ -56,8 +56,8 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mergeSession`      | Immutable `MergeState`: `startMerge`, `applySide`, `ignoreSide`, `applyNonConflicting`, `acceptSide`, `editLine`, `splitLine`, `joinWithPrevious`, `tallyMerge` |
 | `describeMerge`     | `MergeState` → per-block view (`tint`, side ranges, resolutions, changed words)                                                                                 |
-| `HistoryRepository` | `loadHistory`, `resolveRef`, `compare`, `readFile`, `releaseSnapshot` (Git adapter port)                                                                        |
-| `HistoryController` | `load()`, `setSelection(oids)`, `setBase(ref)`, `setMainline(oid, parent)`, `compare()`                                                                         |
+| `HistoryRepository` | `loadHistory`, `readWorkingChanges`, `resolveRef`, `compare`, `readFile`, `releaseSnapshot` (Git adapter port)                                                  |
+| `HistoryController` | `load()`, `refreshWorkingChanges()`, `setSelection(ids)`, `setBase(ref)`, `setMainline(oid, parent)`, `compare()`                                               |
 
 ## Layout
 
@@ -85,17 +85,23 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `src/model/historyVisibility.ts`          | Search and branch filtering of loaded commits                    |
 | `src/model/historyBranchFilter.ts`        | Branch filter by ref name; the checked-out option follows HEAD   |
 | `src/model/historyRefNames.ts`            | Ref namespaces (`refs/heads/`, …) and the ref kinds they give    |
+| `src/model/historyWorkingChanges.ts`      | `working:staged` / `working:unstaged` IDs, counts, replay order  |
+| `src/model/historyBranchCommits.ts`       | Select branch: target branch, button state and tooltip           |
 | `src/git/historyGitCommand.ts`            | Binary-safe, bounded, cancellable `git` subprocess runner        |
 | `src/host/vscode/gitExecutableLocator.ts` | Git that runs start: VS Code Git extension's, `git.path`, `PATH` |
 | `src/git/gitHistoryRepository.ts`         | Commits, refs and pinned ref resolution                          |
 | `src/git/historyComparisonResolver.ts`    | Replay order, Automatic base, merge parents                      |
 | `src/git/gitSelectionReplay.ts`           | Isolated replay of selected commits in a private repository      |
+| `src/git/gitReplayStorage.ts`             | Private replay repository type and storage error redaction       |
+| `src/git/gitWorkingChangeStatus.ts`       | Lock-free `git status` read: working-change counts and paths     |
+| `src/git/gitWorkingTrees.ts`              | Index and working-tree trees built from private index copies     |
 | `src/git/gitComparisonFiles.ts`           | Net changed files and immutable file content                     |
 | `src/git/gitComparisonRepository.ts`      | Git adapter implementing `HistoryRepository`, snapshot leases    |
 | `src/render/html/historyRenderer.ts`      | History panel HTML: toolbar, graph, table, files, details        |
 | `src/host/vscode/historyViewProvider.ts`  | Panel lifecycle, repositories, messages, publishing              |
 | `src/host/vscode/historyDiffProvider.ts`  | Read-only `jw-differ-history:` documents and `vscode.diff`       |
 | `src/host/vscode/historyMessages.ts`      | Validation of every message from the history webview             |
+| `src/host/vscode/gitIndexWatchers.ts`     | Index file watchers that refresh conflicts and working changes   |
 | `src/model/twoWayDiff.ts`                 | Line blocks and word spans for the two-way diff                  |
 | `src/render/html/twoWayDiffRenderer.ts`   | IntelliJ-style two-pane diff HTML with token colours             |
 | `src/highlight/`                          | TextMate tokenizing and theme resolution (no VS Code import)     |
@@ -130,6 +136,14 @@ picks the letters to mark (word starts, camelCase, runs) only for rendered optio
 `fuzzyMatch` → `{ foldForMatch, isFuzzyMatch, fuzzyMatchRanges }`, which `branchFilter.js` reads at call time. Both
 passes compare the same per-character lower-cased code points (`İ` folds to two, `Σ` always to `σ`), so a branch is
 listed exactly when its marks can be found.
+
+Working changes are the pseudo-commits `working:staged` and `working:unstaged`; they share selection lists with commit OIDs and always replay after the selected commits.
+Their trees are built in the source working tree (so attributes and clean filters apply) with `GIT_INDEX_FILE` set to a copy of the index in the private replay directory, `GIT_OBJECT_DIRECTORY` set to the private object directory, `GIT_OPTIONAL_LOCKS=0`, and `-c core.fsmonitor=false -c core.useBuiltinFSMonitor=false -c core.splitIndex=false -c index.sparse=false -c core.hooksPath=<missing private directory>`, so writing the index copy runs no `post-index-change` hook.
+The source index and object directory are never written; `src/test/gitWorkingTrees.test.ts` asserts the index bytes and mtime, the `.git` file listing with sizes, the object file listing, refs and working files are unchanged, including in sparse-checkout and split-index repositories.
+The provider rereads the counts 300 ms after the last index change, save, window focus or view reveal, and never while the view is hidden.
+Each reread first runs `git rev-parse HEAD^{commit}`; when HEAD differs from the loaded history's, it reloads the whole history instead.
+Each read also yields a content key, a SHA-256 of the status output (which records index blob OIDs) and of each changed file's size, mtime and ctime; a comparison that includes working changes is discarded only when the counts or that key differ.
+Select branch reads `git rev-list <branch> ^<base>` once per branch and loaded history; the base is the default branch (`origin/HEAD`, `main`, `master`), or the upstream when the branch is the default branch.
 
 The `core/`, `model/` and `render/` layers have no `vscode` import and are unit-tested on their own; `src/test/layering.test.ts` enforces it.
 

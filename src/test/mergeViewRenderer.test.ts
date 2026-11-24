@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { applySide, startMerge, tallyMerge, type MergeState } from "../model/mergeSession";
+import { acceptSide, applySide, startMerge, tallyMerge, type MergeState } from "../model/mergeSession";
 import { describeMerge } from "../model/mergeView";
 import type { HighlightedText } from "../model/syntaxTokens";
 import { HtmlMergeViewRenderer, resultLineMarkup, type MergeClientData, type MergeViewRenderContext } from "../render/html/mergeViewRenderer";
@@ -65,8 +65,8 @@ describe("HtmlMergeViewRenderer", () => {
     expect(html).toContain("Changes from <b>main</b>");
     expect(html).toContain("Changes from <b>feature/&lt;sku&gt;</b>");
     expect(html).toContain('<span class="path">src/a.ts</span>');
-    expect(html).toMatch(/data-accept="left">Accept Left</);
-    expect(html).toContain('id="apply">Apply</button>');
+    expect(html).toMatch(/data-accept="left"[^>]*>Accept Left</);
+    expect(html).toMatch(/id="apply"[^>]*>Apply<\/button>/);
   });
 
   it("puts apply and ignore buttons on each pending side, pointing at the result", () => {
@@ -133,6 +133,7 @@ describe("HtmlMergeViewRenderer", () => {
 
     expect(html).toContain("0 changes. 1 conflict.");
     expect(html).toMatch(/data-non-conflicting="all"[^>]* disabled>/);
+    expect(html).toMatch(/data-non-conflicting="all" title="Nothing to apply: no non-conflicting change is pending" disabled>/);
   });
 
   it("warns when the sides are swapped", () => {
@@ -192,5 +193,114 @@ describe("HtmlMergeViewRenderer", () => {
     for (const id of ids) {
       expect(html).toContain(`id="${id}"`);
     }
+  });
+
+  describe("tooltips", () => {
+    /** The value of attribute `name` on the first element whose opening tag matches `tag`, unescaped. */
+    function attributeOf(html: string, tag: RegExp, name: string): string | undefined {
+      const element = [...html.matchAll(/<[a-z]+\b[^>]*>/g)].map((match) => match[0]).find((opening) => tag.test(opening));
+      const value = element && new RegExp(` ${name}="([^"]*)"`).exec(element)?.[1];
+      return value?.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+    }
+
+    it("names the side and the change or conflict on every chunk button", () => {
+      const html = render(startMerge(BASE, LEFT, RIGHT));
+      const button = (chunk: number, side: string, action: string): RegExp =>
+        new RegExp(`data-chunk="${chunk}" data-side="${side}" data-action="${action}"`);
+
+      expect(attributeOf(html, button(1, "left", "apply"), "title")).toBe("Accept left change 1: apply it to the result");
+      expect(attributeOf(html, button(1, "left", "apply"), "aria-label")).toBe("Accept left change 1");
+      expect(attributeOf(html, button(1, "left", "ignore"), "title")).toBe("Ignore left change 1: leave the result as it is");
+      expect(attributeOf(html, button(1, "left", "ignore"), "aria-label")).toBe("Ignore left change 1");
+      expect(attributeOf(html, button(2, "right", "apply"), "aria-label")).toBe("Accept right change 2");
+      expect(attributeOf(html, button(0, "right", "apply"), "title")).toBe("Accept the right side of conflict 1: apply it to the result");
+      expect(attributeOf(html, button(0, "left", "ignore"), "aria-label")).toBe("Ignore the left side of conflict 1");
+    });
+
+    it("keeps a change's number once an earlier change is resolved", () => {
+      const html = render(applySide(startMerge(BASE, LEFT, RIGHT), 1, "left"));
+
+      expect(attributeOf(html, /data-chunk="2" data-side="right" data-action="apply"/, "aria-label")).toBe("Accept right change 2");
+    });
+
+    it("explains the status counts, and says when nothing is left", () => {
+      const pending = render(startMerge(BASE, LEFT, RIGHT));
+      const done = render(acceptSide(startMerge(BASE, LEFT, RIGHT), "left"));
+
+      expect(attributeOf(pending, /class="status"/, "title")).toBe(
+        "Still to resolve: 2 changes, blocks only one side changed or both changed alike, and 1 conflict, blocks both sides changed differently",
+      );
+      expect(attributeOf(done, /class="status"/, "title")).toBe("Every change and conflict has been applied or ignored");
+    });
+
+    it("names a block both sides changed alike a change, not a conflict", () => {
+      const html = render(startMerge("a\nb\nc", "a\nB\nc", "a\nB\nc"));
+
+      expect(html).toContain("1 change. 0 conflicts.");
+      expect(attributeOf(html, /data-side="left" data-action="apply"/, "aria-label")).toBe("Accept left change 1");
+    });
+
+    it("explains the non-conflicting label and buttons", () => {
+      const html = render(startMerge(BASE, LEFT, RIGHT));
+
+      expect(attributeOf(html, /class="label"/, "title")).toBe(
+        "Apply every pending change that does not conflict, from the left side, the right side or both",
+      );
+      expect(attributeOf(html, /data-non-conflicting="left"/, "title")).toBe("Apply non-conflicting changes from the left side");
+    });
+
+    it("marks each side read-only and names its label, and shows the result's full path", () => {
+      const html = render(startMerge(BASE, LEFT, RIGHT), { resultPath: "src/deeply/nested/a.ts" });
+
+      expect(attributeOf(html, /class="pane-header pane-left"/, "title")).toBe(
+        "The left side, read-only: changes from main. » in its gutter applies a change to the result, × ignores it",
+      );
+      expect(attributeOf(html, /class="pane-header pane-right"/, "title")).toBe(
+        "The right side, read-only: changes from feature/<sku>. « in its gutter applies a change to the result, × ignores it",
+      );
+      expect(attributeOf(html, /class="lock"/, "aria-label")).toBe("Read-only");
+      expect(attributeOf(html, /class="lock"/, "title")).toBe("Read-only: only the result can be edited");
+      expect(attributeOf(html, /class="pane-header pane-result"/, "title")).toBe(
+        "The result, editable: src/deeply/nested/a.ts\nApply writes it to this file",
+      );
+    });
+
+    it("escapes the result's path in its tooltip", () => {
+      const html = render(startMerge(BASE, LEFT, RIGHT), { resultPath: 'a"<b>&.ts' });
+
+      expect(html).toContain('title="The result, editable: a&quot;&lt;b&gt;&amp;.ts\nApply writes it to this file"');
+    });
+
+    it("says what each footer button does, and whether Apply stages the file", () => {
+      const pending = render(startMerge(BASE, LEFT, RIGHT));
+      const done = render(acceptSide(startMerge(BASE, LEFT, RIGHT), "left"));
+
+      expect(attributeOf(pending, /data-accept="left"/, "title")).toBe(
+        "Replace the whole result with the left side (main), discarding edits and resolving every change",
+      );
+      expect(attributeOf(pending, /data-accept="right"/, "title")).toBe(
+        "Replace the whole result with the right side (feature/<sku>), discarding edits and resolving every change",
+      );
+      expect(attributeOf(pending, /id="cancel"/, "title")).toBe("Close without writing the file; asks first when the merge view has changes");
+      expect(attributeOf(pending, /id="apply"/, "title")).toBe(
+        "Write the result to the file and save it, then close; asks first while changes are unresolved, and does not stage the file",
+      );
+      expect(attributeOf(done, /id="apply"/, "title")).toBe("Write the result to the file, save it and stage it (git add), then close");
+    });
+
+    it("numbers every line in its tooltip", () => {
+      const html = render(startMerge(BASE, LEFT, RIGHT));
+
+      for (const pane of ["left", "result", "right"]) {
+        expect(paneLines(html, pane)[2]).toContain('<span class="num" title="Line 3">3</span>');
+      }
+    });
+
+    it("gives every button a tooltip", () => {
+      const html = render(startMerge(BASE, LEFT, RIGHT));
+      const untitled = [...html.matchAll(/<button\b[^>]*>/g)].map((match) => match[0]).filter((tag) => !/ title="[^"]+"/.test(tag));
+
+      expect(untitled).toEqual([]);
+    });
   });
 });

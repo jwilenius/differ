@@ -62,6 +62,12 @@ button.tool.text-only {
   grid-template-rows: var(--header-height) minmax(0, 1fr);
 }
 
+/* Wraps the lock icon so it can carry a tooltip; the icon keeps its own size. */
+.pane-header .lock {
+  display: flex;
+  flex: none;
+}
+
 .pane-header .icon {
   flex: none;
   width: 14px;

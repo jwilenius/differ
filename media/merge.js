@@ -237,6 +237,7 @@
     scrollers.result.inert = true;
     for (const button of document.querySelectorAll("button")) {
       button.disabled = true;
+      button.title = "Unavailable while the merge view updates";
     }
   }
 
@@ -667,7 +668,9 @@
   function renumberResultLines(start) {
     const lines = resultLineElements();
     for (let index = start; index < lines.length; index++) {
-      lines[index].querySelector(".num").textContent = String(index + 1);
+      const number = lines[index].querySelector(".num");
+      number.textContent = String(index + 1);
+      number.title = `Line ${index + 1}`;
       lines[index].querySelector(".code").dataset.line = String(index);
     }
   }
@@ -903,8 +906,11 @@
     navigate(event.shiftKey ? -1 : 1);
   });
 
-  for (const button of [document.getElementById("prev"), document.getElementById("next")]) {
-    button.disabled = unresolved.length === 0;
+  if (unresolved.length === 0) {
+    for (const button of [document.getElementById("prev"), document.getElementById("next")]) {
+      button.disabled = true;
+      button.title = "No unresolved changes to go to";
+    }
   }
   const saved = vscode.getState();
   if (saved && saved.key === scrollStateKey) {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { startMerge, tallyMerge } from "../model/mergeSession";
+import { acceptSide, startMerge, tallyMerge, type MergeState } from "../model/mergeSession";
 import { describeMerge } from "../model/mergeView";
 import type { HighlightedText } from "../model/syntaxTokens";
 import { HtmlMergeViewRenderer } from "../render/html/mergeViewRenderer";
@@ -16,8 +16,7 @@ function unstyled(lines: readonly string[]): HighlightedText {
   return { styles: [{ color: null, fontStyle: 0 }], lines: lines.map((line) => [{ length: line.length, styleIndex: 0 }]) };
 }
 
-function openPage(): MergePage {
-  const state = startMerge(BASE, LEFT, RIGHT);
+function openPage(state: MergeState = startMerge(BASE, LEFT, RIGHT)): MergePage {
   const input = {
     state,
     chunks: describeMerge(state, { wordLevel: true }),
@@ -489,5 +488,57 @@ describe("Enter over a selection within a result line", () => {
     expect(selection.isCollapsed).toBe(true);
     expect(selection.focusNode!.parentElement!.closest(".code[data-line]")).toBe(cells[1]);
     expect(selection.focusOffset).toBe(0);
+  });
+});
+
+describe("merge client tooltips", () => {
+  function navigationButtons(page: MergePage): FakeElement[] {
+    return [page.document.getElementById("prev")!, page.document.getElementById("next")!];
+  }
+
+  it("starts with a tooltip on every button and pane header", () => {
+    const page = openPage();
+    const controls = [...page.document.querySelectorAll("button"), ...page.document.querySelectorAll(".pane-header")];
+
+    expect(controls.length).toBeGreaterThan(10);
+    expect(controls.filter((control) => control.title === "")).toEqual([]);
+  });
+
+  it("says why Prev and Next are disabled when nothing is left to resolve", () => {
+    const page = openPage(acceptSide(startMerge(BASE, LEFT, RIGHT), "left"));
+
+    for (const button of navigationButtons(page)) {
+      expect(button.disabled).toBe(true);
+      expect(button.title).toBe("No unresolved changes to go to");
+    }
+  });
+
+  it("keeps the shortcut tooltips on Prev and Next while changes remain", () => {
+    const page = openPage();
+
+    expect(navigationButtons(page).map((button) => [button.disabled, button.title])).toEqual([
+      [false, "Previous Change (Shift+F7)"],
+      [false, "Next Change (F7)"],
+    ]);
+  });
+
+  it("says why every button is disabled while the page redraws", () => {
+    const page = openPage();
+
+    page.click(page.button((button) => button.dataset.accept === "left"));
+
+    const buttons = page.document.querySelectorAll("button");
+    expect(buttons.every((button) => button.disabled && button.title === "Unavailable while the merge view updates")).toBe(true);
+  });
+
+  it("numbers result lines in their tooltips after a line split", () => {
+    const page = openPage();
+
+    page.placeCaret(page.resultCell(0), 1);
+    page.key(page.resultCell(0), { key: "Enter" });
+
+    const numbers = page.document.getElementById("scroll-result")!.querySelectorAll(".num");
+    expect(numbers.length).toBe(5);
+    expect(numbers.map((number) => number.title)).toEqual(["Line 1", "Line 2", "Line 3", "Line 4", "Line 5"]);
   });
 });

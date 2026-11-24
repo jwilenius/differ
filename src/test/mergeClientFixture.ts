@@ -140,6 +140,14 @@ export class FakeElement extends FakeNode {
     }
   }
 
+  get title(): string {
+    return this.attributes.get("title") ?? "";
+  }
+
+  set title(title: string) {
+    this.attributes.set("title", title);
+  }
+
   get textContent(): string {
     return this.childNodes.map((child) => child.textContent).join("");
   }

@@ -75,13 +75,23 @@ interface PaneLayout {
   /** Empty ranges by the line they precede; the line count stands for "after the last line". */
   readonly gaps: ReadonlyMap<number, ChunkTint>;
   readonly words: ReadonlyMap<number, readonly WordSpan[]>;
-  /** Chunk indexes whose apply/ignore buttons sit on a line; a gap before the last line shares it with a gap ending the file. */
-  readonly actions: ReadonlyMap<number, readonly number[]>;
+  /** The chunks whose apply/ignore buttons sit on a line; a gap before the last line shares it with a gap ending the file. */
+  readonly actions: ReadonlyMap<number, readonly ChunkAction[]>;
+}
+
+/** A chunk's apply/ignore buttons on one side, and what their tooltips call it: `left change 3`, `the right side of conflict 1`. */
+interface ChunkAction {
+  readonly chunk: number;
+  readonly subject: string;
 }
 
 const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]{16,}$/;
 
 const LOCK_ICON = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7.5" width="9" height="7" rx="1.5"/><path d="M5.5 7.5V5a2.5 2.5 0 0 1 5 0v2.5"/></svg>`;
+const LOCK_TITLE = "Read-only: only the result can be edited";
+const NON_CONFLICTING_LABEL_TITLE = "Apply every pending change that does not conflict, from the left side, the right side or both";
+const NOTHING_NON_CONFLICTING_TITLE = "Nothing to apply: no non-conflicting change is pending";
+const CANCEL_TITLE = "Close without writing the file; asks first when the merge view has changes";
 
 /**
  * Renders IntelliJ's merge dialog: the left version, the result and the right
@@ -124,7 +134,7 @@ ${renderToolbar(input, context)}
 <main class="merge" id="merge" data-page="${context.page}"${caretAttributes(context.caret)} data-merge="${escapeHtml(JSON.stringify(mergeClientData(input.state, input.chunks)))}">
 ${renderSideHeader("left", context.leftLabel)}
 <div class="strip-header"></div>
-<div class="pane-header pane-result"><b>Result</b><span class="path">${escapeHtml(context.resultPath)}</span></div>
+${renderResultHeader(context.resultPath)}
 <div class="strip-header"></div>
 ${renderSideHeader("right", context.rightLabel)}
 ${renderPane(layoutSide(input, "left"))}
@@ -133,7 +143,7 @@ ${renderPane(layoutResult(input))}
 <div class="strip"><svg id="connectors-right" aria-hidden="true"></svg></div>
 ${renderPane(layoutSide(input, "right"))}
 </main>
-${renderFooter()}
+${renderFooter(input.tally, context)}
 ${scripts}
 </body>
 </html>`;
@@ -165,7 +175,8 @@ function caretAttributes(caret: ResultPosition | null): string {
 
 function renderToolbar(input: MergeViewInput, context: MergeViewRenderContext): string {
   const hasPendingChanges = input.chunks.some((chunk) => !chunk.isResolved && chunk.tint !== "conflict");
-  const disabled = hasPendingChanges ? "" : " disabled";
+  const nonConflicting = (scope: string, title: string, label: string): string =>
+    `<button class="tool text-only" data-non-conflicting="${scope}" title="${hasPendingChanges ? title : NOTHING_NON_CONFLICTING_TITLE}"${hasPendingChanges ? "" : " disabled"}>${label}</button>`;
   const swapWarning = context.isSidesSwapped
     ? `<span class="warning" title="During a rebase git replays your commits onto the other branch, so the sides are reversed">⚠ Sides are reversed during a rebase</span>`
     : "";
@@ -176,12 +187,12 @@ function renderToolbar(input: MergeViewInput, context: MergeViewRenderContext): 
     <button id="next" class="tool" title="Next Change (F7)" aria-label="Next change">↓</button>
   </span>
   <span class="separator"></span>
-  <span class="label">Apply non-conflicting changes:</span>
-  <button class="tool text-only" data-non-conflicting="left" title="Apply non-conflicting changes from the left side"${disabled}>» Left</button>
-  <button class="tool text-only" data-non-conflicting="all" title="Apply all non-conflicting changes"${disabled}>»« All</button>
-  <button class="tool text-only" data-non-conflicting="right" title="Apply non-conflicting changes from the right side"${disabled}>« Right</button>
+  <span class="label" title="${NON_CONFLICTING_LABEL_TITLE}">Apply non-conflicting changes:</span>
+  ${nonConflicting("left", "Apply non-conflicting changes from the left side", "» Left")}
+  ${nonConflicting("all", "Apply all non-conflicting changes", "»« All")}
+  ${nonConflicting("right", "Apply non-conflicting changes from the right side", "« Right")}
   ${swapWarning}
-  <span class="status">${statusText(input.tally)}</span>
+  <span class="status" title="${tallyTooltip(input.tally)}">${statusText(input.tally)}</span>
 </header>`;
 }
 
@@ -190,21 +201,47 @@ function statusText(tally: MergeTally): string {
   if (tally.changes === 0 && tally.conflicts === 0) {
     return "All changes have been processed.";
   }
-  const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? "" : "s"}`;
   return `${plural(tally.changes, "change")}. ${plural(tally.conflicts, "conflict")}.`;
 }
 
-function renderSideHeader(side: MergeSide, label: string): string {
-  return `<div class="pane-header pane-${side}">${LOCK_ICON}<span>Changes from <b>${escapeHtml(label)}</b></span></div>`;
+/** The status's tooltip: what is left to resolve, and what the two counts mean. */
+function tallyTooltip(tally: MergeTally): string {
+  if (tally.changes === 0 && tally.conflicts === 0) {
+    return "Every change and conflict has been applied or ignored";
+  }
+  return `Still to resolve: ${plural(tally.changes, "change")}, blocks only one side changed or both changed alike, and ${plural(tally.conflicts, "conflict")}, blocks both sides changed differently`;
 }
 
-function renderFooter(): string {
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function renderSideHeader(side: MergeSide, label: string): string {
+  const arrow = side === "left" ? "»" : "«";
+  const title = `The ${side} side, read-only: changes from ${label}. ${arrow} in its gutter applies a change to the result, × ignores it`;
+  const lock = `<span class="lock" role="img" aria-label="Read-only" title="${LOCK_TITLE}">${LOCK_ICON}</span>`;
+  return `<div class="pane-header pane-${side}" title="${escapeHtml(title)}">${lock}<span>Changes from <b>${escapeHtml(label)}</b></span></div>`;
+}
+
+/** The tooltip shows the full path, which the header may cut short. */
+function renderResultHeader(resultPath: string): string {
+  const title = `The result, editable: ${resultPath}\nApply writes it to this file`;
+  return `<div class="pane-header pane-result" title="${escapeHtml(title)}"><b>Result</b><span class="path">${escapeHtml(resultPath)}</span></div>`;
+}
+
+function renderFooter(tally: MergeTally, context: MergeViewRenderContext): string {
+  const isComplete = tally.changes === 0 && tally.conflicts === 0;
+  const applyTitle = isComplete
+    ? "Write the result to the file, save it and stage it (git add), then close"
+    : "Write the result to the file and save it, then close; asks first while changes are unresolved, and does not stage the file";
+  const acceptTitle = (side: MergeSide, label: string): string =>
+    escapeHtml(`Replace the whole result with the ${side} side (${label}), discarding edits and resolving every change`);
   return `<footer class="footer">
-  <button class="button" data-accept="left">Accept Left</button>
-  <button class="button" data-accept="right">Accept Right</button>
+  <button class="button" data-accept="left" title="${acceptTitle("left", context.leftLabel)}">Accept Left</button>
+  <button class="button" data-accept="right" title="${acceptTitle("right", context.rightLabel)}">Accept Right</button>
   <span class="spacer"></span>
-  <button class="button" id="cancel">Cancel</button>
-  <button class="button primary" id="apply">Apply</button>
+  <button class="button" id="cancel" title="${CANCEL_TITLE}">Cancel</button>
+  <button class="button primary" id="apply" title="${applyTitle}">Apply</button>
 </footer>`;
 }
 
@@ -213,10 +250,13 @@ function layoutSide(input: MergeViewInput, side: MergeSide): PaneLayout {
   const lines = side === "left" ? input.state.leftLines : input.state.rightLines;
   const highlight = side === "left" ? input.leftHighlight : input.rightHighlight;
   const pending = input.chunks.filter((chunk) => chunk[side].resolution === "pending");
-  const actions = new Map<number, number[]>();
+  const names = nameChunks(input.chunks);
+  const actions = new Map<number, ChunkAction[]>();
   for (const chunk of pending) {
     const line = actionLine(chunk[side].range, lines.length);
-    actions.set(line, [...(actions.get(line) ?? []), chunk.index]);
+    const name = names[chunk.index];
+    const subject = chunk.tint === "conflict" ? `the ${side} side of ${name}` : `${side} ${name}`;
+    actions.set(line, [...(actions.get(line) ?? []), { chunk: chunk.index, subject }]);
   }
 
   return {
@@ -227,6 +267,16 @@ function layoutSide(input: MergeViewInput, side: MergeSide): PaneLayout {
     words: wordsByLine(pending.flatMap((chunk) => chunk[side].words)),
     actions,
   };
+}
+
+/**
+ * Names each chunk by its place in file order among the changes or among the conflicts, `change 3` or `conflict 1`,
+ * indexed like `chunks`; resolved chunks count too, so a name stays put while the status counts only unresolved ones.
+ */
+function nameChunks(chunks: readonly ChunkView[]): readonly string[] {
+  let changes = 0;
+  let conflicts = 0;
+  return chunks.map((chunk) => (chunk.tint === "conflict" ? `conflict ${++conflicts}` : `change ${++changes}`));
 }
 
 /** The markup of every result line, as the page draws it; re-highlighting after an edit compares it line by line. */
@@ -295,7 +345,7 @@ function renderLine(layout: PaneLayout, index: number): string {
     gapAfter ? `gap-after gap-${gapAfter}` : "",
   ].filter(Boolean).join(" ");
   const code = lineMarkup(layout, index).html;
-  const number = `<span class="num">${index + 1}</span>`;
+  const number = `<span class="num" title="Line ${index + 1}">${index + 1}</span>`;
 
   switch (layout.pane) {
     case "left":
@@ -309,12 +359,13 @@ function renderLine(layout: PaneLayout, index: number): string {
 
 /** IntelliJ's gutter: `× »` beside the left pane, `« ×` beside the right, always pointing at the result. */
 function renderActions(layout: PaneLayout, line: number): string {
-  const chunks = layout.actions.get(line) ?? [];
-  return `<span class="acts">${chunks.map((chunk) => renderChunkActions(layout.pane, chunk)).join("")}</span>`;
+  const actions = layout.actions.get(line) ?? [];
+  return `<span class="acts">${actions.map((action) => renderChunkActions(layout.pane, action)).join("")}</span>`;
 }
 
-function renderChunkActions(side: Pane, chunk: number): string {
-  const apply = `<button class="act apply" data-chunk="${chunk}" data-side="${side}" data-action="apply" title="Accept" aria-label="Accept">${side === "left" ? "»" : "«"}</button>`;
-  const ignore = `<button class="act ignore" data-chunk="${chunk}" data-side="${side}" data-action="ignore" title="Ignore" aria-label="Ignore">×</button>`;
+function renderChunkActions(side: Pane, action: ChunkAction): string {
+  const { chunk, subject } = action;
+  const apply = `<button class="act apply" data-chunk="${chunk}" data-side="${side}" data-action="apply" title="Accept ${subject}: apply it to the result" aria-label="Accept ${subject}">${side === "left" ? "»" : "«"}</button>`;
+  const ignore = `<button class="act ignore" data-chunk="${chunk}" data-side="${side}" data-action="ignore" title="Ignore ${subject}: leave the result as it is" aria-label="Ignore ${subject}">×</button>`;
   return side === "left" ? ignore + apply : apply + ignore;
 }

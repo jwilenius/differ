@@ -4,7 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
-import { ConflictedFilesContext, type ConflictedFilesScan, withDriveLetterCasings } from "../host/vscode/conflictedFilesContext";
+import {
+  aliasesThroughFolder,
+  ConflictedFilesContext,
+  type ConflictedFilesScan,
+  withDriveLetterCasings,
+} from "../host/vscode/conflictedFilesContext";
 import { activate, deactivate } from "../host/vscode/extension";
 import { createConflictRepository, divergeBranches, mergeFeature, runGit } from "./gitConflictFixture";
 import {
@@ -429,5 +434,27 @@ describe("Resolve Conflict in jw-differ", () => {
       { command: COMMAND, when: "scmProvider == git && scmResourceGroup == merge", group: "navigation" },
     ]);
     expect(entriesOf("commandPalette")).toEqual([{ command: COMMAND, when: "false" }]);
+  });
+});
+
+describe("aliasesThroughFolder", () => {
+  it("names the files inside a folder's canonical location through the folder", () => {
+    const files = ["C:\\work\\a.txt", "C:\\workshop\\b.txt", "C:\\work\\src\\c.txt"];
+
+    expect(aliasesThroughFolder("D:\\link", "C:\\work", files, path.win32)).toEqual(["D:\\link\\a.txt", "D:\\link\\src\\c.txt"]);
+  });
+
+  it("names the files through a substituted drive whose target is a drive root", () => {
+    expect(aliasesThroughFolder("S:\\", "C:\\", ["C:\\src\\a.txt"], path.win32)).toEqual(["S:\\src\\a.txt"]);
+  });
+
+  it("names the files through a mapped drive at the root of a network share", () => {
+    const files = ["\\\\server\\share\\a.txt"];
+
+    expect(aliasesThroughFolder("Z:\\", "\\\\server\\share\\", files, path.win32)).toEqual(["Z:\\a.txt"]);
+  });
+
+  it("names the files through a folder linked to the file system root", () => {
+    expect(aliasesThroughFolder("/home/user/root", "/", ["/repo/a.txt"], path.posix)).toEqual(["/home/user/root/repo/a.txt"]);
   });
 });

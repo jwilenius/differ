@@ -112,12 +112,23 @@ async function withWorkspaceFolderAliases(files: readonly string[]): Promise<rea
 async function aliasesInFolder(folder: string, files: readonly string[]): Promise<readonly string[]> {
   // A folder that cannot be resolved, such as a deleted one, holds no conflicted files.
   const canonicalFolder = await realpath(folder).catch(() => folder);
-  if (canonicalFolder === folder) {
-    return [];
-  }
+  return canonicalFolder === folder ? [] : aliasesThroughFolder(folder, canonicalFolder, files);
+}
+
+/**
+ * The paths through `folder` of the `files` inside `canonicalFolder`, its canonical location, with `paths`' rules. A
+ * root such as `C:\`, a network share's `\\server\share\` or `/` already ends in a separator.
+ */
+export function aliasesThroughFolder(
+  folder: string,
+  canonicalFolder: string,
+  files: readonly string[],
+  paths: path.PlatformPath = path,
+): readonly string[] {
+  const prefix = canonicalFolder.endsWith(paths.sep) ? canonicalFolder : `${canonicalFolder}${paths.sep}`;
   return files
-    .filter((file) => file.startsWith(`${canonicalFolder}${path.sep}`))
-    .map((file) => path.join(folder, path.relative(canonicalFolder, file)));
+    .filter((file) => file.startsWith(prefix))
+    .map((file) => paths.join(folder, paths.relative(canonicalFolder, file)));
 }
 
 /**

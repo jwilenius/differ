@@ -567,6 +567,20 @@ describe("history branch filter", () => {
       expect(webview.document.querySelectorAll("li.is-chosen").map(marked)).toEqual(chosen);
     });
 
+    it("moves the mark under an open list to the host's choice when an update keeps the branches", () => {
+      const host = new FakeHost();
+      const webview = host.open({ refs: BRANCHES });
+      const select = webview.element("history-branch");
+      webview.pickBranch("main");
+      webview.click(webview.element("history-branch-input"));
+      expect(webview.document.querySelectorAll("li.is-chosen").map(marked)).toEqual(["main"]);
+
+      webview.receive(host.update({ refs: BRANCHES, selectedOids: [B], focusedOid: B, revision: 8 }));
+
+      expect(webview.element("history-branch")).toBe(select);
+      expect(webview.document.querySelectorAll("li.is-chosen").map(marked)).toEqual(["All branches"]);
+    });
+
     it("refilters an open branch list when an update changes the branches, keeping the active one", () => {
       const host = new FakeHost();
       const webview = host.open({ refs: BRANCHES });

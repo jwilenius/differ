@@ -98,7 +98,7 @@
 
     /**
      * Reads the branches again when an update replaced the select, refiltering an open list on the same active option,
-     * and names the chosen branch, which a pick may have shown before the host took it.
+     * and names the chosen branch, which a pick may have shown before the host took it; an open list kept marks it.
      */
     function refresh(select) {
       const isReplaced = select !== branchSelect;
@@ -114,6 +114,7 @@
         const chosenIndex = options.findIndex((option) => option.hasAttribute("selected"));
         chosenBranch = branches[Math.max(chosenIndex, 0)];
       }
+      const isChoiceChanged = chosenBranch !== shownBranch;
       // Named before refiltering, so the new options mark the chosen branch.
       showChosenBranch(chosenBranch);
       if (!isBranchListOpen()) {
@@ -122,8 +123,18 @@
       if (isReplaced) {
         const active = matchingBranches[activeBranchIndex];
         filterBranches(active ? active.value : initialActiveValue());
-      } else {
-        placeBranchList();
+        return;
+      }
+      if (isChoiceChanged) {
+        markShownBranch();
+      }
+      placeBranchList();
+    }
+
+    /** Marks the shown branch's option, and only it, among the options in the list. */
+    function markShownBranch() {
+      for (const option of list.querySelectorAll("li.branch-option")) {
+        option.classList.toggle("is-chosen", matchingBranches[Number(option.dataset.index)] === shownBranch);
       }
     }
 

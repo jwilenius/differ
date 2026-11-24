@@ -17,6 +17,11 @@ const HIGHLIGHT_TIMEOUT_MS = 3_000;
  * kind does, so highlighting on it would briefly pick the wrong theme.
  */
 const COLOR_SETTINGS: readonly string[] = ["editor.tokenColorCustomizations"];
+/**
+ * Serves an empty document at any path, so VS Code gives a file that cannot open, as a deleted one, the language of its
+ * name.
+ */
+const FILE_NAME_LANGUAGE_SCHEME = "jw-differ-file-name";
 
 /** Tokenizes text for one language; implemented by `SyntaxHighlighting`. */
 export interface TextHighlighter {
@@ -93,6 +98,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
 
   constructor(private readonly options: TwoWayDiffPanelsOptions) {
     this.subscriptions = [
+      vscode.workspace.registerTextDocumentContentProvider(FILE_NAME_LANGUAGE_SCHEME, { provideTextDocumentContent: () => "" }),
       vscode.window.onDidChangeActiveColorTheme(() => this.onColorsChanged()),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (COLOR_SETTINGS.some((setting) => event.affectsConfiguration(setting))) {
@@ -234,8 +240,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
   }
 
   private async highlightBothSides(request: TwoWayDiffRequest, signal: AbortSignal): Promise<SideHighlights> {
-    // VS Code exposes language detection only through an opened document; the cache keeps such documents until closed.
-    const { languageId } = await vscode.workspace.openTextDocument(request.languageUri);
+    const languageId = await languageOf(request.languageUri);
     const options: HighlightOptions = { signal, deadline: performance.now() + TOKENIZE_TIME_BUDGET_MS };
     const { highlighter } = this.options;
     return Promise.all([
@@ -358,6 +363,22 @@ function parsePanelMessage(raw: unknown): PanelMessage | null {
   }
   const isFileDirection = direction === "previous" || direction === "next";
   return type === "openAdjacentFile" && isFileDirection ? { type, direction } : null;
+}
+
+/**
+ * The language VS Code gives the document at `uri`, or for a file that cannot open, as one deleted from the working
+ * tree, the language it gives the file's name. VS Code exposes language detection only through an opened document;
+ * the cache keeps such documents until closed.
+ */
+async function languageOf(uri: vscode.Uri): Promise<string> {
+  try {
+    return (await vscode.workspace.openTextDocument(uri)).languageId;
+  } catch (error) {
+    if (uri.scheme !== "file") {
+      throw error;
+    }
+    return (await vscode.workspace.openTextDocument(uri.with({ scheme: FILE_NAME_LANGUAGE_SCHEME }))).languageId;
+  }
 }
 
 function neighboursOf(adjacentFiles: AdjacentFiles): FileListNeighbours {

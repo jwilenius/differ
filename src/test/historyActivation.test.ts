@@ -56,11 +56,11 @@ describe("extension activation", () => {
   beforeEach(() => resetVscodeMock());
   afterAll(() => fs.rmSync(EXTENSION_PATH, { recursive: true, force: true }));
 
-  it("registers the history view, document provider and commands next to merge opening", () => {
+  it("registers the history view, document providers and commands next to merge opening", () => {
     activateExtension();
 
     expect([...vscodeMock.webviewViewProviders.keys()]).toEqual(["jwDiffer.history"]);
-    expect([...vscodeMock.contentProviders.keys()]).toEqual(["jw-differ-history"]);
+    expect([...vscodeMock.contentProviders.keys()].sort()).toEqual(["jw-differ-file-name", "jw-differ-history"]);
     expect([...vscodeMock.commands.keys()].sort()).toEqual([
       "jwDiffer.openHistory",
       "jwDiffer.openMergeView",

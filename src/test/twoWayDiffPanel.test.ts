@@ -138,6 +138,18 @@ describe("TwoWayDiffPanels", () => {
     expect(onlyPanel().webview.html).toContain("#0000ff");
   });
 
+  it("highlights a deleted file in the language VS Code gives its name", async () => {
+    vscodeMock.openFileDocument = (uri) => {
+      throw new Error(`Unable to resolve nonexistent file '${uri.fsPath}'`);
+    };
+    const recording = highlighter(() => Promise.resolve(BLUE));
+
+    await panels(recording).open(request({ languageUri: vscode.Uri.file("/repo/src/gone.ts") }));
+
+    expect(recording.calls.map((call) => call.languageId)).toEqual(["typescript", "typescript"]);
+    expect(logged).toEqual([]);
+  });
+
   it("falls back to unstyled text and logs when highlighting fails", async () => {
     await panels(highlighter(() => Promise.reject(new Error("grammar broke")))).open(request());
 

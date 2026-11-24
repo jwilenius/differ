@@ -56,7 +56,7 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mergeSession`      | Immutable `MergeState`: `startMerge`, `applySide`, `ignoreSide`, `applyNonConflicting`, `acceptSide`, `editLine`, `splitLine`, `joinWithPrevious`, `tallyMerge` |
 | `describeMerge`     | `MergeState` → per-block view (`tint`, side ranges, resolutions, changed words)                                                                                 |
-| `HistoryRepository` | `loadHistory`, `readWorkingChanges`, `resolveRef`, `compare`, `readFile`, `releaseSnapshot` (Git adapter port)                                                  |
+| `HistoryRepository` | `loadHistory`, `readWorkingChanges`, `resolveRef`, `compare`, `readFile`, `hasSnapshot`, `releaseSnapshot` (Git adapter port)                                   |
 | `HistoryController` | `load()`, `refreshWorkingChanges()`, `setSelection(ids)`, `setBase(ref)`, `setMainline(oid, parent)`, `compare()`                                               |
 
 ## Layout

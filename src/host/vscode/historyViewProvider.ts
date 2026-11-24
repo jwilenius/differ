@@ -28,6 +28,7 @@ import type {
   SelectBranchButton,
 } from "../../render/html/historyRenderer";
 import { GitIndexWatchers } from "./gitIndexWatchers";
+import { COMPARISON_CHANGED_MESSAGE } from "./historyDiffProvider";
 import type { HistoryFileOpener } from "./historyDiffProvider";
 import { parseHistoryMessage } from "./historyMessages";
 import type { HistoryMessage } from "./historyMessages";
@@ -51,8 +52,6 @@ export const MIN_MAX_COMMITS = 100;
 
 const NONCE_BYTES = 18;
 const NO_REPOSITORY_FOUND = "No Git repository found in this workspace. Use Open… to choose a repository folder.";
-/** Shown when a file is opened from a list whose comparison was replaced before the click arrived. */
-export const COMPARISON_CHANGED_MESSAGE = "This comparison has changed — open the file again from the updated list.";
 
 /** Port implementation the provider owns per repository root; disposal resolves once private files are gone. */
 export interface ClosableHistoryRepository extends HistoryRepository {
@@ -984,6 +983,7 @@ function withErrorLogging(repository: HistoryRepository, log: (error: unknown) =
     resolveRef: (ref, signal) => logged(repository.resolveRef(ref, signal)),
     compare: (request, signal) => logged(repository.compare(request, signal)),
     readFile: (snapshotId, fileId, side, signal) => logged(repository.readFile(snapshotId, fileId, side, signal)),
+    hasSnapshot: (snapshotId) => repository.hasSnapshot(snapshotId),
     releaseSnapshot: (snapshotId) => repository.releaseSnapshot(snapshotId),
   };
 }

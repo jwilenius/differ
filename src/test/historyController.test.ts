@@ -68,6 +68,10 @@ class FakeRepository implements HistoryRepository {
     throw new Error("not used by the controller");
   }
 
+  hasSnapshot(snapshotId: string): boolean {
+    return !this.released.includes(snapshotId);
+  }
+
   releaseSnapshot(snapshotId: string): void {
     this.released.push(snapshotId);
   }

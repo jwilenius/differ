@@ -106,6 +106,10 @@ export class GitComparisonRepository implements HistoryRepository {
     return this.run(signal, (linked) => this.readLeased(snapshotId, fileId, side, linked));
   }
 
+  hasSnapshot(snapshotId: string): boolean {
+    return this.snapshots.has(snapshotId);
+  }
+
   releaseSnapshot(snapshotId: string): void {
     const snapshot = this.snapshots.get(snapshotId);
     if (snapshot === undefined) {

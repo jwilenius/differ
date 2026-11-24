@@ -22,6 +22,8 @@ const COLOR_SETTINGS: readonly string[] = ["editor.tokenColorCustomizations"];
  * name.
  */
 const FILE_NAME_LANGUAGE_SCHEME = "jw-differ-file-name";
+/** A file list whose neighbouring files are still being found: no step yet either way. */
+const PENDING_NEIGHBOURS: FileListNeighbours = { hasPrevious: false, hasNext: false, isPending: true };
 
 /** Tokenizes text for one language; implemented by `SyntaxHighlighting`. */
 export interface TextHighlighter {
@@ -56,9 +58,10 @@ export interface TwoWayDiffRequest {
   release(): void;
   /**
    * Set when the diff belongs to a file list: F7 past the last change, or Shift+F7 before the first, then offers the
-   * neighbouring file. Without it both keys stop at either end.
+   * neighbouring file. Called once the tab shows this diff, with a signal that aborts once the tab stops showing it;
+   * until it resolves the diff offers no step and says it is looking. Without it both keys stop at either end.
    */
-  readonly adjacentFiles?: AdjacentFiles;
+  readonly findAdjacentFiles?: (signal: AbortSignal) => Promise<AdjacentFiles>;
   /** Defaults to the first change. */
   readonly startAt?: StartChange;
   /** The right side's file in the working tree, which F4 opens; absent when the right side deletes the file. */
@@ -81,6 +84,10 @@ interface OpenPanel {
   request: TwoWayDiffRequest;
   /** The number of the page showing `request`; messages a page of an earlier comparison sent are dropped. */
   page: number;
+  /** What `request.findAdjacentFiles` found; null until it resolves, or when the diff has no file list. */
+  adjacentFiles: AdjacentFiles | null;
+  /** Aborts the search for `request`'s neighbouring files once the tab moves on or closes. */
+  findingNeighbours: AbortController;
 }
 
 /**
@@ -151,7 +158,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     const isNewPanel = this.current === null;
     const open = this.current ?? this.createPanel(request, page);
     try {
-      open.panel.webview.html = this.render(open.panel.webview, request, highlights, page);
+      open.panel.webview.html = this.render(open.panel.webview, request, highlights, page, null);
     } catch (error) {
       if (isNewPanel) {
         open.panel.dispose();
@@ -162,16 +169,42 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     }
     if (isNewPanel) {
       request.shown?.();
+    } else {
+      const previous = open.request;
+      open.request = request;
+      open.page = page;
+      open.adjacentFiles = null;
+      open.findingNeighbours.abort();
+      open.findingNeighbours = new AbortController();
+      open.panel.title = request.title;
+      open.panel.reveal(undefined, false);
+      request.shown?.();
+      previous.release();
+    }
+    void this.findAdjacentFiles(open, request);
+  }
+
+  /**
+   * Finds the shown diff's neighbouring files and sends them to its page; dropped once the tab has moved on. A failure
+   * offers no step.
+   */
+  private async findAdjacentFiles(open: OpenPanel, request: TwoWayDiffRequest): Promise<void> {
+    if (request.findAdjacentFiles === undefined) {
       return;
     }
-
-    const previous = open.request;
-    open.request = request;
-    open.page = page;
-    open.panel.title = request.title;
-    open.panel.reveal(undefined, false);
-    request.shown?.();
-    previous.release();
+    let adjacentFiles: AdjacentFiles;
+    try {
+      adjacentFiles = await request.findAdjacentFiles(open.findingNeighbours.signal);
+    } catch (error) {
+      this.options.log(`Finding the files next to ${request.title} failed. ${messageOf(error)}`);
+      adjacentFiles = {};
+    }
+    const isShown = !this.isDisposed && this.current === open && open.request === request;
+    if (!isShown) {
+      return;
+    }
+    open.adjacentFiles = adjacentFiles;
+    void open.panel.webview.postMessage({ type: "fileList", page: open.page, ...neighboursOf(adjacentFiles) });
   }
 
   private onColorsChanged(): void {
@@ -196,7 +229,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       return;
     }
     try {
-      open.panel.webview.html = this.render(open.panel.webview, shown, highlights, open.page);
+      open.panel.webview.html = this.render(open.panel.webview, shown, highlights, open.page, open.adjacentFiles);
     } catch (error) {
       this.options.log(`Re-rendering ${shown.title} in the new colours failed. ${messageOf(error)}`);
     }
@@ -209,12 +242,13 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       { enableScripts: true, enableFindWidget: true, retainContextWhenHidden: true, localResourceRoots: [this.options.mediaRoot] },
     );
-    const open: OpenPanel = { panel, request, page };
+    const open: OpenPanel = { panel, request, page, adjacentFiles: null, findingNeighbours: new AbortController() };
     this.current = open;
 
     const messages = panel.webview.onDidReceiveMessage((message: unknown) => this.handleMessage(message, open));
     panel.onDidDispose(() => {
       messages.dispose();
+      open.findingNeighbours.abort();
       if (this.current === open) {
         this.current = null;
       }
@@ -260,6 +294,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     request: TwoWayDiffRequest,
     [baseHighlight, resultHighlight]: SideHighlights,
     page: number,
+    adjacentFiles: AdjacentFiles | null,
   ): string {
     const { base, result } = request;
     const wordLevel = vscode.workspace.getConfiguration("jwDiffer").get<boolean>("wordLevelHighlighting", true);
@@ -282,7 +317,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
         resultPath: result.path,
         title: request.title,
         page,
-        ...(request.adjacentFiles === undefined ? {} : { fileList: neighboursOf(request.adjacentFiles) }),
+        ...(request.findAdjacentFiles === undefined ? {} : { fileList: adjacentFiles === null ? PENDING_NEIGHBOURS : neighboursOf(adjacentFiles) }),
         ...(request.startAt === undefined ? {} : { startAt: request.startAt }),
       },
     );
@@ -306,7 +341,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       case "openNative":
         return this.openNative(request);
       case "openAdjacentFile":
-        return this.openAdjacentFile(request, message.direction);
+        return this.openAdjacentFile(request, open.adjacentFiles, message.direction);
       case "openWorkingCopy":
         return this.openWorkingCopy(request, message.line);
     }
@@ -321,8 +356,8 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     }
   }
 
-  private async openAdjacentFile(request: TwoWayDiffRequest, direction: FileDirection): Promise<void> {
-    const openFile = request.adjacentFiles?.[direction];
+  private async openAdjacentFile(request: TwoWayDiffRequest, adjacentFiles: AdjacentFiles | null, direction: FileDirection): Promise<void> {
+    const openFile = adjacentFiles?.[direction];
     if (openFile === undefined) {
       return;
     }

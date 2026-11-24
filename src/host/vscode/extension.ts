@@ -220,7 +220,7 @@ function forgetMergeView(key: string, opening: Promise<MergeViewPanel>): void {
  */
 function activateHistory(context: vscode.ExtensionContext, { mediaRoot, highlighter, log }: Services): void {
   const diffPanels = new TwoWayDiffPanels({ mediaRoot, highlighter, log: (message) => log.appendLine(message) });
-  const diffProvider = new HistoryDiffProvider(diffPanels);
+  const diffProvider = new HistoryDiffProvider(diffPanels, (message) => log.appendLine(message));
   const view = new HistoryViewProvider({ mediaRoot, fileOpener: diffProvider, log });
   historyView = view;
 

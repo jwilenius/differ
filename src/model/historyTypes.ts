@@ -197,6 +197,8 @@ export interface HistoryRepository {
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit>;
   compare(request: ComparisonRequest, signal: AbortSignal): Promise<ComparisonResult>;
   readFile(snapshotId: string, fileId: string, side: FileSide, signal: AbortSignal): Promise<FileContentResult>;
+  /** Whether `snapshotId` can still be read: false once released, as when the comparison has changed. */
+  hasSnapshot(snapshotId: string): boolean;
   /**
    * Stops new reads of a snapshot and frees it once active reads finish. Fire
    * and forget: the adapter owns its cleanup failures. Repeated calls are harmless.

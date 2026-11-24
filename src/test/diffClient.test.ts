@@ -157,6 +157,8 @@ interface FakeEventInit {
   readonly ctrlKey?: boolean;
   readonly altKey?: boolean;
   readonly metaKey?: boolean;
+  /** A `message` event's data. */
+  readonly data?: unknown;
 }
 
 type Listener = (event: FakeEventInit & { preventDefault(): void; stopPropagation(): void }) => void;
@@ -237,6 +239,8 @@ class FakeElement {
 interface Harness {
   readonly elements: Record<string, FakeElement>;
   readonly document: FakeElement;
+  /** Receives the messages the host posts. */
+  readonly window: FakeElement;
   readonly messages: unknown[];
   /** What the script last saved with `setState`, as VS Code keeps it across re-renders. */
   savedState(): unknown;
@@ -248,7 +252,7 @@ interface ClientStart {
   /** Webview state left by an earlier render of the same panel. */
   readonly state?: unknown;
   /** Published when the diff belongs to a list of changed files. */
-  readonly files?: { readonly hasPrevious: boolean; readonly hasNext: boolean };
+  readonly files?: { readonly hasPrevious: boolean; readonly hasNext: boolean; readonly isPending?: boolean };
   readonly startAt?: "first" | "last";
 }
 
@@ -287,10 +291,11 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
   const messages: unknown[] = [];
   let frames: (() => void)[] = [];
   let state = start.state;
+  const window = new FakeElement();
 
   vm.runInNewContext(CLIENT_SOURCE, {
     document,
-    window: new FakeElement(),
+    window,
     acquireVsCodeApi: () => ({
       postMessage: (message: unknown) => messages.push(message),
       getState: () => state,
@@ -305,6 +310,7 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
   return {
     elements,
     document,
+    window,
     messages,
     savedState: () => state,
     flushFrames: () => {
@@ -769,6 +775,51 @@ describe("diff client file steps", () => {
 
     expect(elements["file-step"].textContent).toBe("");
     expect(messages).toEqual([{ type: "ready", page: PAGE }]);
+  });
+
+  it("says it is still looking for the next file until the host sends the neighbouring files", () => {
+    vi.useFakeTimers();
+    const { document, window, elements, messages } = startAtLastBlock({ files: { hasPrevious: false, hasNext: false, isPending: true } });
+
+    document.fire("keydown", { key: "F7" });
+    expect(elements["file-step"].textContent).toBe("Looking for the next file…");
+    expect(elements["file-step"].title).not.toBe("");
+    document.fire("keydown", { key: "F7" });
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
+
+    window.fire("message", { data: { type: "fileList", page: PAGE, hasPrevious: false, hasNext: true } });
+    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
+    document.fire("keydown", { key: "F7" });
+
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "next", page: PAGE }]);
+  });
+
+  it("says it is still looking for the previous file while the neighbouring files are not yet found", () => {
+    const { document, elements } = startClient(BLOCKS, { files: { hasPrevious: false, hasNext: false, isPending: true } });
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+
+    expect(elements["file-step"].textContent).toBe("Looking for the previous file…");
+  });
+
+  it("ignores neighbouring files sent for another page or in the wrong shape", () => {
+    const { document, window, elements } = startClient(BLOCKS, { files: { hasPrevious: false, hasNext: false, isPending: true } });
+
+    window.fire("message", { data: { type: "fileList", page: PAGE + 1, hasPrevious: true, hasNext: true } });
+    window.fire("message", { data: { type: "fileList", page: PAGE, hasPrevious: "yes", hasNext: true } });
+    window.fire("message", { data: null });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+
+    expect(elements["file-step"].textContent).toBe("Looking for the previous file…");
+  });
+
+  it("offers no file once the host finds none", () => {
+    const { document, window, elements } = startClient(BLOCKS, { files: { hasPrevious: false, hasNext: false, isPending: true } });
+
+    window.fire("message", { data: { type: "fileList", page: PAGE, hasPrevious: false, hasNext: false } });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+
+    expect(elements["file-step"].textContent).toBe("No previous files");
   });
 
   it("starts at the last change of a file reached with Shift+F7", () => {

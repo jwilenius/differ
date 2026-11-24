@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { HistoryGitError } from "../git/historyGitCommand";
+import { COMPARISON_CHANGED_MESSAGE } from "../host/vscode/historyDiffProvider";
 import type { HistoryCheckout, HistoryFileOpener } from "../host/vscode/historyDiffProvider";
 import {
   COMPARE_DELAY_MS,
-  COMPARISON_CHANGED_MESSAGE,
   FOCUS_HISTORY_VIEW_COMMAND,
   HistoryViewProvider,
   OPEN_HISTORY_COMMAND,
@@ -208,6 +208,10 @@ class FakeRepository implements ClosableHistoryRepository {
 
   readFile(): Promise<never> {
     return Promise.reject(new Error("unused"));
+  }
+
+  hasSnapshot(snapshotId: string): boolean {
+    return !this.released.includes(snapshotId);
   }
 
   releaseSnapshot(snapshotId: string): void {

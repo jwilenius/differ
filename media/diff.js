@@ -29,8 +29,11 @@
     vscode.postMessage({ ...message, page });
   }
 
-  /** The neighbours in the comparison's file list, or null when this diff has no list and F7 stops at the ends. */
-  const fileList = diffElement.dataset.files ? JSON.parse(diffElement.dataset.files) : null;
+  /**
+   * The neighbours in the comparison's file list, or null when this diff has no list and F7 stops at the ends. While
+   * `isPending`, the host is still looking for them and sends them in a `fileList` message.
+   */
+  let fileList = diffElement.dataset.files ? JSON.parse(diffElement.dataset.files) : null;
   const fileStepHint = document.getElementById("file-step");
   /** The marked change's number in the status; absent when there are no differences. */
   const currentNumber = document.getElementById("current-number");
@@ -165,27 +168,37 @@
       endFileStep();
       return;
     }
-    const hasFile = direction > 0 ? fileList.hasNext : fileList.hasPrevious;
     const isConfirmed = pendingFileStep !== null && pendingFileStep.direction === direction;
-    if (isConfirmed && hasFile) {
+    if (isConfirmed && hasFileTowards(direction)) {
       endFileStep();
       post({ type: "openAdjacentFile", direction: direction > 0 ? "next" : "previous" });
       return;
     }
-    offerFileStep(direction, hasFile);
+    offerFileStep(direction);
   }
 
-  function offerFileStep(direction, hasFile) {
+  /** Whether the file list has a file to open that way; never while the host is still looking for one. */
+  function hasFileTowards(direction) {
+    return !fileList.isPending && (direction > 0 ? fileList.hasNext : fileList.hasPrevious);
+  }
+
+  function offerFileStep(direction) {
     endFileStep();
-    const hint = fileStepHintOf(direction, hasFile);
+    const hint = fileStepHintOf(direction);
     fileStepHint.textContent = hint.text;
     fileStepHint.title = hint.title;
     pendingFileStep = { direction, timer: setTimeout(endFileStep, FILE_STEP_WINDOW_MS) };
   }
 
   /** The hint's text, and its tooltip, which says what pressing the key again does. */
-  function fileStepHintOf(direction, hasFile) {
+  function fileStepHintOf(direction) {
+    if (fileList.isPending) {
+      return direction > 0
+        ? { text: "Looking for the next file…", title: "Still reading the Changed files list for the next file with differences to show; F7 can open it once found" }
+        : { text: "Looking for the previous file…", title: "Still reading the Changed files list for the previous file with differences to show; Shift+F7 can open it once found" };
+    }
     const seconds = FILE_STEP_WINDOW_MS / 1000;
+    const hasFile = hasFileTowards(direction);
     if (direction > 0) {
       return hasFile
         ? { text: "Press F7 again to go to the next file", title: `Press F7 again within ${seconds} seconds to open the next file of the Changed files list at its first difference` }
@@ -313,6 +326,19 @@
     navigate(1);
   });
   document.getElementById("open-native").addEventListener("click", () => post({ type: "openNative" }));
+  // The host sends the neighbouring files once it has found them; a hint showing is brought up to date.
+  window.addEventListener("message", (event) => {
+    const message = event.data;
+    const isFileList = typeof message === "object" && message !== null && message.type === "fileList" && message.page === page
+      && typeof message.hasPrevious === "boolean" && typeof message.hasNext === "boolean";
+    if (!isFileList || fileList === null) {
+      return;
+    }
+    fileList = { hasPrevious: message.hasPrevious, hasNext: message.hasNext };
+    if (pendingFileStep !== null) {
+      offerFileStep(pendingFileStep.direction);
+    }
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "F4") {
       openWorkingCopy(event);

@@ -216,6 +216,12 @@ describe("HtmlTwoWayDiffRenderer", () => {
     expect(html).toContain(`data-start-at="last"`);
   });
 
+  it("marks neighbouring files the host is still looking for", () => {
+    const html = render("a", "b", { fileList: { hasPrevious: false, hasNext: false, isPending: true } });
+
+    expect(html).toContain(`data-files="{&quot;hasPrevious&quot;:false,&quot;hasNext&quot;:false,&quot;isPending&quot;:true}"`);
+  });
+
   it("leaves out the file list and starts at the first change by default", () => {
     const html = render("a", "b");
 

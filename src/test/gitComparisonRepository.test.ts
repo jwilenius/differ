@@ -229,6 +229,18 @@ describe("GitComparisonRepository", () => {
     await vi.waitFor(() => expect(privateDirectories()).toEqual([]));
   });
 
+  it("holds a snapshot from its comparison until it is released", async () => {
+    const [, b] = linearHistory();
+    const result = await compareReady([b]);
+    const isHeldBefore = repository.hasSnapshot(result.snapshotId);
+
+    repository.releaseSnapshot(result.snapshotId);
+
+    expect(isHeldBefore).toBe(true);
+    expect(repository.hasSnapshot(result.snapshotId)).toBe(false);
+    expect(repository.hasSnapshot("unknown")).toBe(false);
+  });
+
   it("treats repeated release as harmless", async () => {
     const [, b] = linearHistory();
     const result = await compareReady([b]);

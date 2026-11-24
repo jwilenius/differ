@@ -32,6 +32,7 @@ function fakeRepository(contents: Contents): HistoryRepository & { reads: string
   return {
     reads,
     loadHistory: () => Promise.reject(new Error("unused")),
+    readWorkingChanges: () => Promise.reject(new Error("unused")),
     resolveRef: () => Promise.reject(new Error("unused")),
     compare: () => Promise.reject(new Error("unused")),
     readFile: (snapshotId, fileId, side) => {

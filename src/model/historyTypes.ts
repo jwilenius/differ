@@ -8,6 +8,8 @@
  * display data only and never address content.
  */
 
+import type { WorkingChangeSummary } from "./historyWorkingChanges";
+
 /** One commit's metadata as listed in the history table. */
 export interface HistoryCommit {
   readonly oid: string;
@@ -187,6 +189,8 @@ export type FileContentResult = TextContent | NonTextContent;
 export interface HistoryRepository {
   /** Labels and at most `maxCommits` of the newest commits reachable from them. */
   loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData>;
+  /** Counts of uncommitted changes, read without writing the index; null without a working tree. */
+  readWorkingChanges(signal: AbortSignal): Promise<WorkingChangeSummary | null>;
   /** Resolves a branch, tag or hash to the commit it names right now. */
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit>;
   compare(request: ComparisonRequest, signal: AbortSignal): Promise<ComparisonResult>;
@@ -217,7 +221,9 @@ export interface HistoryState {
   readonly revision: number;
   /** Last successfully loaded metadata; kept when a reload fails. */
   readonly history: HistoryData | null;
-  /** Deduplicated, in the order the user selected them. */
+  /** Last successfully read uncommitted changes; null before the first read or without a working tree. */
+  readonly workingChanges: WorkingChangeSummary | null;
+  /** Commit OIDs and working-change IDs, deduplicated, in the order the user selected them. */
   readonly selectedOids: readonly string[];
   readonly base: BaseSelection;
   readonly mainlines: readonly MainlineChoice[];

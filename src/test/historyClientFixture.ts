@@ -630,6 +630,7 @@ function pageFor(publication: Publication): { readonly state: HistoryState; read
   const state: HistoryState = {
     revision: 1,
     history: publication.refs ? { ...history, refs: publication.refs } : history,
+    workingChanges: null,
     selectedOids,
     base: { kind: "automatic" },
     mainlines: [],

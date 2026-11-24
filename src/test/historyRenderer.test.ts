@@ -38,6 +38,7 @@ function makeState(overrides: Partial<HistoryState> = {}): HistoryState {
   return {
     revision: 3,
     history,
+    workingChanges: null,
     selectedOids: [],
     base: { kind: "automatic" },
     mainlines: [],

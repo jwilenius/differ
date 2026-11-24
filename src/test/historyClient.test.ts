@@ -214,7 +214,7 @@ describe("history client", () => {
   it("changes only presentation for branch filters and Load more", () => {
     const many: HistoryData = { commits: Array.from({ length: HISTORY_PAGE_SIZE + 1 }, (_, index) => commit(oid(100 + index), `c${index}`, [])), refs: history.refs, head: null, isTruncated: false };
     const { html } = new HtmlHistoryRenderer().render(
-      { revision: 1, history: many, selectedOids: [], base: { kind: "automatic" }, mainlines: [], comparison: null, operations: { isLoading: false, isResolvingBase: false, isComparing: false }, error: null },
+      { revision: 1, history: many, workingChanges: null, selectedOids: [], base: { kind: "automatic" }, mainlines: [], comparison: null, operations: { isLoading: false, isResolvingBase: false, isComparing: false }, error: null },
       {
         assets: { styleUri: "s", scriptUri: "j", cspSource: "res:" },
         fuzzyMatchScriptUri: "m",

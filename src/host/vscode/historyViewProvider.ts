@@ -8,6 +8,7 @@ import type { BranchFilter } from "../../model/historyBranchFilter";
 import { HistoryController } from "../../model/historyController";
 import { shortHash } from "../../model/historyLabels";
 import type { HistoryRepository, HistoryState } from "../../model/historyTypes";
+import { isWorkingChangeId, WORKING_CHANGE_REPLAY_ORDER, workingChangeLabel } from "../../model/historyWorkingChanges";
 import { VisibleCommitCache } from "../../model/historyVisibility";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../../render/html/historyRenderer";
 import type { HistoryPage, HistoryPageContext, HistoryPresentation } from "../../render/html/historyRenderer";
@@ -91,6 +92,7 @@ const INITIAL_PRESENTATION: HistoryPresentation = {
 const EMPTY_STATE: HistoryState = {
   revision: 0,
   history: null,
+  workingChanges: null,
   selectedOids: [],
   base: { kind: "automatic" },
   mainlines: [],
@@ -330,15 +332,27 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
       this.report(`The pinned base ${shortHash(state.base.oid)} is not reachable from the loaded refs; it stays pinned.`);
     }
 
-    const kept = state.selectedOids.filter((oid) => known.has(oid));
-    const missingCount = state.selectedOids.length - kept.length;
-    if (missingCount > 0) {
-      this.report(`${missingCount} selected commit(s) are no longer in the history of ${session.name}; they were deselected.`);
-      session.controller.setSelection(kept);
-    }
+    this.deselectUnavailable(session, state.selectedOids);
     // Also retries a comparison that failed before the refresh.
     this.scheduleCompare(session);
     this.publish();
+  }
+
+  /** Deselects commits gone from the history and working changes that no longer have changes, saying which. */
+  private deselectUnavailable(session: HistorySession, selectedOids: readonly string[]): void {
+    const kept = selectedOids.filter((oid) => session.controller.isSelectable(oid));
+    if (kept.length === selectedOids.length) {
+      return;
+    }
+    const missingCount = selectedOids.filter((oid) => !isWorkingChangeId(oid) && !kept.includes(oid)).length;
+    if (missingCount > 0) {
+      this.report(`${missingCount} selected commit(s) are no longer in the history of ${session.name}; they were deselected.`);
+    }
+    const emptiedLabels = selectedOids.filter(isWorkingChangeId).filter((id) => !kept.includes(id)).map(workingChangeLabel);
+    if (emptiedLabels.length > 0) {
+      this.report(`${emptiedLabels.join(" and ")} of ${session.name} no longer have changes; they were deselected.`);
+    }
+    session.controller.setSelection(kept);
   }
 
   /**
@@ -415,16 +429,17 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /** Selects `oids`, leaving out working changes whose row emptied after the page that sent them was shown. */
   private select(oids: readonly string[], focusedOid: string | null): void {
     const session = this.publishedSession();
     const commits = session?.controller.getState().history?.commits;
-    if (!session || !commits || oids.length > commits.length) {
+    if (!session || !commits || oids.length > commits.length + WORKING_CHANGE_REPLAY_ORDER.length) {
       return;
     }
     const before = session.controller.getState();
-    session.controller.setSelection(oids);
+    session.controller.setSelection(oids.filter((oid) => !isWorkingChangeId(oid) || session.controller.isSelectable(oid)));
     const isSelectionChanged = session.controller.getState() !== before;
-    const isFocusKnown = focusedOid === null || session.controller.hasCommit(focusedOid);
+    const isFocusKnown = focusedOid === null || session.controller.isSelectable(focusedOid);
     const isFocusChanged = isFocusKnown && focusedOid !== session.presentation.focusedOid;
     if (!isSelectionChanged && !isFocusChanged) {
       return;
@@ -498,7 +513,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     if (!session) {
       return;
     }
-    const isKnown = (oid: string | null): boolean => oid === null || session.controller.hasCommit(oid);
+    const isKnown = (oid: string | null): boolean => oid === null || session.controller.isSelectable(oid);
     if (!isKnown(message.focusedOid)) {
       return;
     }
@@ -679,6 +694,7 @@ function withErrorLogging(repository: HistoryRepository, log: (error: unknown) =
     });
   return {
     loadHistory: (maxCommits, signal) => logged(repository.loadHistory(maxCommits, signal)),
+    readWorkingChanges: (signal) => logged(repository.readWorkingChanges(signal)),
     resolveRef: (ref, signal) => logged(repository.resolveRef(ref, signal)),
     compare: (request, signal) => logged(repository.compare(request, signal)),
     readFile: (snapshotId, fileId, side, signal) => logged(repository.readFile(snapshotId, fileId, side, signal)),

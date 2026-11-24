@@ -9,6 +9,8 @@ import type {
   HistoryState,
   MainlineChoice,
 } from "./historyTypes";
+import { isWorkingChangeId, presentWorkingChangeIds, workingChangeLabel } from "./historyWorkingChanges";
+import type { WorkingChangeSummary } from "./historyWorkingChanges";
 
 const AUTOMATIC_BASE: BaseSelection = { kind: "automatic" };
 
@@ -65,6 +67,7 @@ export class HistoryController {
   private state: HistoryState = {
     revision: 0,
     history: null,
+    workingChanges: null,
     selectedOids: [],
     base: AUTOMATIC_BASE,
     mainlines: [],
@@ -84,31 +87,48 @@ export class HistoryController {
     return this.commitsByOid.has(oid);
   }
 
-  /** Reads metadata of at most `maxCommits` commits; on failure the previous metadata stays with a visible error. */
+  /** Whether `id` can be selected: a loaded commit, or a working change that has changes. */
+  isSelectable(id: string): boolean {
+    if (isWorkingChangeId(id)) {
+      return presentWorkingChangeIds(this.state.workingChanges).includes(id);
+    }
+    return this.commitsByOid.has(id);
+  }
+
+  /**
+   * Reads metadata of at most `maxCommits` commits and the uncommitted changes; on failure the previous ones stay with
+   * a visible error.
+   */
   async load(maxCommits: number): Promise<void> {
     this.assertActive();
     const signal = this.loading.begin();
     this.update({ error: this.errorExcept("load") });
 
     try {
-      const history = await this.repository.loadHistory(maxCommits, signal);
+      const [history, workingChanges] = await Promise.all([
+        this.repository.loadHistory(maxCommits, signal),
+        this.repository.readWorkingChanges(signal),
+      ]);
       if (!this.loading.complete(signal)) {
         return;
       }
       this.commitsByOid = new Map(history.commits.map((commit) => [commit.oid, commit]));
-      this.update({ history });
+      this.update({ history, ...this.withWorkingChanges(workingChanges) });
     } catch (error) {
       this.failIfCurrent(this.loading, signal, "load", error);
     }
   }
 
-  /** Replaces the selection; any comparison of a different previous selection is discarded. Order is irrelevant. */
+  /**
+   * Replaces the selection of commits and working changes; any comparison of a different previous selection is
+   * discarded. Order is irrelevant.
+   */
   setSelection(oids: readonly string[]): void {
     this.assertActive();
     const selectedOids = [...new Set(oids)];
-    const unknownOid = selectedOids.find((oid) => !this.commitsByOid.has(oid));
+    const unknownOid = selectedOids.find((oid) => !this.isSelectable(oid));
     if (unknownOid !== undefined) {
-      throw new HistoryRequestError(`Commit ${unknownOid} is not in the loaded history.`);
+      throw new HistoryRequestError(unselectableMessage(unknownOid));
     }
 
     const currentOids = new Set(this.state.selectedOids);
@@ -222,6 +242,12 @@ export class HistoryController {
     this.update({ ...this.discardComparison(), base, error: this.errorExcept("compare", "resolveBase") });
   }
 
+  /** Stores a new read; a comparison that includes working changes is stale, as their content may have changed. */
+  private withWorkingChanges(workingChanges: WorkingChangeSummary | null): Partial<HistoryState> {
+    const hasSelectedWorkingChange = this.state.selectedOids.some(isWorkingChangeId);
+    return hasSelectedWorkingChange ? { ...this.discardComparison(), workingChanges } : { workingChanges };
+  }
+
   private comparisonRequest(): ComparisonRequest {
     const selected = new Set(this.state.selectedOids);
     const mainlines: readonly MainlineChoice[] = this.state.mainlines
@@ -280,4 +306,10 @@ export class HistoryController {
       throw new HistoryRequestError("The history controller has been disposed.");
     }
   }
+}
+
+function unselectableMessage(id: string): string {
+  return isWorkingChangeId(id)
+    ? `There are no ${workingChangeLabel(id).toLowerCase()} to select.`
+    : `Commit ${id} is not in the loaded history.`;
 }

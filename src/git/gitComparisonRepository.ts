@@ -13,10 +13,12 @@ import type {
 } from "../model/historyTypes";
 import { readComparisonFile, readComparisonFiles } from "./gitComparisonFiles";
 import { GitHistoryRepository } from "./gitHistoryRepository";
+import { readWorkingChangeSummary } from "./gitWorkingChangeStatus";
 import { resolveHistoryComparison } from "./historyComparisonResolver";
 import type { LoadedParents, ResolvedHistoryComparison } from "./historyComparisonResolver";
 import { replaySelection } from "./gitSelectionReplay";
 import type { ReplayBlockedResult, ReplayOptions, ReplaySession } from "./gitSelectionReplay";
+import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
 
 /** The replay options, which already cover reading the source repository and deleting released snapshots. */
 export type GitComparisonRepositoryOptions = ReplayOptions;
@@ -69,6 +71,10 @@ export class GitComparisonRepository implements HistoryRepository {
       this.loadedParents = new Map(history.commits.map((commit) => [commit.oid, commit.parents]));
       return history;
     });
+  }
+
+  readWorkingChanges(signal: AbortSignal): Promise<WorkingChangeSummary | null> {
+    return this.run(signal, (linked) => readWorkingChangeSummary(this.root, linked, this.options.env));
   }
 
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit> {

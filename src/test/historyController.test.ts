@@ -9,6 +9,8 @@ import type {
   HistoryRepository,
   ReadyResult,
 } from "../model/historyTypes";
+import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
+import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
 
 interface Deferred<T> {
   readonly promise: Promise<T>;
@@ -39,9 +41,17 @@ class FakeRepository implements HistoryRepository {
   readonly resolves: PendingCall<string, HistoryCommit>[] = [];
   readonly compares: PendingCall<ComparisonRequest, ComparisonResult>[] = [];
   readonly released: string[] = [];
+  /** Returned at once by every working-change read. */
+  workingChanges: WorkingChangeSummary | null = null;
+  workingReadCount = 0;
 
   loadHistory(maxCommits: number, signal: AbortSignal): Promise<HistoryData> {
     return this.record(this.loads, maxCommits, signal);
+  }
+
+  readWorkingChanges(): Promise<WorkingChangeSummary | null> {
+    this.workingReadCount += 1;
+    return Promise.resolve(this.workingChanges);
   }
 
   resolveRef(ref: string, signal: AbortSignal): Promise<HistoryCommit> {
@@ -101,8 +111,13 @@ function ready(snapshotId: string, base = A): ReadyResult {
   };
 }
 
-async function loadedController(): Promise<{ controller: HistoryController; repository: FakeRepository }> {
+const STAGED_ONLY: WorkingChangeSummary = { staged: 2, unstaged: 0, untracked: 0, conflicted: 0, isTruncated: false };
+
+async function loadedController(
+  workingChanges: WorkingChangeSummary | null = null,
+): Promise<{ controller: HistoryController; repository: FakeRepository }> {
   const repository = new FakeRepository();
+  repository.workingChanges = workingChanges;
   const controller = new HistoryController(repository);
   const loading = controller.load(MAX_COMMITS);
   repository.loads[0]!.reply.resolve(HISTORY);
@@ -317,6 +332,48 @@ describe("HistoryController selection", () => {
     expect(state.comparison).toBeNull();
     expect(state.error).toEqual({ operation: "compare", message: "replay failed" });
     expect(state.operations.isComparing).toBe(false);
+  });
+});
+
+describe("HistoryController working changes", () => {
+  it("reads the working changes with the history", async () => {
+    const { controller, repository } = await loadedController(STAGED_ONLY);
+
+    expect(controller.getState().workingChanges).toEqual(STAGED_ONLY);
+    expect(repository.workingReadCount).toBe(1);
+  });
+
+  it("selects a working change only while it has changes", async () => {
+    const { controller } = await loadedController(STAGED_ONLY);
+
+    controller.setSelection([B, STAGED_CHANGES_ID]);
+
+    expect(controller.getState().selectedOids).toEqual([B, STAGED_CHANGES_ID]);
+    expect(controller.isSelectable(UNSTAGED_CHANGES_ID)).toBe(false);
+    expect(() => controller.setSelection([UNSTAGED_CHANGES_ID])).toThrow("There are no unstaged changes to select.");
+  });
+
+  it("discards a comparison of working changes when they are read again, but keeps one of commits only", async () => {
+    const { controller, repository } = await loadedController(STAGED_ONLY);
+    const commitsOnly = startCompare(controller, repository, [B]);
+    commitsOnly.call.reply.resolve(ready("commits"));
+    await commitsOnly.done;
+    const reload = async (): Promise<void> => {
+      const loading = controller.load(MAX_COMMITS);
+      repository.loads.at(-1)!.reply.resolve(HISTORY);
+      await loading;
+    };
+
+    await reload();
+    const kept = controller.getState().comparison;
+    const working = startCompare(controller, repository, [STAGED_CHANGES_ID]);
+    working.call.reply.resolve(ready("working"));
+    await working.done;
+    await reload();
+
+    expect(kept).toEqual(ready("commits"));
+    expect(controller.getState().comparison).toBeNull();
+    expect(repository.released).toEqual(["commits", "working"]);
   });
 });
 

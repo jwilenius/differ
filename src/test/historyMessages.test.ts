@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { MAX_HISTORY_TEXT_LENGTH, parseHistoryMessage } from "../host/vscode/historyMessages";
 import type { HistoryMessage } from "../host/vscode/historyMessages";
+import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
 
 const OID = "a".repeat(40);
 const SHA256_OID = "b".repeat(64);
@@ -12,6 +13,7 @@ const VALID_MESSAGES: readonly HistoryMessage[] = [
   { type: "ready", revision: 0 },
   { type: "select", revision: 3, oids: [OID, SHA256_OID], focusedOid: OID },
   { type: "select", revision: 3, oids: [], focusedOid: null },
+  { type: "select", revision: 3, oids: [OID, STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID], focusedOid: UNSTAGED_CHANGES_ID },
   { type: "base", revision: 3, ref: "origin/main" },
   { type: "base", revision: 3, ref: null },
   { type: "mainline", revision: 3, oid: OID, parentNumber: 2 },
@@ -23,6 +25,7 @@ const VALID_MESSAGES: readonly HistoryMessage[] = [
   { type: "presentation", revision: 3, search: "", branch: "refs/remotes/origin/main", focusedOid: OID, rowLimit: 200 },
   { type: "presentation", revision: 3, search: "", branch: "HEAD", focusedOid: null, rowLimit: 200 },
   { type: "presentation", revision: 3, search: "", branch: "checked-out", focusedOid: null, rowLimit: 200 },
+  { type: "presentation", revision: 3, search: "", branch: "HEAD", focusedOid: STAGED_CHANGES_ID, rowLimit: 200 },
 ];
 
 /** Stands in for the host: only parsed messages reach the handler. */
@@ -76,6 +79,15 @@ describe("parseHistoryMessage", () => {
     expect(parseHistoryMessage({ type: "select", revision: 1, oids: [OID, oid], focusedOid: null })).toBeNull();
     expect(parseHistoryMessage({ type: "select", revision: 1, oids: [], focusedOid: oid })).toBeNull();
     expect(parseHistoryMessage({ type: "mainline", revision: 1, oid, parentNumber: 1 })).toBeNull();
+  });
+
+  it.each(["working:", "working:other", "WORKING:STAGED", "working:staged "])("rejects the unknown working-change ID %j", (id) => {
+    expect(parseHistoryMessage({ type: "select", revision: 1, oids: [id], focusedOid: null })).toBeNull();
+    expect(parseHistoryMessage({ type: "select", revision: 1, oids: [], focusedOid: id })).toBeNull();
+  });
+
+  it("rejects a merge parent choice for a working change", () => {
+    expect(parseHistoryMessage({ type: "mainline", revision: 1, oid: STAGED_CHANGES_ID, parentNumber: 1 })).toBeNull();
   });
 
   it("rejects a selection that repeats a commit", () => {

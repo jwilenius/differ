@@ -1,4 +1,5 @@
 import { isBranchChoice } from "../../model/historyBranchFilter";
+import { isWorkingChangeId } from "../../model/historyWorkingChanges";
 
 /**
  * Intents posted by `media/history.js`. Every message echoes the wire revision
@@ -81,7 +82,7 @@ export function parseHistoryMessage(value: unknown): HistoryMessage | null {
 
 function parseSelect(fields: Fields, revision: number): HistoryMessage | null {
   const { oids, focusedOid } = fields;
-  const isValid = Array.isArray(oids) && oids.every(isFullOid) && new Set(oids).size === oids.length && isOidOrNull(focusedOid);
+  const isValid = Array.isArray(oids) && oids.every(isRowId) && new Set(oids).size === oids.length && isRowIdOrNull(focusedOid);
   return isValid ? { type: "select", revision, oids: [...oids], focusedOid } : null;
 }
 
@@ -109,7 +110,7 @@ function parseRepository(fields: Fields, revision: number): HistoryMessage | nul
 
 function parsePresentation(fields: Fields, revision: number): HistoryMessage | null {
   const { search, branch, focusedOid, rowLimit } = fields;
-  const isValid = isBoundedText(search) && isBranchOrNull(branch) && isOidOrNull(focusedOid) && isPositiveInteger(rowLimit);
+  const isValid = isBoundedText(search) && isBranchOrNull(branch) && isRowIdOrNull(focusedOid) && isPositiveInteger(rowLimit);
   return isValid ? { type: "presentation", revision, search, branch, focusedOid, rowLimit } : null;
 }
 
@@ -133,8 +134,13 @@ function isFullOid(value: unknown): value is string {
   return typeof value === "string" && FULL_OID_PATTERN.test(value);
 }
 
-function isOidOrNull(value: unknown): value is string | null {
-  return value === null || isFullOid(value);
+/** A history row: a commit OID or a working-change ID. */
+function isRowId(value: unknown): value is string {
+  return isFullOid(value) || (typeof value === "string" && isWorkingChangeId(value));
+}
+
+function isRowIdOrNull(value: unknown): value is string | null {
+  return value === null || isRowId(value);
 }
 
 function isBranchOrNull(value: unknown): value is string | null {

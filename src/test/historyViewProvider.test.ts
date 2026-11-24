@@ -18,6 +18,8 @@ import type {
   OpenedFile,
   ReadyResult,
 } from "../model/historyTypes";
+import { STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID } from "../model/historyWorkingChanges";
+import type { WorkingChangeSummary } from "../model/historyWorkingChanges";
 import { HISTORY_PAGE_SIZE } from "../render/html/historyRenderer";
 import type { HistoryPublicState, HistoryUpdate } from "../render/html/historyRenderer";
 import { changeConfiguration, changeWorkspaceFolders, createFakeWebviewView, resetVscodeMock, vscodeMock } from "./vscodeMock";
@@ -91,6 +93,9 @@ class FakeRepository implements ClosableHistoryRepository {
   isCompareHeld = false;
   /** Rejects every load while set. */
   loadFailure: Error | null = null;
+  /** Returned by every working-change read. */
+  workingChanges: WorkingChangeSummary | null = null;
+  workingReadCount = 0;
   private heldCompares: (() => void)[] = [];
 
   constructor(private history: HistoryData = HISTORY) {}
@@ -103,6 +108,11 @@ class FakeRepository implements ClosableHistoryRepository {
     this.loadCount += 1;
     this.loadCaps.push(maxCommits);
     return this.loadFailure ? Promise.reject(this.loadFailure) : Promise.resolve(this.history);
+  }
+
+  readWorkingChanges(): Promise<WorkingChangeSummary | null> {
+    this.workingReadCount += 1;
+    return Promise.resolve(this.workingChanges);
   }
 
   resolveRef(ref: string): Promise<HistoryCommit> {
@@ -996,6 +1006,62 @@ describe("HistoryViewProvider", () => {
     expect(vscodeMock.messages.map((message) => message.text)).toEqual([
       "1 selected commit(s) are no longer in the history of alpha; they were deselected.",
     ]);
+  });
+
+  describe("working changes", () => {
+    const BOTH: WorkingChangeSummary = { staged: 1, unstaged: 2, untracked: 1, conflicted: 0, isTruncated: false };
+
+    async function openWithWorkingChanges(workingChanges: WorkingChangeSummary): Promise<FakeRepository> {
+      await open();
+      const repository = repositories.get(ROOT_A)!;
+      repository.workingChanges = workingChanges;
+      await send({ type: "refresh" });
+      return repository;
+    }
+
+    it("compares a selection of commits and working changes", async () => {
+      const repository = await openWithWorkingChanges(BOTH);
+
+      await selectAndCompare([UNSTAGED_CHANGES_ID, C3, STAGED_CHANGES_ID]);
+
+      expect(repository.compareRequests.map((request) => request.selectedOids)).toEqual([[UNSTAGED_CHANGES_ID, C3, STAGED_CHANGES_ID]]);
+      expect(publicState(view).selectedOids).toEqual([UNSTAGED_CHANGES_ID, C3, STAGED_CHANGES_ID]);
+    });
+
+    it("ignores a selection of working changes that have no changes", async () => {
+      const repository = await openWithWorkingChanges({ ...BOTH, staged: 0 });
+
+      await selectAndCompare([STAGED_CHANGES_ID]);
+
+      expect(repository.compareRequests).toEqual([]);
+      expect(publicState(view).selectedOids).toEqual([]);
+    });
+
+    it("selects the rest of a click whose working-change row emptied before it arrived", async () => {
+      const repository = await openWithWorkingChanges(BOTH);
+      const clickedRevision = publicState(view).revision;
+      repository.workingChanges = { ...BOTH, staged: 0 };
+      await send({ type: "refresh" });
+
+      view.webview.fireDidReceiveMessage({ type: "select", revision: clickedRevision, oids: [C3, STAGED_CHANGES_ID], focusedOid: C3 });
+      await settle();
+
+      expect(publicState(view).selectedOids).toEqual([C3]);
+      expect(log).toEqual([]);
+    });
+
+    it("deselects working changes that a refresh finds clean, saying so", async () => {
+      const repository = await openWithWorkingChanges(BOTH);
+      await send({ type: "select", oids: [C3, STAGED_CHANGES_ID, UNSTAGED_CHANGES_ID], focusedOid: C3 });
+      repository.workingChanges = { ...BOTH, staged: 0, unstaged: 0, untracked: 0 };
+
+      await send({ type: "refresh" });
+
+      expect(publicState(view).selectedOids).toEqual([C3]);
+      expect(vscodeMock.messages.map((message) => message.text)).toEqual([
+        "Staged changes and Unstaged changes of alpha no longer have changes; they were deselected.",
+      ]);
+    });
   });
 
   it("does not warn about a pinned base beyond the cut of a truncated history", async () => {

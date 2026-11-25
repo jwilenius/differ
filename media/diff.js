@@ -1,6 +1,6 @@
-// Two-way diff client. The geometry it uses comes from diffGeometry.js, which
-// the page loads first; this wiring runs only inside a webview, where
-// acquireVsCodeApi exists.
+// Two-way diff client. The geometry it uses comes from diffGeometry.js, and the
+// overview ruler from overviewRuler.js, which the page loads first; this wiring
+// runs only inside a webview, where acquireVsCodeApi exists.
 
 (function () {
   "use strict";
@@ -46,6 +46,7 @@
     base: document.getElementById("current-base"),
     result: document.getElementById("current-result"),
   };
+  const overview = attachOverviewRuler(document.getElementById("overview"), scrollers.result);
 
   /** Offsets this script set and must not echo back to the other pane. */
   const expectedTop = { base: null, result: null };
@@ -186,6 +187,7 @@
       return false;
     }
     goTo(index);
+    drawOverview();
     return true;
   }
 
@@ -292,6 +294,16 @@
     markCurrent(data.blocks[index]);
     showCurrentNumber();
     scheduleDraw();
+  }
+
+  /** Marks every block on the overview ruler where it sits in the right pane, which the view scrolls by. */
+  function drawOverview() {
+    overview.drawMarks(data.blocks.map((block, index) => ({
+      top: lineTop("result", block.result[0]),
+      bottom: lineTop("result", block.result[1]),
+      kind: block.kind,
+      isCurrent: index === currentIndex,
+    })));
   }
 
   function isMarkedInView() {
@@ -433,6 +445,7 @@
     if (currentIndex !== -1) {
       markCurrent(data.blocks[currentIndex]);
     }
+    drawOverview();
     scheduleDraw();
   }
 
@@ -453,6 +466,7 @@
       fitMarker(side);
     }
     syncFrom("result");
+    drawOverview();
     scheduleDraw();
   }
 
@@ -558,6 +572,7 @@
   } else if (data.blocks.length > 0) {
     goTo(diffElement.dataset.startAt === "last" ? data.blocks.length - 1 : 0);
   }
+  drawOverview();
   scheduleDraw();
   post({ type: "ready" });
 })();

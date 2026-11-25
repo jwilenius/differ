@@ -2,7 +2,7 @@ import type { WordSpan } from "../../core/types";
 import type { HighlightedText } from "../../model/syntaxTokens";
 import type { DiffBlockKind, LineRange, TwoWayDiff } from "../../model/twoWayDiff";
 import { renderCode, renderTokenStyles } from "./codeMarkup";
-import { escapeHtml, type WebviewAssets } from "./webviewMarkup";
+import { escapeHtml, renderOverviewRuler, type WebviewAssets } from "./webviewMarkup";
 
 export interface TwoWayDiffInput {
   readonly diff: TwoWayDiff;
@@ -16,6 +16,8 @@ export interface TwoWayDiffRenderContext {
   readonly assets: WebviewAssets;
   /** `diffGeometry.js`, which the client script needs loaded first. */
   readonly geometryScriptUri: string;
+  /** `overviewRuler.js`, which the client script needs loaded first. */
+  readonly overviewRulerScriptUri: string;
   readonly nonce: string;
   readonly cspSource: string;
   readonly baseLabel: string;
@@ -92,7 +94,8 @@ const SIDE_NAMES: Readonly<Record<PaneSide, string>> = { base: "Left side", resu
  * the page still shown; `#file-step`
  * is the live region showing the file-step hint. Each pane's `.lines` ends with
  * `#current-base` / `#current-result`, the hidden marker the client places over
- * the change navigated to. While there are differences, `#current-number` in the
+ * the change navigated to. `#overview`, after the result pane, is the overview ruler
+ * the client draws the changes on. While there are differences, `#current-number` in the
  * status `#status` holds that change's 1-based number, which the client keeps up
  * to date along with the status's tooltip. The `#wrap-lines` checkbox, rendered
  * clear, wraps long lines in both panes; the client keeps the choice in the
@@ -128,12 +131,15 @@ ${renderToolbar(diff, context.startAt ?? "first")}
 ${renderHeader("base", context.baseLabel, context.basePath)}
 <div class="strip-header"></div>
 ${renderHeader("result", context.resultLabel, context.resultPath)}
+<div class="strip-header"></div>
 ${renderPane(basePane)}
 <div class="strip"><svg id="connectors" aria-hidden="true"></svg></div>
 ${renderPane(resultPane)}
+${renderOverviewRuler()}
 </main>
 <div id="file-step" class="file-step" role="status" aria-live="polite"></div>
 <script nonce="${nonce}" src="${escapeHtml(context.geometryScriptUri)}"></script>
+<script nonce="${nonce}" src="${escapeHtml(context.overviewRulerScriptUri)}"></script>
 <script nonce="${nonce}" src="${escapeHtml(assets.scriptUri)}"></script>
 </body>
 </html>`;

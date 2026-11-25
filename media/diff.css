@@ -16,6 +16,7 @@
   --toolbar-height: 32px;
   --header-height: 26px;
   --strip-width: 40px;
+  --overview-width: 14px;
   --row-height: 1.5em;
 }
 
@@ -131,7 +132,7 @@ button:focus-visible {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--strip-width) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--strip-width) minmax(0, 1fr) var(--overview-width);
   grid-template-rows: var(--header-height) minmax(0, 1fr);
 }
 
@@ -389,6 +390,68 @@ button:focus-visible {
 .conn-current {
   stroke: var(--current-change);
   stroke-width: 2px;
+}
+
+/* --- overview ruler --- */
+
+/* The whole file at a glance beside the panes, as in VS Code's diff editor:
+   overviewRuler.js draws a mark per change and the box over the part on screen. */
+.overview {
+  position: relative;
+  overflow: hidden;
+  border-left: 1px solid var(--divider);
+  cursor: default;
+  user-select: none;
+}
+
+.overview-mark,
+.overview-viewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.overview-mark {
+  margin: 0 2px;
+}
+
+/* Marks take the editor's overview ruler colours, not the pane tints, which are
+   too faint on a narrow strip; the fallbacks are Dark Modern's. */
+.overview-mark.overview-modified {
+  background: var(--vscode-editorOverviewRuler-modifiedForeground, rgba(0, 120, 212, 0.6));
+}
+
+.overview-mark.overview-added {
+  background: var(--vscode-editorOverviewRuler-addedForeground, rgba(46, 160, 67, 0.6));
+}
+
+.overview-mark.overview-deleted {
+  background: var(--vscode-editorOverviewRuler-deletedForeground, rgba(248, 81, 73, 0.6));
+}
+
+/* After the kind rules: the full width, outlined in the current change's colour. */
+.overview-mark.is-current {
+  z-index: 1;
+  margin: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--current-change);
+}
+
+body.vscode-high-contrast .overview-mark {
+  outline: 1px solid var(--vscode-contrastBorder, transparent);
+}
+
+.overview-viewport {
+  z-index: 2;
+  background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
+}
+
+.overview:hover .overview-viewport {
+  background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
+}
+
+.overview.is-dragging .overview-viewport {
+  background: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4));
 }
 
 /* --- file-step hint --- */

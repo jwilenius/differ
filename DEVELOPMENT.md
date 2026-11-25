@@ -112,6 +112,7 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `media/`                                  | Webview stylesheet and client script                             |
 | `media/fuzzyMatch.js`                     | Branch filter matcher: in-order letters, marks (fzy ideas)       |
 | `media/branchFilter.js`                   | Branch filter combobox: `createBranchFilter`, used by history    |
+| `media/overviewRuler.js`                  | Overview ruler of the diff and merge views: marks, scroll box    |
 | `media/grammars/`                         | Fallback grammars: VS Code's grammar-only built-ins + manifest   |
 | `media/themes/`                           | Fallback colour themes: VS Code's `theme-defaults` themes        |
 

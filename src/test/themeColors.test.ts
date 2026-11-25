@@ -59,3 +59,19 @@ describe("themable change colours", () => {
     }
   });
 });
+
+describe("overview ruler mark colours", () => {
+  /** The background of the rule for marks of `kind`, from whichever stylesheet sets it last. */
+  function markBackground(kind: string): string | undefined {
+    const pattern = new RegExp(`\\.overview-mark\\.overview-${kind}\\s*\\{\\s*background:\\s*([^;]+);`, "g");
+    return stylesheets.flatMap((css) => declarations(css, pattern)).at(-1);
+  }
+
+  it.each([
+    ["modified", "modifiedForeground"],
+    ["added", "addedForeground"],
+    ["deleted", "deletedForeground"],
+  ])("draws %s marks in the editor's overview ruler colour %s, not the pane tints", (kind, rulerColor) => {
+    expect(markBackground(kind)).toMatch(new RegExp(`^var\\(--vscode-editorOverviewRuler-${rulerColor}, rgba\\([\\d., ]+\\)\\)$`));
+  });
+});

@@ -14,3 +14,11 @@ export function escapeHtml(text: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+/**
+ * The overview ruler beside the panes, which `media/overviewRuler.js` fills with the changes' marks and the box over
+ * the visible part; pointer only, as a scrollbar is.
+ */
+export function renderOverviewRuler(): string {
+  return `<div class="overview" id="overview" aria-hidden="true" title="Overview of changes: click to jump there, or drag the shaded box to scroll"></div>`;
+}

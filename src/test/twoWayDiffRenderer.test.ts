@@ -10,6 +10,7 @@ const NONCE = "abcdefghijklmnop0123";
 const CONTEXT: TwoWayDiffRenderContext = {
   assets: { styleUri: "https://res/diff.css", scriptUri: "https://res/diff.js", cspSource: "https://res" },
   geometryScriptUri: "https://res/diffGeometry.js",
+  overviewRulerScriptUri: "https://res/overviewRuler.js",
   nonce: NONCE,
   cspSource: "https://res",
   baseLabel: "1807da6c",
@@ -70,7 +71,7 @@ describe("HtmlTwoWayDiffRenderer", () => {
       `content="default-src 'none'; style-src https://res 'nonce-${NONCE}'; script-src 'nonce-${NONCE}'"`,
     );
     expect(html).toContain(`<style nonce="${NONCE}">`);
-    expect(html).toContain(`<script nonce="${NONCE}" src="https://res/diffGeometry.js"></script>\n<script nonce="${NONCE}" src="https://res/diff.js"></script>`);
+    expect(html).toContain(`<script nonce="${NONCE}" src="https://res/diffGeometry.js"></script>\n<script nonce="${NONCE}" src="https://res/overviewRuler.js"></script>\n<script nonce="${NONCE}" src="https://res/diff.js"></script>`);
     expect(html).toContain(`<link href="https://res/diff.css" rel="stylesheet">`);
   });
 
@@ -231,6 +232,10 @@ describe("HtmlTwoWayDiffRenderer", () => {
     }
   });
 
+  it("puts the overview ruler after the right pane, hidden from screen readers like a scrollbar", () => {
+    expect(render("a", "b")).toMatch(/id="current-result" hidden aria-hidden="true"><\/div><\/div><\/div>\s*<div class="overview" id="overview" aria-hidden="true" title="[^"]+"><\/div>/);
+  });
+
   it("has a polite live region for the file-step hint", () => {
     expect(render("a", "b")).toContain(`<div id="file-step" class="file-step" role="status" aria-live="polite"></div>`);
   });
@@ -278,6 +283,10 @@ describe("HtmlTwoWayDiffRenderer", () => {
 
       expect(html).toMatch(/<label class="wrap-toggle" title="[^"]+"><input type="checkbox" id="wrap-lines"> Wrap lines<\/label>\s*<span id="status"/);
       expect(titleOf(html, `class="wrap-toggle"`)).toBe("Wrap long lines to the pane width on both sides, keeping the sides aligned");
+    });
+
+    it("says what clicking and dragging on the overview ruler do", () => {
+      expect(titleOf(render("a", "b"), `id="overview"`)).toBe("Overview of changes: click to jump there, or drag the shaded box to scroll");
     });
 
     it("gives every toolbar button a tooltip", () => {

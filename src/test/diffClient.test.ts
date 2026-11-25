@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const MEDIA_ROOT = path.join(__dirname, "..", "..", "media");
 const GEOMETRY_SOURCE = fs.readFileSync(path.join(MEDIA_ROOT, "diffGeometry.js"), "utf8");
-/** The page loads the geometry first; both scripts share its global scope. */
-const CLIENT_SOURCE = `${GEOMETRY_SOURCE}\n${fs.readFileSync(path.join(MEDIA_ROOT, "diff.js"), "utf8")}`;
+/** The page loads the geometry and the overview ruler first; the scripts share one global scope. */
+const CLIENT_SOURCE = [GEOMETRY_SOURCE, ...["overviewRuler.js", "diff.js"].map((name) => fs.readFileSync(path.join(MEDIA_ROOT, name), "utf8"))].join("\n");
 
 interface Anchor {
   readonly base: number;
@@ -215,6 +215,10 @@ interface FakeEventInit {
   readonly metaKey?: boolean;
   /** A `message` event's data. */
   readonly data?: unknown;
+  /** A pointer event's fields. */
+  readonly clientY?: number;
+  readonly button?: number;
+  readonly pointerId?: number;
 }
 
 type Listener = (event: FakeEventInit & { preventDefault(): void; stopPropagation(): void }) => void;
@@ -254,6 +258,11 @@ class FakeElement {
   hidden = false;
   textContent = "";
   title = "";
+  className = "";
+  /** How often `replaceChildren` redrew the element. */
+  redraws = 0;
+  /** The pointer a ruler captured. */
+  capturedPointer: number | null = null;
   readonly dataset: Record<string, string> = {};
   readonly style: Record<string, string> = {};
   readonly attributes: Record<string, string> = {};
@@ -308,6 +317,20 @@ class FakeElement {
 
   replaceChildren(...children: unknown[]): void {
     this.children = children;
+    this.redraws++;
+  }
+
+  append(...children: unknown[]): void {
+    this.children.push(...children);
+  }
+
+  /** The element's box in the page; the overview ruler sits at the top. */
+  getBoundingClientRect(): { top: number; height: number } {
+    return { top: 0, height: this.clientHeight };
+  }
+
+  setPointerCapture(pointerId: number): void {
+    this.capturedPointer = pointerId;
   }
 
   setAttribute(name: string, value: string): void {
@@ -352,6 +375,7 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
     "file-step",
     "current-base",
     "current-result",
+    "overview",
     // The renderer writes no change number when there are no differences.
     ...(blocks.length > 0 ? ["current-number"] : []),
   ];
@@ -375,6 +399,7 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
     title: start.title ?? "app.ts (a ↔ b)",
     getElementById: (id: string) => elements[id] ?? null,
     createElementNS: () => new FakeElement(),
+    createElement: () => new FakeElement(),
   });
   const messages: unknown[] = [];
   let frames: (() => void)[] = [];
@@ -1351,5 +1376,135 @@ describe("diff client line wrapping", () => {
     const after = startClient(BLOCKS, { ...WRAPPED, title: "util.ts (a ↔ b)", state: harness.savedState() });
 
     expect(after.elements["wrap-lines"].checked).toBe(true);
+  });
+});
+
+describe("diff client overview ruler", () => {
+  // The ruler is 100px tall and the right pane's content 400px, so the ruler shows it at a quarter of its size.
+
+  /** The marks on the ruler as `[className, top, height]`. */
+  function overviewMarks(elements: Record<string, FakeElement>): [string, string, string][] {
+    return markLayer(elements).children.map((child) => {
+      const mark = child as FakeElement;
+      return [mark.className, mark.style.top, mark.style.height];
+    });
+  }
+
+  function markLayer(elements: Record<string, FakeElement>): FakeElement {
+    return elements.overview.children[0] as FakeElement;
+  }
+
+  function viewportBox(elements: Record<string, FakeElement>): [string, string] {
+    const box = elements.overview.children[1] as FakeElement;
+    return [box.style.top, box.style.height];
+  }
+
+  it("marks every change where it sits in the right pane, outlining the current one, and boxes the visible part", () => {
+    const { elements } = startClient();
+
+    // The deleted block's empty range at 40px gets the least height, centred on it; the others scale.
+    expect(overviewMarks(elements)).toEqual([
+      ["overview-mark overview-deleted is-current", "8.5px", "3px"],
+      ["overview-mark overview-added", "20px", "15px"],
+      ["overview-mark overview-modified", "45px", "15px"],
+    ]);
+    // The pane shows 15-115px of the content.
+    expect(viewportBox(elements)).toEqual(["3.75px", "25px"]);
+    expect(markLayer(elements).redraws).toBe(1);
+  });
+
+  it("moves only the box as the view scrolls", () => {
+    const { elements } = startClient();
+    const result = elements["scroll-result"];
+
+    result.scrollTop = 200;
+    result.fire("scroll");
+
+    expect(viewportBox(elements)).toEqual(["50px", "25px"]);
+    expect(markLayer(elements).redraws).toBe(1);
+  });
+
+  it("moves the outline with F7, redrawing the marks once", () => {
+    const { elements, document } = startClient();
+
+    document.fire("keydown", { key: "F7" });
+
+    expect(overviewMarks(elements).map(([className]) => className)).toEqual([
+      "overview-mark overview-deleted",
+      "overview-mark overview-added is-current",
+      "overview-mark overview-modified",
+    ]);
+    expect(markLayer(elements).redraws).toBe(2);
+  });
+
+  it("centres the point clicked off the box, keeping focus and selection where they are", () => {
+    const { elements } = startClient();
+    const ruler = elements.overview;
+
+    // 75px down the ruler is 300px down the content.
+    ruler.fire("pointerdown", { clientY: 75, button: 0, pointerId: 1 });
+    ruler.fire("pointerup", { clientY: 75, button: 0, pointerId: 1 });
+
+    expect(elements["scroll-result"].scrollTop).toBe(300 - 50);
+    expect(ruler.fire("mousedown").isDefaultPrevented).toBe(true);
+  });
+
+  it("scrolls by the distance the box is dragged until the pointer is released", () => {
+    const { elements } = startClient();
+    const ruler = elements.overview;
+    const result = elements["scroll-result"];
+
+    ruler.fire("pointerdown", { clientY: 10, button: 0, pointerId: 7 });
+    expect(result.scrollTop).toBe(15);
+    expect(ruler.capturedPointer).toBe(7);
+    expect(ruler.classList.contains("is-dragging")).toBe(true);
+
+    ruler.fire("pointermove", { clientY: 20, pointerId: 7 });
+    expect(result.scrollTop).toBe(15 + 40);
+
+    ruler.fire("pointerup", { clientY: 20, button: 0, pointerId: 7 });
+    ruler.fire("pointermove", { clientY: 40, pointerId: 7 });
+    expect(result.scrollTop).toBe(55);
+    expect(ruler.classList.contains("is-dragging")).toBe(false);
+  });
+
+  it("ignores buttons other than the main one", () => {
+    const { elements } = startClient();
+
+    elements.overview.fire("pointerdown", { clientY: 75, button: 2, pointerId: 1 });
+
+    expect(elements["scroll-result"].scrollTop).toBe(15);
+    expect(elements.overview.classList.contains("is-dragging")).toBe(false);
+  });
+
+  it("places the marks by the wrapped rows, redrawing them once per layout", () => {
+    const harness = startClient(BLOCKS, { wrappedHeights: { base: { 0: 60 }, result: { 3: 40, 5: 40 } } });
+    harness.elements["wrap-lines"].checked = true;
+    harness.elements["wrap-lines"].fire("change");
+
+    // Result line 0 is levelled at 60px and lines 3 and 5 wrap onto 40px: the blocks lie at 80px, 140-220px and
+    // 260-320px.
+    expect(overviewMarks(harness.elements).map(([, top, height]) => [top, height])).toEqual([
+      ["18.5px", "3px"],
+      ["35px", "20px"],
+      ["65px", "15px"],
+    ]);
+    expect(markLayer(harness.elements).redraws).toBe(2);
+  });
+
+  it("redraws the marks to the ruler's new height after a resize", () => {
+    const { elements, window } = startClient();
+
+    elements.overview.clientHeight = 200;
+    window.fire("resize");
+
+    expect(overviewMarks(elements)[1].slice(1)).toEqual(["40px", "30px"]);
+    expect(viewportBox(elements)).toEqual(["7.5px", "50px"]);
+  });
+
+  it("draws no marks when there are no differences", () => {
+    const { elements } = startClient([]);
+
+    expect(overviewMarks(elements)).toEqual([]);
   });
 });

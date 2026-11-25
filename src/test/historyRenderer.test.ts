@@ -634,6 +634,14 @@ describe("HtmlHistoryRenderer", () => {
     expect(html).toContain('<option value="" selected>All branches</option>');
   });
 
+  it("renders Refresh as a toolbar icon button with a tooltip and an accessible name", () => {
+    const button = render().match(/<button id="history-refresh"[^>]*>(.*?)<\/button>/)!;
+
+    expect(button[0]).toContain('<button id="history-refresh" class="icon-button toolbar-action" title="Reload history" aria-label="Refresh history">');
+    expect(button[1]).toMatch(/^<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">.*<\/svg>$/);
+    expect(button[1]).toContain('stroke="currentColor"');
+  });
+
   it("renders Select branch with its action as the tooltip, disabled when it cannot act", () => {
     const enabled = render();
     const disabled = render({}, { selectBranch: { isEnabled: false, title: "<main> has no upstream & so on" } });

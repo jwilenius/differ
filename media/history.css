@@ -283,6 +283,19 @@ input::placeholder {
   border-color: var(--vscode-inputOption-activeBorder, transparent);
 }
 
+/* An icon button with a view toolbar action's colours, sized like the icon buttons beside it. */
+.icon-button.toolbar-action {
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+}
+
+.icon-button.toolbar-action:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.icon-button.toolbar-action:active:not(:disabled) {
+  background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground));
+}
+
 .base-current {
   max-width: 28em;
   overflow: hidden;
@@ -714,6 +727,12 @@ input:focus-visible {
 body.vscode-high-contrast .commit-row.is-selected,
 body.vscode-high-contrast-light .commit-row.is-selected {
   outline: 1px dashed var(--vscode-contrastActiveBorder, var(--focus-ring));
+  outline-offset: -1px;
+}
+
+body.vscode-high-contrast .toolbar-action:hover:not(:disabled, :focus-visible),
+body.vscode-high-contrast-light .toolbar-action:hover:not(:disabled, :focus-visible) {
+  outline: 1px dashed var(--vscode-toolbar-hoverOutline, var(--vscode-contrastActiveBorder, var(--focus-ring)));
   outline-offset: -1px;
 }
 

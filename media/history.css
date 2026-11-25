@@ -699,6 +699,13 @@ input::placeholder {
   margin: 0 8px;
 }
 
+/* A working change's description stands where a commit's fields would, with their indent and spacing, instead of
+   a paragraph's default margins (flush left, a blank line above and below). */
+.details-working {
+  margin: 4px 8px 8px;
+  overflow-wrap: anywhere;
+}
+
 .details-fields {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

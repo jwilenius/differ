@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { HISTORY_PAGE_SIZE, HtmlHistoryRenderer } from "../render/html/historyRenderer";
 import type { HistoryPublicState, HistoryRenderContext, HistoryUpdate } from "../render/html/historyRenderer";
@@ -752,6 +754,14 @@ describe("HtmlHistoryRenderer working-change rows", () => {
     expect(details).toContain('<p class="details-subject" title="Staged changes">Staged changes</p>');
     expect(details).toContain('<p class="details-working" title="Staged changes: 1 file in the index');
     expect(rowFor(html, STAGED_CHANGES_ID)).toContain("is-focused");
+  });
+
+  it("spaces the working change description like a commit's detail fields", () => {
+    const css = fs.readFileSync(path.join(__dirname, "..", "..", "media", "history.css"), "utf8");
+    const margin = (selector: string) => css.match(new RegExp(`\\n\\${selector} \\{[^}]*\\bmargin: ([^;]+);`))?.[1];
+
+    expect(margin(".details-working")).toBeDefined();
+    expect(margin(".details-working")).toBe(margin(".details-fields"));
   });
 
   it("names working changes in the status and in an unborn repository", () => {

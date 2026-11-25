@@ -15,7 +15,7 @@ import type {
   ReadyResult,
 } from "../model/historyTypes";
 import { HistorySnapshotError } from "../git/gitComparisonRepository";
-import type { AdjacentFiles, TwoWayDiffRequest } from "../host/vscode/twoWayDiffPanel";
+import type { FileDirection, FileStepResult, TwoWayDiffRequest } from "../host/vscode/twoWayDiffPanel";
 import { fireDidCloseTextDocument, resetVscodeMock, vscodeMock } from "./vscodeMock";
 
 const BASE_OID = "a".repeat(40);
@@ -81,36 +81,18 @@ function documentFor(uri: vscode.Uri): vscode.TextDocument {
   return { uri } as vscode.TextDocument;
 }
 
-/** Lets pending promise callbacks run. */
-function settle(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
-}
-
 interface FakePanels {
   open(request: TwoWayDiffRequest): Promise<void>;
   readonly requests: TwoWayDiffRequest[];
-  /**
-   * What each request's `findAdjacentFiles` found, started as the panel shows it and stopped once the next request
-   * replaces it, as the real panel does.
-   */
-  readonly neighbours: Map<TwoWayDiffRequest, Promise<AdjacentFiles>>;
 }
 
 /** Records panel requests instead of opening webviews. */
 function fakePanels(): FakePanels {
   const requests: TwoWayDiffRequest[] = [];
-  const neighbours = new Map<TwoWayDiffRequest, Promise<AdjacentFiles>>();
-  let finding = new AbortController();
   return {
     requests,
-    neighbours,
     open: (request) => {
       requests.push(request);
-      finding.abort();
-      finding = new AbortController();
-      if (request.findAdjacentFiles !== undefined) {
-        neighbours.set(request, request.findAdjacentFiles(finding.signal));
-      }
       return Promise.resolve();
     },
   };
@@ -124,7 +106,7 @@ describe("HistoryDiffProvider with the native viewer", () => {
     resetVscodeMock();
     vscodeMock.configuration.set("jwDiffer.historyDiffViewer", "native");
     panels = fakePanels();
-    provider = new HistoryDiffProvider(panels, () => undefined);
+    provider = new HistoryDiffProvider(panels);
   });
 
   it("opens the native diff with both sides of the requested snapshot", async () => {
@@ -308,7 +290,7 @@ describe("HistoryDiffProvider with the IntelliJ viewer", () => {
   beforeEach(() => {
     resetVscodeMock();
     panels = fakePanels();
-    provider = new HistoryDiffProvider(panels, () => undefined);
+    provider = new HistoryDiffProvider(panels);
   });
 
   async function openPanel(changes: Partial<ComparisonFile> = {}): Promise<TwoWayDiffRequest> {
@@ -403,7 +385,6 @@ describe("HistoryDiffProvider with the IntelliJ viewer", () => {
 describe("HistoryDiffProvider file steps", () => {
   let provider: HistoryDiffProvider;
   let panels: ReturnType<typeof fakePanels>;
-  let logged: string[];
   const repository = fakeRepository({ base: text("old\n"), result: text("new\n") });
 
   /** A text change at `filePath`; IDs sort opposite to the list so only list order can decide neighbours. */
@@ -424,17 +405,33 @@ describe("HistoryDiffProvider file steps", () => {
   beforeEach(() => {
     resetVscodeMock();
     panels = fakePanels();
-    logged = [];
-    provider = new HistoryDiffProvider(panels, (message) => logged.push(message));
+    provider = new HistoryDiffProvider(panels);
   });
 
   function lastRequest(): TwoWayDiffRequest {
     return panels.requests[panels.requests.length - 1];
   }
 
-  /** The neighbouring files found for `request`; undefined when it has no file list. */
-  function neighboursOf(request = lastRequest()): Promise<AdjacentFiles> | undefined {
-    return panels.neighbours.get(request);
+  /** Steps that way from the diff `request` shows; fails the test when it offers no step there. */
+  function step(direction: FileDirection, request = lastRequest()): Promise<FileStepResult> {
+    const openFile = request.adjacentFiles?.[direction];
+    if (openFile === undefined) {
+      throw new Error(`no ${direction} file offered`);
+    }
+    return openFile();
+  }
+
+  /** `repository`, except that the files with `nonTextIds` read as too large on both sides; every read is recorded. */
+  function withOversize(...nonTextIds: string[]): HistoryRepository & { reads: string[] } {
+    const counting = fakeRepository({ base: text("old\n"), result: text("new\n") });
+    const oversize: FileContentResult = { kind: "nonText", reason: "oversize", explanation: "Too large.", sizeBytes: 20_000_000, mode: "100644" };
+    return {
+      ...counting,
+      readFile: (snapshotId, fileId, side, signal) => {
+        const read = counting.readFile(snapshotId, fileId, side, signal);
+        return nonTextIds.includes(fileId) ? read.then(() => oversize) : read;
+      },
+    };
   }
 
   it("starts a file opened from the list at its first change", async () => {
@@ -443,15 +440,24 @@ describe("HistoryDiffProvider file steps", () => {
     expect(lastRequest().startAt).toBe("first");
   });
 
+  it("offers the listed neighbours with the diff, reading no other file to find them", async () => {
+    const counting = fakeRepository({ base: text("old\n"), result: text("new\n") });
+
+    await provider.openFile(checkout(counting), listed, apple);
+
+    expect(lastRequest().adjacentFiles).toEqual({ previous: expect.any(Function), next: expect.any(Function) });
+    expect(counting.reads).toEqual([`${SNAPSHOT_ID}/${apple.id}/base`, `${SNAPSHOT_ID}/${apple.id}/result`]);
+  });
+
   it("opens the next listed file at its first change and the previous one at its last", async () => {
     await provider.openFile(checkout(repository), listed, apple);
-    const adjacentFiles = await neighboursOf();
+    const shown = lastRequest();
 
-    await adjacentFiles?.next?.();
+    expect(await step("next", shown)).toBe("opened");
     expect(lastRequest().result.path).toBe("mango.ts");
     expect(lastRequest().startAt).toBe("first");
 
-    await adjacentFiles?.previous?.();
+    expect(await step("previous", shown)).toBe("opened");
     expect(lastRequest().result.path).toBe("zebra.ts");
     expect(lastRequest().startAt).toBe("last");
   });
@@ -459,8 +465,8 @@ describe("HistoryDiffProvider file steps", () => {
   it("keeps stepping from a file it opened", async () => {
     await provider.openFile(checkout(repository), listed, zebra);
 
-    await (await neighboursOf())?.next?.();
-    await (await neighboursOf())?.next?.();
+    await step("next");
+    await step("next");
 
     expect(lastRequest().result.path).toBe("mango.ts");
   });
@@ -470,7 +476,7 @@ describe("HistoryDiffProvider file steps", () => {
     const first = lastRequest();
     first.shown?.();
 
-    await (await neighboursOf(first))?.next?.();
+    await step("next", first);
     lastRequest().shown?.();
     first.release();
 
@@ -479,16 +485,16 @@ describe("HistoryDiffProvider file steps", () => {
 
   it("has no previous file before the first listed file and no next one after the last", async () => {
     await provider.openFile(checkout(repository), listed, zebra);
-    expect(await neighboursOf()).toEqual({ next: expect.any(Function) });
+    expect(lastRequest().adjacentFiles).toEqual({ next: expect.any(Function) });
 
     await provider.openFile(checkout(repository), listed, mango);
-    expect(await neighboursOf()).toEqual({ previous: expect.any(Function) });
+    expect(lastRequest().adjacentFiles).toEqual({ previous: expect.any(Function) });
   });
 
   it("still has a file list, with no neighbours, for a single changed file", async () => {
     await provider.openFile(checkout(repository), comparison({ files: [apple] }), apple);
 
-    expect(await neighboursOf()).toEqual({});
+    expect(lastRequest().adjacentFiles).toEqual({});
   });
 
   it("skips binary files and files whose content did not change", async () => {
@@ -501,102 +507,134 @@ describe("HistoryDiffProvider file steps", () => {
     const files = comparison({ files: [zebra, binary, renamedOnly, mango] });
 
     await provider.openFile(checkout(repository), files, zebra);
-    await (await neighboursOf())?.next?.();
+    await step("next");
     expect(lastRequest().result.path).toBe("mango.ts");
 
-    await (await neighboursOf())?.previous?.();
+    await step("previous");
     expect(lastRequest().result.path).toBe("zebra.ts");
   });
 
-  /** `repository`, except that the files with `nonTextIds` read as too large on both sides. */
-  function withOversize(...nonTextIds: string[]): HistoryRepository {
-    const oversize: FileContentResult = {
-      kind: "nonText",
-      reason: "oversize",
-      explanation: "Too large to show.",
-      sizeBytes: 20_000_000,
-      mode: "100644",
-    };
-    return {
+  it("offers no step toward listed files that are all binary or unchanged in content", async () => {
+    const binary = changed("44444444-4444-4444-8444-444444444444", "logo.png", { contentKind: "binary" });
+
+    await provider.openFile(checkout(repository), comparison({ files: [apple, binary] }), apple);
+
+    expect(lastRequest().adjacentFiles).toEqual({});
+  });
+
+  it("passes over a listed file that reads as not text when stepping either way", async () => {
+    await provider.openFile(checkout(withOversize(apple.id)), listed, zebra);
+
+    expect(await step("next")).toBe("opened");
+    expect(lastRequest().result.path).toBe("mango.ts");
+
+    expect(await step("previous")).toBe("opened");
+    expect(lastRequest().result.path).toBe("zebra.ts");
+  });
+
+  it("finds no file to open when every listed file that way reads as not text, and leaves the diff shown", async () => {
+    await provider.openFile(checkout(withOversize(apple.id, mango.id)), listed, zebra);
+    const shown = lastRequest();
+
+    expect(await step("next")).toBe("noFile");
+    expect(lastRequest()).toBe(shown);
+    expect(vscodeMock.messages).toEqual([]);
+  });
+
+  it("finds no previous file to open when every listed file before reads as not text", async () => {
+    await provider.openFile(checkout(withOversize(zebra.id, apple.id)), listed, mango);
+    const shown = lastRequest();
+
+    expect(await step("previous")).toBe("noFile");
+    expect(lastRequest()).toBe(shown);
+  });
+
+  /** `repository`, except that reads of `heldId` wait until `releaseReads`. */
+  function heldReads(heldId: string): { reader: HistoryRepository; releaseReads(): void } {
+    let releaseReads = (): void => undefined;
+    const held = new Promise<void>((resolve) => (releaseReads = resolve));
+    const reader: HistoryRepository = {
       ...repository,
-      readFile: (snapshotId, fileId, side, signal) =>
-        nonTextIds.includes(fileId) ? Promise.resolve(oversize) : repository.readFile(snapshotId, fileId, side, signal),
+      readFile: (snapshotId, fileId, side, signal) => {
+        const read = repository.readFile(snapshotId, fileId, side, signal);
+        return fileId === heldId ? held.then(() => read) : read;
+      },
     };
+    return { reader, releaseReads: () => releaseReads() };
   }
 
-  it("passes over a file that reads as not text", async () => {
-    const oversized = withOversize(apple.id);
+  it("stops a step still reading once a file opens from the list, showing only that file", async () => {
+    const { reader, releaseReads } = heldReads(mango.id);
+    await provider.openFile(checkout(reader), listed, apple);
 
-    await provider.openFile(checkout(oversized), listed, zebra);
-    await (await neighboursOf())?.next?.();
-    expect(lastRequest().result.path).toBe("mango.ts");
+    const stepping = step("next");
+    await provider.openFile(checkout(reader), listed, zebra);
+    releaseReads();
 
-    await (await neighboursOf())?.previous?.();
-    expect(lastRequest().result.path).toBe("zebra.ts");
+    expect(await stepping).toBe("stopped");
+    expect(panels.requests.map((request) => request.result.path)).toEqual(["apple.ts", "zebra.ts"]);
   });
 
-  it("offers no step in a direction where no file reads as text, as a step there would open no diff", async () => {
-    await provider.openFile(checkout(withOversize(apple.id, mango.id)), listed, zebra);
+  it("stops a step still reading once the provider is disposed", async () => {
+    const { reader, releaseReads } = heldReads(mango.id);
+    await provider.openFile(checkout(reader), listed, apple);
 
-    expect(await neighboursOf()).toEqual({});
+    const stepping = step("next");
+    provider.dispose();
+    releaseReads();
+
+    expect(await stepping).toBe("stopped");
+    expect(panels.requests.map((request) => request.result.path)).toEqual(["apple.ts"]);
   });
 
-  it("says the comparison has changed instead of stepping to a neighbour read before the snapshot was released", async () => {
+  it("reads at most twenty listed files in a step before it finds no file to open", async () => {
+    const skipped = Array.from({ length: 21 }, (_, index) =>
+      changed(`999999${String(index).padStart(2, "0")}-9999-4999-8999-999999999999`, `skipped${index}.ts`));
+    const reader = withOversize(...skipped.map((skippedFile) => skippedFile.id));
+    await provider.openFile(checkout(reader), comparison({ files: [zebra, ...skipped, mango] }), zebra);
+    reader.reads.length = 0;
+
+    expect(await step("next")).toBe("noFile");
+    expect(reader.reads).toHaveLength(20 * 2);
+  });
+
+  it("says the comparison has changed instead of stepping once the snapshot is released", async () => {
     let isReleased = false;
     const releasable: HistoryRepository = { ...repository, hasSnapshot: () => !isReleased };
     await provider.openFile(checkout(releasable), listed, apple);
     const shown = lastRequest();
 
     isReleased = true;
-    await (await neighboursOf(shown))?.next?.();
 
+    expect(await step("next")).toBe("stopped");
     expect(lastRequest()).toBe(shown);
     expect(vscodeMock.messages).toEqual([{ level: "information", text: COMPARISON_CHANGED_MESSAGE }]);
-    expect(logged).toEqual([]);
   });
 
-  it("logs a step read that fails for another reason and offers no step there", async () => {
+  it("says the comparison has changed when a step's read finds the snapshot released", async () => {
+    const released = new HistorySnapshotError("This comparison is no longer available.", "unknownSnapshot");
+    const failing: HistoryRepository = {
+      ...repository,
+      readFile: (snapshotId, fileId, side, signal) =>
+        fileId === mango.id ? Promise.reject(released) : repository.readFile(snapshotId, fileId, side, signal),
+    };
+    await provider.openFile(checkout(failing), listed, apple);
+    const shown = lastRequest();
+
+    expect(await step("next")).toBe("stopped");
+    expect(lastRequest()).toBe(shown);
+    expect(vscodeMock.messages).toEqual([{ level: "information", text: COMPARISON_CHANGED_MESSAGE }]);
+  });
+
+  it("rejects a step whose read fails for another reason", async () => {
     const failing: HistoryRepository = {
       ...repository,
       readFile: (snapshotId, fileId, side, signal) =>
         fileId === mango.id ? Promise.reject(new Error("cat-file crashed")) : repository.readFile(snapshotId, fileId, side, signal),
     };
-
     await provider.openFile(checkout(failing), listed, apple);
 
-    expect(await neighboursOf()).toEqual({ previous: expect.any(Function) });
-    expect(logged).toEqual(["Could not read mango.ts for a file step: cat-file crashed"]);
-  });
-
-  it("reads at most twenty files in a direction before it stops offering a step there", async () => {
-    const skipped = Array.from({ length: 21 }, (_, index) =>
-      changed(`999999${String(index).padStart(2, "0")}-9999-4999-8999-999999999999`, `skipped${index}.ts`));
-    const counting = fakeRepository({ base: text("old\n"), result: text("new\n") });
-    const oversize: FileContentResult = { kind: "nonText", reason: "oversize", explanation: "Too large.", sizeBytes: 1, mode: "100644" };
-    const reader: HistoryRepository = {
-      ...counting,
-      readFile: (snapshotId, fileId, side, signal) =>
-        skipped.some((skippedFile) => skippedFile.id === fileId)
-          ? counting.readFile(snapshotId, fileId, side, signal).then(() => oversize)
-          : counting.readFile(snapshotId, fileId, side, signal),
-    };
-
-    await provider.openFile(checkout(reader), comparison({ files: [zebra, ...skipped, mango] }), zebra);
-
-    expect(await neighboursOf()).toEqual({});
-    expect(counting.reads.filter((read) => !read.includes(zebra.id))).toHaveLength(20 * 2);
-  });
-
-  it("does not read again the file a step leaves", async () => {
-    const counting = fakeRepository({ base: text("old\n"), result: text("new\n") });
-    await provider.openFile(checkout(counting), listed, apple);
-    counting.reads.length = 0;
-
-    await (await neighboursOf())?.next?.();
-
-    expect(lastRequest().result.path).toBe("mango.ts");
-    expect(await neighboursOf()).toEqual({ previous: expect.any(Function) });
-    expect(counting.reads).toEqual([]);
+    await expect(step("next")).rejects.toThrow("cat-file crashed");
   });
 
   it("shows only the later of two opens when the earlier one is still reading", async () => {
@@ -620,16 +658,14 @@ describe("HistoryDiffProvider file steps", () => {
     expect(panels.requests.map((request) => request.result.path)).toEqual(["mango.ts"]);
   });
 
-  it("cancels the first of two steps asked for at once, so only the later one offers steps", async () => {
+  it("stops the first of two steps asked for at once, so only the later one opens its file", async () => {
     await provider.openFile(checkout(repository), listed, zebra);
-    const adjacentFiles = await neighboursOf();
+    const shown = lastRequest();
 
-    await Promise.all([adjacentFiles?.next?.(), adjacentFiles?.next?.()]);
+    const results = await Promise.all([step("next", shown), step("next", shown)]);
 
-    const [, earlier, later] = panels.requests;
-    expect(panels.requests.map((request) => request.result.path)).toEqual(["zebra.ts", "apple.ts", "apple.ts"]);
-    expect(await neighboursOf(earlier)).toEqual({});
-    expect(await neighboursOf(later)).toEqual({ previous: expect.any(Function), next: expect.any(Function) });
+    expect(results).toEqual(["stopped", "opened"]);
+    expect(panels.requests.map((request) => request.result.path)).toEqual(["zebra.ts", "apple.ts"]);
   });
 
   it("steps into added and deleted files", async () => {
@@ -637,108 +673,14 @@ describe("HistoryDiffProvider file steps", () => {
     const deleted = changed("77777777-7777-4777-8777-777777777777", "gone.ts", { status: "deleted", result: null });
 
     await provider.openFile(checkout(repository), comparison({ files: [added, deleted] }), added);
-    await (await neighboursOf())?.next?.();
+    await step("next");
 
     expect(lastRequest().base.path).toBe("gone.ts");
-  });
-
-  /**
-   * `repository`, except that reads of `heldIds` wait until `releaseReads` and then fail with `failure` if given; their
-   * signals are recorded.
-   */
-  function heldReads(heldIds: readonly string[], failure?: Error): { reader: HistoryRepository; signals: AbortSignal[]; releaseReads(): void } {
-    let releaseReads = (): void => undefined;
-    const held = new Promise<void>((resolve) => (releaseReads = resolve));
-    const signals: AbortSignal[] = [];
-    const reader: HistoryRepository = {
-      ...repository,
-      readFile: (snapshotId, fileId, side, signal) => {
-        if (!heldIds.includes(fileId)) {
-          return repository.readFile(snapshotId, fileId, side, signal);
-        }
-        signals.push(signal);
-        return held.then(() => (failure === undefined ? repository.readFile(snapshotId, fileId, side, signal) : Promise.reject(failure)));
-      },
-    };
-    return { reader, signals, releaseReads: () => releaseReads() };
-  }
-
-  it("shows the file before it reads the files a step reaches, reading both directions at once", async () => {
-    const { reader, signals, releaseReads } = heldReads([zebra.id, mango.id]);
-
-    const opened = provider.openFile(checkout(reader), listed, apple);
-    await settle();
-
-    expect(panels.requests.map((request) => request.result.path)).toEqual(["apple.ts"]);
-    expect(signals).toHaveLength(4);
-    releaseReads();
-    await opened;
-    expect(await neighboursOf()).toEqual({ previous: expect.any(Function), next: expect.any(Function) });
-  });
-
-  it("stops reading for the steps of a file once another replaces it in the tab, and offers none from it", async () => {
-    const { reader, signals, releaseReads } = heldReads([zebra.id, mango.id]);
-    const opened = provider.openFile(checkout(reader), listed, apple);
-    await settle();
-    const left = lastRequest();
-    expect(left?.result.path).toBe("apple.ts");
-
-    await provider.openFile(checkout(repository), comparison({ files: [mango] }), mango);
-
-    expect(signals.map((signal) => signal.aborted)).toEqual([true, true, true, true]);
-    releaseReads();
-    await opened;
-    expect(await neighboursOf(left)).toEqual({});
-  });
-
-  it("keeps finding the steps of the shown file while a file that opens elsewhere replaces its opening", async () => {
-    const { reader, signals, releaseReads } = heldReads([zebra.id, mango.id]);
-    const opened = provider.openFile(checkout(reader), listed, apple);
-    await settle();
-    const shown = lastRequest();
-    const binary: FileContentResult = { kind: "nonText", reason: "binary", explanation: "Binary.", sizeBytes: 4, mode: "100644" };
-    const image = changed("44444444-4444-4444-8444-444444444444", "logo.png", { contentKind: "binary" });
-
-    await provider.openFile(checkout(fakeRepository({ base: binary, result: binary })), comparison({ files: [image] }), image);
-
-    expect(lastCommand().command).toBe("vscode.open");
-    expect(signals.some((signal) => signal.aborted)).toBe(false);
-    releaseReads();
-    await opened;
-    expect(await neighboursOf(shown)).toEqual({ previous: expect.any(Function), next: expect.any(Function) });
-  });
-
-  it("stops finding the steps of the shown file once the provider is disposed", async () => {
-    const { reader, signals, releaseReads } = heldReads([zebra.id, mango.id]);
-    const opened = provider.openFile(checkout(reader), listed, apple);
-    await settle();
-    const shown = lastRequest();
-
-    provider.dispose();
-
-    expect(signals.map((signal) => signal.aborted)).toEqual([true, true, true, true]);
-    releaseReads();
-    await opened;
-    expect(await neighboursOf(shown)).toEqual({});
-  });
-
-  it("offers no step toward a file whose read finds the comparison released while the file shows", async () => {
-    const released = new HistorySnapshotError("This comparison is no longer available.", "unknownSnapshot");
-    const { reader, releaseReads } = heldReads([mango.id], released);
-
-    const opened = provider.openFile(checkout(reader), listed, apple);
-    await settle();
-    expect(panels.requests).toHaveLength(1);
-    releaseReads();
-    await opened;
-
-    expect(await neighboursOf()).toEqual({ previous: expect.any(Function) });
-    expect(logged).toEqual([]);
   });
 
   it("has no file list for a file missing from its comparison's list", async () => {
     await provider.openFile(checkout(repository), listed, changed("88888888-8888-4888-8888-888888888888", "other.ts"));
 
-    expect(await neighboursOf()).toBeUndefined();
+    expect(lastRequest().adjacentFiles).toBeUndefined();
   });
 });

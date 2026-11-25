@@ -35,8 +35,6 @@ export interface TwoWayDiffRenderContext {
 export interface FileListNeighbours {
   readonly hasPrevious: boolean;
   readonly hasNext: boolean;
-  /** Set while the host still looks for the neighbouring files; a `fileList` message brings them later. */
-  readonly isPending?: boolean;
 }
 
 /** Which change a newly shown diff scrolls to: the last one when reached by stepping back from the next file. */
@@ -87,8 +85,11 @@ const SIDE_NAMES: Readonly<Record<PaneSide, string>> = { base: "Left side", resu
  * scrollers `#scroll-base` / `#scroll-result` contain one `.line` per text line
  * (all the same height); `svg#connectors` sits in `.strip`; buttons `#prev`,
  * `#next`, `#open-native`; `#diff[data-start-at]` is a {@link StartChange},
- * `#diff[data-files]` the optional {@link FileListNeighbours}, which a later
- * `{ type: "fileList", page, hasPrevious, hasNext }` message replaces; `#file-step`
+ * `#diff[data-files]` the optional {@link FileListNeighbours}; a
+ * `{ type: "noAdjacentFile", page, direction }` message says a step that way
+ * found no file to open, `direction` being `next` or `previous`, and
+ * `{ type: "fileStepEnded", page, direction }` that one ended otherwise with
+ * the page still shown; `#file-step`
  * is the live region showing the file-step hint. Each pane's `.lines` ends with
  * `#current-base` / `#current-result`, the hidden marker the client places over
  * the change navigated to. While there are differences, `#current-number` in the
@@ -154,11 +155,7 @@ function renderNavigationData(context: TwoWayDiffRenderContext): string {
   const neighbours = context.fileList;
   const fileList = neighbours === undefined
     ? ""
-    : ` data-files="${escapeHtml(JSON.stringify({
-      hasPrevious: neighbours.hasPrevious,
-      hasNext: neighbours.hasNext,
-      ...(neighbours.isPending === true ? { isPending: true } : {}),
-    }))}"`;
+    : ` data-files="${escapeHtml(JSON.stringify({ hasPrevious: neighbours.hasPrevious, hasNext: neighbours.hasNext }))}"`;
   return `${startAt}${fileList}`;
 }
 

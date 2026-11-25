@@ -30,8 +30,8 @@
   }
 
   /**
-   * The neighbours in the comparison's file list, or null when this diff has no list and F7 stops at the ends. While
-   * `isPending`, the host is still looking for them and sends them in a `fileList` message.
+   * The neighbours in the comparison's file list, or null when this diff has no list and F7 stops at the ends. A
+   * direction where a step found no file to open has none left.
    */
   let fileList = diffElement.dataset.files ? JSON.parse(diffElement.dataset.files) : null;
   const fileStepHint = document.getElementById("file-step");
@@ -54,8 +54,11 @@
   let isDrawScheduled = false;
   /** Index of the block last navigated to, which the marker shows; -1 before any navigation. */
   let currentIndex = -1;
-  /** The file step a repeated F7 or Shift+F7 confirms while its hint shows: `direction` and the hint's timer. */
-  let pendingFileStep = null;
+  /**
+   * The file step whose hint shows: its `direction`, and either `isOpening` while the host reads the files that way, or
+   * the `timer` of the offer a repeated F7 or Shift+F7 confirms.
+   */
+  let fileStep = null;
   /**
    * Webview state outlives a re-render, such as after a colour theme change, but the reused tab may now show another
    * file; the saved offsets apply only to the same comparison, told apart by its title and difference blocks.
@@ -165,38 +168,47 @@
   function navigateByKey(direction) {
     const hasStepped = navigate(direction);
     if (hasStepped || fileList === null) {
-      endFileStep();
+      endFileStepOffer();
       return;
     }
-    const isConfirmed = pendingFileStep !== null && pendingFileStep.direction === direction;
-    if (isConfirmed && hasFileTowards(direction)) {
-      endFileStep();
+    const isHintTowards = fileStep !== null && fileStep.direction === direction;
+    if (isHintTowards && fileStep.isOpening) {
+      return;
+    }
+    if (isHintTowards && hasFileTowards(direction)) {
+      showFileStep(direction, openingHintOf(direction), true);
       post({ type: "openAdjacentFile", direction: direction > 0 ? "next" : "previous" });
       return;
     }
     offerFileStep(direction);
   }
 
-  /** Whether the file list has a file to open that way; never while the host is still looking for one. */
+  /** Whether the file list has a file to open that way. */
   function hasFileTowards(direction) {
-    return !fileList.isPending && (direction > 0 ? fileList.hasNext : fileList.hasPrevious);
+    return direction > 0 ? fileList.hasNext : fileList.hasPrevious;
   }
 
   function offerFileStep(direction) {
+    showFileStep(direction, fileStepHintOf(direction), false);
+  }
+
+  /** Replaces the hint; an offer ends after its time, an opening hint once the host answers. */
+  function showFileStep(direction, hint, isOpening) {
     endFileStep();
-    const hint = fileStepHintOf(direction);
     fileStepHint.textContent = hint.text;
     fileStepHint.title = hint.title;
-    pendingFileStep = { direction, timer: setTimeout(endFileStep, FILE_STEP_WINDOW_MS) };
+    const timer = isOpening ? null : setTimeout(endFileStep, FILE_STEP_WINDOW_MS);
+    fileStep = { direction, isOpening, timer };
+  }
+
+  /** Shown while the host reads the files that way for one it can open. */
+  function openingHintOf(direction) {
+    const which = direction > 0 ? "next" : "previous";
+    return { text: `Opening the ${which} file…`, title: `Reading the ${which} files of the Changed files list for one with differences to show` };
   }
 
   /** The hint's text, and its tooltip, which says what pressing the key again does. */
   function fileStepHintOf(direction) {
-    if (fileList.isPending) {
-      return direction > 0
-        ? { text: "Looking for the next file…", title: "Still reading the Changed files list for the next file with differences to show; F7 can open it once found" }
-        : { text: "Looking for the previous file…", title: "Still reading the Changed files list for the previous file with differences to show; Shift+F7 can open it once found" };
-    }
     const seconds = FILE_STEP_WINDOW_MS / 1000;
     const hasFile = hasFileTowards(direction);
     if (direction > 0) {
@@ -209,12 +221,20 @@
       : { text: "No previous files", title: "No earlier file of the Changed files list has differences to show" };
   }
 
+  /** Moving within the file ends an offer; a step being opened keeps its hint until the host answers. */
+  function endFileStepOffer() {
+    const isOpening = fileStep !== null && fileStep.isOpening;
+    if (!isOpening) {
+      endFileStep();
+    }
+  }
+
   function endFileStep() {
-    if (pendingFileStep === null) {
+    if (fileStep === null) {
       return;
     }
-    clearTimeout(pendingFileStep.timer);
-    pendingFileStep = null;
+    clearTimeout(fileStep.timer);
+    fileStep = null;
     fileStepHint.textContent = "";
     fileStepHint.title = "";
   }
@@ -318,27 +338,51 @@
   });
   // The buttons stay within the file; a click ends any offer of the next or previous file.
   document.getElementById("prev").addEventListener("click", () => {
-    endFileStep();
+    endFileStepOffer();
     navigate(-1);
   });
   document.getElementById("next").addEventListener("click", () => {
-    endFileStep();
+    endFileStepOffer();
     navigate(1);
   });
   document.getElementById("open-native").addEventListener("click", () => post({ type: "openNative" }));
-  // The host sends the neighbouring files once it has found them; a hint showing is brought up to date.
   window.addEventListener("message", (event) => {
-    const message = event.data;
-    const isFileList = typeof message === "object" && message !== null && message.type === "fileList" && message.page === page
-      && typeof message.hasPrevious === "boolean" && typeof message.hasNext === "boolean";
-    if (!isFileList || fileList === null) {
+    const answer = fileStepAnswerOf(event.data);
+    if (answer === null || fileList === null) {
       return;
     }
-    fileList = { hasPrevious: message.hasPrevious, hasNext: message.hasNext };
-    if (pendingFileStep !== null) {
-      offerFileStep(pendingFileStep.direction);
+    if (answer.type === "noAdjacentFile") {
+      onNoAdjacentFile(answer.direction);
+      return;
+    }
+    const isOpeningTowards = fileStep !== null && fileStep.isOpening && fileStep.direction === answer.direction;
+    if (isOpeningTowards) {
+      endFileStep();
     }
   });
+
+  /**
+   * The host's answer to this page's file step, `noAdjacentFile` or `fileStepEnded`, with its direction as 1 or -1; null
+   * for any other message.
+   */
+  function fileStepAnswerOf(message) {
+    const isAnswer = typeof message === "object" && message !== null && message.page === page
+      && (message.type === "noAdjacentFile" || message.type === "fileStepEnded")
+      && (message.direction === "next" || message.direction === "previous");
+    return isAnswer ? { type: message.type, direction: message.direction === "next" ? 1 : -1 } : null;
+  }
+
+  /**
+   * A step that found no file to open that way, such as past files too large to show, leaves none there to offer. Says
+   * so unless a hint for the other direction shows since the step began.
+   */
+  function onNoAdjacentFile(direction) {
+    fileList = direction > 0 ? { ...fileList, hasNext: false } : { ...fileList, hasPrevious: false };
+    const isOtherHintShown = fileStep !== null && fileStep.direction !== direction;
+    if (!isOtherHintShown) {
+      offerFileStep(direction);
+    }
+  }
   document.addEventListener("keydown", (event) => {
     if (event.key === "F4") {
       openWorkingCopy(event);

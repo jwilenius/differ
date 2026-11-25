@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import type { HighlightOptions } from "../highlight/textMateHighlighter";
-import { TwoWayDiffPanels, type AdjacentFiles, type TextHighlighter, type TwoWayDiffRequest } from "../host/vscode/twoWayDiffPanel";
+import { TwoWayDiffPanels, type FileStepResult, type TextHighlighter, type TwoWayDiffRequest } from "../host/vscode/twoWayDiffPanel";
 import type { HighlightedText } from "../model/syntaxTokens";
 import { ColorThemeKind, changeColorThemeKind, changeConfiguration, resetVscodeMock, vscodeMock, type FakeWebviewPanel } from "./vscodeMock";
 
@@ -42,9 +42,12 @@ function deferred(): Deferred {
   return { promise, resolve };
 }
 
-/** A diff in a file list whose neighbouring files are found at once. */
-function inList(adjacentFiles: AdjacentFiles): Pick<TwoWayDiffRequest, "findAdjacentFiles"> {
-  return { findAdjacentFiles: () => Promise.resolve(adjacentFiles) };
+/** A file step that records its name and ends the way given. */
+function step(opened: string[], name: string, result: FileStepResult = "opened"): () => Promise<FileStepResult> {
+  return () => {
+    opened.push(name);
+    return Promise.resolve(result);
+  };
 }
 
 /** Lets pending promise callbacks and `setImmediate` work run. */
@@ -197,27 +200,18 @@ describe("TwoWayDiffPanels", () => {
     expect(logged[0]).toContain("no editor");
   });
 
-  it("shows a diff in a file list at once and sends its neighbouring files once they are found", async () => {
-    let finish: (adjacentFiles: AdjacentFiles) => void = () => undefined;
-    const opened = request({ findAdjacentFiles: () => new Promise((resolve) => (finish = resolve)), startAt: "last" });
-
-    await panels(highlighter(() => Promise.resolve(BLUE))).open(opened);
+  it("publishes a diff's neighbouring files with the diff", async () => {
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ adjacentFiles: { next: step([], "next") }, startAt: "last" }));
 
     const webview = onlyPanel().webview;
-    expect(webview.html).toContain(`data-files="{&quot;hasPrevious&quot;:false,&quot;hasNext&quot;:false,&quot;isPending&quot;:true}"`);
+    expect(webview.html).toContain(`data-files="{&quot;hasPrevious&quot;:false,&quot;hasNext&quot;:true}"`);
     expect(webview.html).toContain(`data-start-at="last"`);
     expect(webview.postedSinceHtml).toEqual([]);
-
-    finish({ next: () => Promise.resolve() });
-    await settle();
-
-    expect(webview.postedSinceHtml).toEqual([{ type: "fileList", page: shownPage(), hasPrevious: false, hasNext: true }]);
   });
 
-  it("redraws a diff in new colours with the neighbouring files found", async () => {
+  it("redraws a diff in new colours with its neighbouring files", async () => {
     let colors = BLUE;
-    await panels(highlighter(() => Promise.resolve(colors))).open(request(inList({ next: () => Promise.resolve() })));
-    await settle();
+    await panels(highlighter(() => Promise.resolve(colors))).open(request({ adjacentFiles: { next: step([], "next") } }));
 
     colors = RED;
     changeColorThemeKind(ColorThemeKind.Light);
@@ -226,75 +220,98 @@ describe("TwoWayDiffPanels", () => {
     expect(onlyPanel().webview.html).toContain(`data-files="{&quot;hasPrevious&quot;:false,&quot;hasNext&quot;:true}"`);
   });
 
-  it("ignores a file step asked for before the neighbouring files are found", async () => {
+  it("tells the page when a step finds no file to open that way, and when one ends leaving the page shown", async () => {
     const opened: string[] = [];
-    let finish: (adjacentFiles: AdjacentFiles) => void = () => undefined;
-    const next = () => {
-      opened.push("next");
-      return Promise.resolve();
-    };
-    await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ findAdjacentFiles: () => new Promise((resolve) => (finish = resolve)) }));
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(
+      request({ adjacentFiles: { previous: step(opened, "previous", "stopped"), next: step(opened, "next", "noFile") } }),
+    );
 
-    post({ type: "openAdjacentFile", direction: "next" });
-    finish({ next });
+    post({ type: "openAdjacentFile", direction: "previous" });
     await settle();
-    expect(opened).toEqual([]);
-
     post({ type: "openAdjacentFile", direction: "next" });
     await settle();
-    expect(opened).toEqual(["next"]);
+
+    expect(opened).toEqual(["previous", "next"]);
+    expect(onlyPanel().webview.postedSinceHtml).toEqual([
+      { type: "fileStepEnded", page: shownPage(), direction: "previous" },
+      { type: "noAdjacentFile", page: shownPage(), direction: "next" },
+    ]);
   });
 
-  it("drops the neighbouring files found for a diff the tab no longer shows", async () => {
-    const opened: string[] = [];
-    let finishFirst: (adjacentFiles: AdjacentFiles) => void = () => undefined;
+  it("answers only the latest step, so a step it stopped does not end the newer step's opening hint", async () => {
+    const answers: ((result: FileStepResult) => void)[] = [];
+    const pendingStep = (): Promise<FileStepResult> => new Promise((resolve) => answers.push(resolve));
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ adjacentFiles: { next: pendingStep } }));
+
+    post({ type: "openAdjacentFile", direction: "next" });
+    post({ type: "openAdjacentFile", direction: "next" });
+    answers[0]?.("stopped");
+    await settle();
+
+    expect(onlyPanel().webview.postedSinceHtml).toEqual([]);
+
+    answers[1]?.("stopped");
+    await settle();
+
+    expect(onlyPanel().webview.postedSinceHtml).toEqual([{ type: "fileStepEnded", page: shownPage(), direction: "next" }]);
+  });
+
+  it("tells the page a step ended when the file it opened shows elsewhere, as in VS Code's diff editor", async () => {
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ adjacentFiles: { next: step([], "next", "opened") } }));
+
+    post({ type: "openAdjacentFile", direction: "next" });
+    await settle();
+
+    expect(onlyPanel().webview.postedSinceHtml).toEqual([{ type: "fileStepEnded", page: shownPage(), direction: "next" }]);
+  });
+
+  it("no longer offers a direction where a step found no file when new colours redraw the same diff", async () => {
+    let colors = BLUE;
+    await panels(highlighter(() => Promise.resolve(colors))).open(
+      request({ adjacentFiles: { previous: step([], "previous"), next: step([], "next", "noFile") } }),
+    );
+    post({ type: "openAdjacentFile", direction: "next" });
+    await settle();
+
+    colors = RED;
+    changeColorThemeKind(ColorThemeKind.Light);
+    await vi.waitFor(() => expect(onlyPanel().webview.html).toContain("#ff0000"));
+
+    expect(onlyPanel().webview.html).toContain(`data-files="{&quot;hasPrevious&quot;:true,&quot;hasNext&quot;:false}"`);
+  });
+
+  it("offers both directions again for the next diff the tab shows", async () => {
     const diffPanels = panels(highlighter(() => Promise.resolve(BLUE)));
-    await diffPanels.open(request({ findAdjacentFiles: () => new Promise((resolve) => (finishFirst = resolve)) }));
-    await diffPanels.open(request(inList({})));
-    await settle();
-    const webview = onlyPanel().webview;
-    const posted = webview.postedSinceHtml.length;
-
-    finishFirst({
-      next: () => {
-        opened.push("after first");
-        return Promise.resolve();
-      },
-    });
-    await settle();
-    post({ type: "openAdjacentFile", direction: "next" });
+    await diffPanels.open(request({ adjacentFiles: { previous: step([], "previous", "noFile"), next: step([], "next") } }));
+    post({ type: "openAdjacentFile", direction: "previous" });
     await settle();
 
-    expect(webview.postedSinceHtml).toHaveLength(posted);
-    expect(opened).toEqual([]);
+    await diffPanels.open(request({ adjacentFiles: { previous: step([], "previous"), next: step([], "next") } }));
+
+    expect(onlyPanel().webview.html).toContain(`data-files="{&quot;hasPrevious&quot;:true,&quot;hasNext&quot;:true}"`);
   });
 
-  it("ends the search for a diff's neighbouring files once the tab moves on or closes", async () => {
-    const signals: AbortSignal[] = [];
-    const finding = (): Pick<TwoWayDiffRequest, "findAdjacentFiles"> => ({
-      findAdjacentFiles: (signal) => {
-        signals.push(signal);
-        return new Promise(() => undefined);
-      },
+  it("tells no page that a step found no file once the tab shows another diff or has closed", async () => {
+    const finishes: ((result: FileStepResult) => void)[] = [];
+    const held = (): Pick<TwoWayDiffRequest, "adjacentFiles"> => ({
+      adjacentFiles: { next: () => new Promise((resolve) => finishes.push(resolve)) },
     });
     const diffPanels = panels(highlighter(() => Promise.resolve(BLUE)));
-    await diffPanels.open(request(finding()));
-    expect(signals.map((signal) => signal.aborted)).toEqual([false]);
+    await diffPanels.open(request(held()));
+    post({ type: "openAdjacentFile", direction: "next" });
+    await diffPanels.open(request(held()));
+    post({ type: "openAdjacentFile", direction: "next" });
+    const panel = onlyPanel();
+    const posted = panel.webview.postedSinceHtml.length;
 
-    await diffPanels.open(request(finding()));
-    expect(signals.map((signal) => signal.aborted)).toEqual([true, false]);
-
-    onlyPanel().dispose();
-    expect(signals.map((signal) => signal.aborted)).toEqual([true, true]);
-  });
-
-  it("offers no file step when finding the neighbouring files fails", async () => {
-    await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ findAdjacentFiles: () => Promise.reject(new Error("list broke")) }));
+    finishes[0]("noFile");
     await settle();
+    expect(panel.webview.postedSinceHtml).toHaveLength(posted);
 
-    expect(onlyPanel().webview.postedSinceHtml).toEqual([{ type: "fileList", page: shownPage(), hasPrevious: false, hasNext: false }]);
-    expect(logged).toHaveLength(1);
-    expect(logged[0]).toContain("list broke");
+    panel.dispose();
+    finishes[1]("noFile");
+    await settle();
+    expect(panel.webview.postedSinceHtml).toHaveLength(posted);
   });
 
   it("publishes no file list for a diff without one", async () => {
@@ -305,12 +322,7 @@ describe("TwoWayDiffPanels", () => {
 
   it("opens the next or previous file when the webview asks", async () => {
     const opened: string[] = [];
-    const record = (direction: string) => () => {
-      opened.push(direction);
-      return Promise.resolve();
-    };
-    await panels(highlighter(() => Promise.resolve(BLUE))).open(request(inList({ previous: record("previous"), next: record("next") })));
-    await settle();
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ adjacentFiles: { previous: step(opened, "previous"), next: step(opened, "next") } }));
 
     post({ type: "openAdjacentFile", direction: "next" });
     post({ type: "openAdjacentFile", direction: "previous" });
@@ -322,15 +334,10 @@ describe("TwoWayDiffPanels", () => {
 
   it("drops a message the page of a replaced diff sent, so its step never moves on from the shown file", async () => {
     const opened: string[] = [];
-    const record = (name: string) => () => {
-      opened.push(name);
-      return Promise.resolve();
-    };
     const diffPanels = panels(highlighter(() => Promise.resolve(BLUE)));
-    await diffPanels.open(request(inList({ next: record("after first") })));
+    await diffPanels.open(request({ adjacentFiles: { next: step(opened, "after first") } }));
     const firstPage = shownPage();
-    await diffPanels.open(request(inList({ next: record("after second") })));
-    await settle();
+    await diffPanels.open(request({ adjacentFiles: { next: step(opened, "after second") } }));
 
     onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next", page: firstPage });
     onlyPanel().webview.fireDidReceiveMessage({ type: "openAdjacentFile", direction: "next" });
@@ -368,8 +375,7 @@ describe("TwoWayDiffPanels", () => {
 
   it("reports a file that cannot be opened instead of rejecting", async () => {
     const failing = () => Promise.reject(new Error("This comparison is no longer available."));
-    await panels(highlighter(() => Promise.resolve(BLUE))).open(request(inList({ next: failing })));
-    await settle();
+    await panels(highlighter(() => Promise.resolve(BLUE))).open(request({ adjacentFiles: { next: failing } }));
 
     post({ type: "openAdjacentFile", direction: "next" });
     await settle();
@@ -378,6 +384,7 @@ describe("TwoWayDiffPanels", () => {
       { level: "error", text: "jw-differ could not open the next file. This comparison is no longer available." },
     ]);
     expect(logged[0]).toContain("This comparison is no longer available.");
+    expect(onlyPanel().webview.postedSinceHtml).toEqual([{ type: "fileStepEnded", page: shownPage(), direction: "next" }]);
   });
 
   it("releases its documents once when the panel closes", async () => {

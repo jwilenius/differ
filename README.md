@@ -175,10 +175,10 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   comparison is reopened at its saved scroll position, until the next jump).
 - F7 at the last difference shows "Press F7 again to go to the next file"; pressing F7 again within 2.5 s opens the next file of the panel's **Changed files** list (same comparison) at its first difference.
   Shift+F7 at the first difference does the same towards the previous file, landing on its last difference.
-  Files with no text difference to show (binary, too large, not UTF-8, rename- or mode-only) are skipped; with no file left to open that way, or behind twenty too-large or non-UTF-8 files in a row, the hint says "No more files" / "No previous files".
+  While the files are read, the hint says "Opening the next file…" / "Opening the previous file…".
+  Files with no text difference to show (binary, too large, not UTF-8, rename- or mode-only) are skipped; with no file left to open that way, or behind twenty too-large or non-UTF-8 files in a row, the hint says "No more files" / "No previous files", and the diff no longer offers that direction, even after a colour theme change redraws it.
   The `↑`/`↓` buttons stay within the file, and the built-in diff editor keeps VS Code's own F7.
   Once the comparison has changed, as after another selection, stepping to another file says so instead; open the file again from the updated list.
-  The diff shows at once and looks for the neighbouring files afterwards; until it has found them, the hint says "Looking for the next file…" / "Looking for the previous file…" and pressing the key again opens nothing.
 - `Ctrl+F` (`Cmd+F`) opens VS Code's find widget over both sides, off-screen lines included (not the line numbers);
   `Enter` / `Shift+Enter` go to the next / previous match, `Escape` closes it and returns the keys to the diff.
 - F4 opens the file from your working tree, editable in a tab of its own, with the cursor at the current difference

@@ -13,7 +13,7 @@ import type {
   ReadyResult,
 } from "../../model/historyTypes";
 import type { StartChange } from "../../render/html/twoWayDiffRenderer";
-import type { AdjacentFiles, TwoWayDiffPanels } from "./twoWayDiffPanel";
+import type { AdjacentFiles, FileStepResult, TwoWayDiffPanels } from "./twoWayDiffPanel";
 
 export const HISTORY_DOCUMENT_SCHEME = "jw-differ-history";
 
@@ -27,8 +27,8 @@ export const UNAVAILABLE_DOCUMENT_TEXT = "This jw-differ history document is no 
 export const COMPARISON_CHANGED_MESSAGE = "This comparison has changed — open the file again from the updated list.";
 
 /**
- * Files read in each direction for a file step once the panel shows a file: past this many files that open no diff,
- * the panel offers no step that way, so a step is never offered only after a long run of large files.
+ * Files a file step reads at most: past this many listed files that open no diff, as too large or not UTF-8, it finds no
+ * file, so a step never keeps the user waiting through a long run of such files.
  */
 const STEP_READ_LIMIT = 20;
 
@@ -70,11 +70,7 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
   private opened: OpenedFile | null = null;
   readonly onDidChangeOpenedFile = this.openedFileChanges.event;
 
-  /** `log` receives the reason a file step could not be read, other than a released snapshot. */
-  constructor(
-    private readonly panels: Pick<TwoWayDiffPanels, "open">,
-    private readonly log: (message: string) => void,
-  ) {
+  constructor(private readonly panels: Pick<TwoWayDiffPanels, "open">) {
     this.closeSubscription = vscode.workspace.onDidCloseTextDocument((document) => this.forgetUnpinned(document.uri));
   }
 
@@ -115,11 +111,11 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
   }
 
   /** Cancels the open in progress, whose reads and display are no longer wanted. */
-  private startOpening(checkout: HistoryCheckout, comparison: ReadyResult, left?: ReadFile): Opening {
+  private startOpening(checkout: HistoryCheckout, comparison: ReadyResult): Opening {
     this.opening.abort();
     this.opening = new AbortController();
     const signal = AbortSignal.any([this.shutdown.signal, this.opening.signal]);
-    return { checkout, comparison, signal, ...(left === undefined ? {} : { left }) };
+    return { checkout, comparison, signal };
   }
 
   /** Both sides of `file`, read in the same tick; undefined once the opening is cancelled, even if a read failed. */
@@ -138,10 +134,7 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
     }
   }
 
-  /**
-   * Opens text in the configured viewer, or an explanation of content that is not text. A panel shows the file at once
-   * and asks for its steps afterwards.
-   */
+  /** Opens text in the configured viewer, or an explanation of content that is not text. */
   private async show(opening: Opening, file: ComparisonFile, contents: SideContents, startAt: StartChange): Promise<void> {
     const { checkout, comparison } = opening;
     const viewer = vscode.workspace.getConfiguration("jwDiffer").get<string>(DIFF_VIEWER_SETTING, "intellij");
@@ -164,7 +157,7 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
       } else {
         await this.openPanel(comparison, file, title, sides, {
           startAt,
-          findAdjacentFiles: this.adjacentFileFinder(opening, { file, contents }),
+          adjacentFiles: this.adjacentFiles(checkout, comparison, file),
           workingCopy: file.result === null ? undefined : vscode.Uri.joinPath(vscode.Uri.file(checkout.root), file.result.path),
         });
       }
@@ -209,77 +202,59 @@ export class HistoryDiffProvider implements vscode.TextDocumentContentProvider, 
         }
       },
       startAt: navigation.startAt,
-      ...(navigation.findAdjacentFiles === undefined ? {} : { findAdjacentFiles: navigation.findAdjacentFiles }),
+      ...(navigation.adjacentFiles === undefined ? {} : { adjacentFiles: navigation.adjacentFiles }),
       ...(navigation.workingCopy === undefined ? {} : { workingCopy: navigation.workingCopy }),
     });
   }
 
   /**
-   * Finds the steps from the shown file, which the panel asks for once it shows it and stops once the tab moves on;
-   * undefined when the file is not in the list.
+   * Steps to the nearest files before and after `file` in list order that have a text change to land on, known from the
+   * list without reading; undefined when `file` is not in the list.
    */
-  private adjacentFileFinder(opening: Opening, shown: ReadFile): ((signal: AbortSignal) => Promise<AdjacentFiles>) | undefined {
-    const index = opening.comparison.files.findIndex((candidate) => candidate.id === shown.file.id);
+  private adjacentFiles(checkout: HistoryCheckout, comparison: ReadyResult, file: ComparisonFile): AdjacentFiles | undefined {
+    const { files } = comparison;
+    const index = files.findIndex((candidate) => candidate.id === file.id);
     if (index === -1) {
       return undefined;
     }
-    return (signal) => this.adjacentFiles({ ...opening, signal: AbortSignal.any([this.shutdown.signal, signal]) }, shown, index);
-  }
-
-  /**
-   * Steps to the nearest files before and after the shown file, at `index` in list order, that read as text on both
-   * sides, so the panel offers only the steps that open a diff. Both directions read at once; none once `finding`'s
-   * signal aborts. A step shows the contents read here, but only while the snapshot is held: once
-   * released, the list has moved on.
-   */
-  private async adjacentFiles(finding: Opening, shown: ReadFile, index: number): Promise<AdjacentFiles> {
-    const { checkout, comparison } = finding;
-    const { files } = comparison;
-    const [previous, next] = await Promise.all([
-      this.firstTextFile(finding, files.slice(0, index).reverse().filter(hasTextChange)),
-      this.firstTextFile(finding, files.slice(index + 1).filter(hasTextChange)),
-    ]);
-    const stepTo = (neighbour: ReadFile, startAt: StartChange) => async (): Promise<void> => {
-      if (!checkout.repository.hasSnapshot(comparison.snapshotId)) {
-        void vscode.window.showInformationMessage(COMPARISON_CHANGED_MESSAGE);
-        return;
-      }
-      await this.show(this.startOpening(checkout, comparison, shown), neighbour.file, neighbour.contents, startAt);
-    };
-    if (finding.signal.aborted) {
-      return {};
-    }
+    const previous = files.slice(0, index).reverse().filter(hasTextChange);
+    const next = files.slice(index + 1).filter(hasTextChange);
     return {
-      ...(previous === undefined ? {} : { previous: stepTo(previous, "last") }),
-      ...(next === undefined ? {} : { next: stepTo(next, "first") }),
+      ...(previous.length === 0 ? {} : { previous: () => this.stepTo(checkout, comparison, previous, "last") }),
+      ...(next.length === 0 ? {} : { next: () => this.stepTo(checkout, comparison, next, "first") }),
     };
   }
 
   /**
-   * The first of `candidates` that reads as text on both sides: a file too large or not UTF-8 opens no diff. Undefined
-   * when none of the first `STEP_READ_LIMIT` does, or once a read fails, as after the snapshot is released: the list
-   * still opens each file and reports why it cannot. A failure other than a released snapshot is logged.
+   * Opens the first of `candidates` that reads as text on both sides, reading them one at a time: a file too large or
+   * not UTF-8 opens no diff and is passed over. Finds no file when none of the first `STEP_READ_LIMIT` does. Says so
+   * instead once the snapshot is released, as the list has moved on; a later open or step stops it. Rejects when a read
+   * fails for another reason.
    */
-  private async firstTextFile(opening: Opening, candidates: readonly ComparisonFile[]): Promise<ReadFile | undefined> {
+  private async stepTo(checkout: HistoryCheckout, comparison: ReadyResult, candidates: readonly ComparisonFile[], startAt: StartChange): Promise<FileStepResult> {
+    if (!checkout.repository.hasSnapshot(comparison.snapshotId)) {
+      return reportComparisonChanged();
+    }
+    const opening = this.startOpening(checkout, comparison);
     for (const file of candidates.slice(0, STEP_READ_LIMIT)) {
       let contents: SideContents | undefined;
       try {
-        contents = opening.left?.file.id === file.id ? opening.left.contents : await this.read(opening, file);
+        contents = await this.read(opening, file);
       } catch (error) {
-        if (!(error instanceof HistorySnapshotError)) {
-          const reason = error instanceof Error ? error.message : String(error);
-          this.log(`Could not read ${(file.result ?? file.base)!.path} for a file step: ${reason}`);
+        if (error instanceof HistorySnapshotError) {
+          return reportComparisonChanged();
         }
-        return undefined;
+        throw error;
       }
       if (contents === undefined) {
-        return undefined;
+        return "stopped";
       }
       if (isText(contents)) {
-        return { file, contents };
+        await this.show(opening, file, contents, startAt);
+        return "opened";
       }
     }
-    return undefined;
+    return "noFile";
   }
 
   private setOpenedFile(file: OpenedFile | null): void {
@@ -370,18 +345,13 @@ function hasTextChange(file: ComparisonFile): boolean {
 interface Opening {
   readonly checkout: HistoryCheckout;
   readonly comparison: ReadyResult;
-  /**
-   * Aborted when a later opening replaces this one or the provider is disposed; for a neighbour search, instead once its
-   * tab moves on or the provider is disposed.
-   */
+  /** Aborted when a later opening replaces this one or the provider is disposed. */
   readonly signal: AbortSignal;
-  /** The file a step leaves, already read, so finding the steps from the file it opens does not read it again. */
-  readonly left?: ReadFile;
 }
 
 interface PanelNavigation {
   readonly startAt: StartChange;
-  readonly findAdjacentFiles: ((signal: AbortSignal) => Promise<AdjacentFiles>) | undefined;
+  readonly adjacentFiles: AdjacentFiles | undefined;
   /** The file F4 opens; undefined for a deletion. */
   readonly workingCopy: vscode.Uri | undefined;
 }
@@ -401,10 +371,10 @@ interface SideContents {
   readonly result: FileContentResult;
 }
 
-/** A file of the comparison and both its sides as read. */
-interface ReadFile {
-  readonly file: ComparisonFile;
-  readonly contents: SideContents;
+/** A step that finds the comparison released opens nothing and tells the user to open the file from the updated list. */
+function reportComparisonChanged(): FileStepResult {
+  void vscode.window.showInformationMessage(COMPARISON_CHANGED_MESSAGE);
+  return "stopped";
 }
 
 function isText(contents: SideContents): boolean {

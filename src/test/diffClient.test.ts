@@ -252,7 +252,7 @@ interface ClientStart {
   /** Webview state left by an earlier render of the same panel. */
   readonly state?: unknown;
   /** Published when the diff belongs to a list of changed files. */
-  readonly files?: { readonly hasPrevious: boolean; readonly hasNext: boolean; readonly isPending?: boolean };
+  readonly files?: { readonly hasPrevious: boolean; readonly hasNext: boolean };
   readonly startAt?: "first" | "last";
 }
 
@@ -644,6 +644,8 @@ describe("diff client file steps", () => {
   const BOTH_FILES = { hasPrevious: true, hasNext: true } as const;
   const NEXT_HINT = "Press F7 again to go to the next file";
   const PREVIOUS_HINT = "Press Shift+F7 again to go to the previous file";
+  const OPENING_NEXT_HINT = "Opening the next file…";
+  const OPENING_PREVIOUS_HINT = "Opening the previous file…";
   /** How long a hint waits for the same key again. */
   const STEP_WINDOW_MS = 2_500;
 
@@ -674,11 +676,13 @@ describe("diff client file steps", () => {
     const { document, elements, messages } = startAtLastBlock();
 
     document.fire("keydown", { key: "F7" });
+    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
     vi.advanceTimersByTime(STEP_WINDOW_MS - 1);
     document.fire("keydown", { key: "F7" });
 
     expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "next", page: PAGE }]);
-    expect(elements["file-step"].textContent).toBe("");
+    expect(elements["file-step"].textContent).toBe(OPENING_NEXT_HINT);
   });
 
   it("hides the hint after its time and treats a later F7 as a first press", () => {
@@ -777,49 +781,173 @@ describe("diff client file steps", () => {
     expect(messages).toEqual([{ type: "ready", page: PAGE }]);
   });
 
-  it("says it is still looking for the next file until the host sends the neighbouring files", () => {
+  it("says there are no more files once a step finds none to open, and offers none after", () => {
     vi.useFakeTimers();
-    const { document, window, elements, messages } = startAtLastBlock({ files: { hasPrevious: false, hasNext: false, isPending: true } });
+    const { document, window, elements, messages } = startAtLastBlock();
 
     document.fire("keydown", { key: "F7" });
-    expect(elements["file-step"].textContent).toBe("Looking for the next file…");
-    expect(elements["file-step"].title).not.toBe("");
     document.fire("keydown", { key: "F7" });
-    expect(messages).toEqual([{ type: "ready", page: PAGE }]);
-
-    window.fire("message", { data: { type: "fileList", page: PAGE, hasPrevious: false, hasNext: true } });
-    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
+    window.fire("message", { data: { type: "noAdjacentFile", page: PAGE, direction: "next" } });
+    expect(elements["file-step"].textContent).toBe("No more files");
+    vi.advanceTimersByTime(STEP_WINDOW_MS);
+    document.fire("keydown", { key: "F7" });
     document.fire("keydown", { key: "F7" });
 
+    expect(elements["file-step"].textContent).toBe("No more files");
     expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "next", page: PAGE }]);
   });
 
-  it("says it is still looking for the previous file while the neighbouring files are not yet found", () => {
-    const { document, elements } = startClient(BLOCKS, { files: { hasPrevious: false, hasNext: false, isPending: true } });
+  it("says there are no previous files once a Shift+F7 step finds none to open, still offering the next file", () => {
+    vi.useFakeTimers();
+    const { document, window, elements } = startClient([], { files: BOTH_FILES });
 
     document.fire("keydown", { key: "F7", shiftKey: true });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    window.fire("message", { data: { type: "noAdjacentFile", page: PAGE, direction: "previous" } });
+    expect(elements["file-step"].textContent).toBe("No previous files");
+    document.fire("keydown", { key: "F7" });
 
-    expect(elements["file-step"].textContent).toBe("Looking for the previous file…");
+    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
   });
 
-  it("ignores neighbouring files sent for another page or in the wrong shape", () => {
-    const { document, window, elements } = startClient(BLOCKS, { files: { hasPrevious: false, hasNext: false, isPending: true } });
+  it("ignores a step's answer sent for another page or in the wrong shape", () => {
+    vi.useFakeTimers();
+    const { document, window, elements } = startAtLastBlock();
 
-    window.fire("message", { data: { type: "fileList", page: PAGE + 1, hasPrevious: true, hasNext: true } });
-    window.fire("message", { data: { type: "fileList", page: PAGE, hasPrevious: "yes", hasNext: true } });
+    window.fire("message", { data: { type: "noAdjacentFile", page: PAGE + 1, direction: "next" } });
+    window.fire("message", { data: { type: "noAdjacentFile", page: PAGE, direction: "later" } });
     window.fire("message", { data: null });
-    document.fire("keydown", { key: "F7", shiftKey: true });
+    document.fire("keydown", { key: "F7" });
 
-    expect(elements["file-step"].textContent).toBe("Looking for the previous file…");
+    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
   });
 
-  it("offers no file once the host finds none", () => {
-    const { document, window, elements } = startClient(BLOCKS, { files: { hasPrevious: false, hasNext: false, isPending: true } });
+  it("says it is opening the next file until the step's answer comes, however long the files take to read", () => {
+    vi.useFakeTimers();
+    const { document, window, elements, messages } = startAtLastBlock();
 
-    window.fire("message", { data: { type: "fileList", page: PAGE, hasPrevious: false, hasNext: false } });
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7" });
+    vi.advanceTimersByTime(STEP_WINDOW_MS * 2);
+    expect(elements["file-step"].textContent).toBe(OPENING_NEXT_HINT);
+    expect(elements["file-step"].title).toBe("Reading the next files of the Changed files list for one with differences to show");
+    document.fire("keydown", { key: "F7" });
+    window.fire("message", { data: { type: "fileStepEnded", page: PAGE + 1, direction: "next" } });
+    expect(elements["file-step"].textContent).toBe(OPENING_NEXT_HINT);
+    window.fire("message", { data: { type: "noAdjacentFile", page: PAGE, direction: "next" } });
+
+    expect(elements["file-step"].textContent).toBe("No more files");
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "next", page: PAGE }]);
+  });
+
+  it("says it is opening the previous file while a Shift+F7 step reads", () => {
+    vi.useFakeTimers();
+    const { document, elements } = startClient(BLOCKS, { files: BOTH_FILES });
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+
+    expect(elements["file-step"].textContent).toBe(OPENING_PREVIOUS_HINT);
+    expect(elements["file-step"].title).toBe("Reading the previous files of the Changed files list for one with differences to show");
+  });
+
+  it("drops the opening hint when a step ends without opening a file here, and offers the file again", () => {
+    vi.useFakeTimers();
+    const { document, window, elements, messages } = startAtLastBlock();
+
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7" });
+    window.fire("message", { data: { type: "fileStepEnded", page: PAGE, direction: "next" } });
+    expect(elements["file-step"].textContent).toBe("");
+    expect(elements["file-step"].title).toBe("");
+    document.fire("keydown", { key: "F7" });
+
+    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "next", page: PAGE }]);
+  });
+
+  it("keeps the previous-file hint shown since when a late answer says there are no more files", () => {
+    vi.useFakeTimers();
+    const { document, window, elements, messages } = startClient([], { files: BOTH_FILES });
+
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    window.fire("message", { data: { type: "noAdjacentFile", page: PAGE, direction: "next" } });
+    expect(elements["file-step"].textContent).toBe(PREVIOUS_HINT);
+    vi.advanceTimersByTime(STEP_WINDOW_MS);
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7" });
+
+    expect(elements["file-step"].textContent).toBe("No more files");
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "next", page: PAGE }]);
+  });
+
+  it("keeps the next-file hint shown since when a late answer says there are no previous files", () => {
+    vi.useFakeTimers();
+    const { document, window, elements, messages } = startClient([], { files: BOTH_FILES });
+
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    document.fire("keydown", { key: "F7" });
+    window.fire("message", { data: { type: "noAdjacentFile", page: PAGE, direction: "previous" } });
+    expect(elements["file-step"].textContent).toBe(NEXT_HINT);
+    vi.advanceTimersByTime(STEP_WINDOW_MS);
+    document.fire("keydown", { key: "F7", shiftKey: true });
     document.fire("keydown", { key: "F7", shiftKey: true });
 
     expect(elements["file-step"].textContent).toBe("No previous files");
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "previous", page: PAGE }]);
+  });
+
+  it("keeps the opening hint of the other direction when an earlier step ends", () => {
+    vi.useFakeTimers();
+    const { document, window, elements } = startClient([], { files: BOTH_FILES });
+
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    window.fire("message", { data: { type: "fileStepEnded", page: PAGE, direction: "next" } });
+
+    expect(elements["file-step"].textContent).toBe(OPENING_PREVIOUS_HINT);
+  });
+
+  it("keeps the opening hint while F7 and Shift+F7 move within the file, until the step's answer comes", () => {
+    vi.useFakeTimers();
+    const { document, window, elements, messages } = startAtLastBlock();
+
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7", shiftKey: true });
+    expect(elements["scroll-result"].scrollTop).toBe(4 * 20 - 25);
+    expect(elements["file-step"].textContent).toBe(OPENING_NEXT_HINT);
+    document.fire("keydown", { key: "F7" });
+    expect(elements["scroll-result"].scrollTop).toBe(9 * 20 - 25);
+    expect(elements["file-step"].textContent).toBe(OPENING_NEXT_HINT);
+    document.fire("keydown", { key: "F7" });
+    expect(elements["file-step"].textContent).toBe(OPENING_NEXT_HINT);
+    window.fire("message", { data: { type: "noAdjacentFile", page: PAGE, direction: "next" } });
+
+    expect(elements["file-step"].textContent).toBe("No more files");
+    expect(messages).toEqual([{ type: "ready", page: PAGE }, { type: "openAdjacentFile", direction: "next", page: PAGE }]);
+  });
+
+  it("keeps the opening hint while the toolbar buttons move within the file, until the step ends", () => {
+    vi.useFakeTimers();
+    const { document, window, elements } = startAtLastBlock();
+
+    document.fire("keydown", { key: "F7" });
+    document.fire("keydown", { key: "F7" });
+    elements.prev.fire("click");
+    expect(elements["scroll-result"].scrollTop).toBe(4 * 20 - 25);
+    expect(elements["file-step"].textContent).toBe(OPENING_NEXT_HINT);
+    elements.next.fire("click");
+    expect(elements["scroll-result"].scrollTop).toBe(9 * 20 - 25);
+    expect(elements["file-step"].textContent).toBe(OPENING_NEXT_HINT);
+    window.fire("message", { data: { type: "fileStepEnded", page: PAGE, direction: "next" } });
+
+    expect(elements["file-step"].textContent).toBe("");
   });
 
   it("starts at the last change of a file reached with Shift+F7", () => {

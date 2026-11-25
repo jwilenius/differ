@@ -22,8 +22,6 @@ const COLOR_SETTINGS: readonly string[] = ["editor.tokenColorCustomizations"];
  * name.
  */
 const FILE_NAME_LANGUAGE_SCHEME = "jw-differ-file-name";
-/** A file list whose neighbouring files are still being found: no step yet either way. */
-const PENDING_NEIGHBOURS: FileListNeighbours = { hasPrevious: false, hasNext: false, isPending: true };
 
 /** Tokenizes text for one language; implemented by `SyntaxHighlighting`. */
 export interface TextHighlighter {
@@ -40,8 +38,14 @@ export interface DiffSide {
 
 export type FileDirection = "previous" | "next";
 
+/**
+ * How a file step ended: `opened` a file, `stopped` without one (a later open replaced it, or it told the user why), or
+ * found `noFile` that way to open.
+ */
+export type FileStepResult = "opened" | "stopped" | "noFile";
+
 /** Opens the neighbouring files of a comparison's file list; a missing direction has no file to open. */
-export type AdjacentFiles = Readonly<Partial<Record<FileDirection, () => Promise<void>>>>;
+export type AdjacentFiles = Readonly<Partial<Record<FileDirection, () => Promise<FileStepResult>>>>;
 
 /** Everything a panel shows and the hooks back into the document cache that owns `base.uri` and `result.uri`. */
 export interface TwoWayDiffRequest {
@@ -58,10 +62,9 @@ export interface TwoWayDiffRequest {
   release(): void;
   /**
    * Set when the diff belongs to a file list: F7 past the last change, or Shift+F7 before the first, then offers the
-   * neighbouring file. Called once the tab shows this diff, with a signal that aborts once the tab stops showing it;
-   * until it resolves the diff offers no step and says it is looking. Without it both keys stop at either end.
+   * neighbouring file. Without it both keys stop at either end.
    */
-  readonly findAdjacentFiles?: (signal: AbortSignal) => Promise<AdjacentFiles>;
+  readonly adjacentFiles?: AdjacentFiles;
   /** Defaults to the first change. */
   readonly startAt?: StartChange;
   /** The right side's file in the working tree, which F4 opens; absent when the right side deletes the file. */
@@ -84,10 +87,8 @@ interface OpenPanel {
   request: TwoWayDiffRequest;
   /** The number of the page showing `request`; messages a page of an earlier comparison sent are dropped. */
   page: number;
-  /** What `request.findAdjacentFiles` found; null until it resolves, or when the diff has no file list. */
-  adjacentFiles: AdjacentFiles | null;
-  /** Aborts the search for `request`'s neighbouring files once the tab moves on or closes. */
-  findingNeighbours: AbortController;
+  /** Directions where a file step from `page` found no file to open; a redraw of the page no longer offers them. */
+  noFileDirections: Set<FileDirection>;
 }
 
 /**
@@ -105,6 +106,8 @@ export class TwoWayDiffPanels implements vscode.Disposable {
   private colorGeneration = 0;
   /** Counts the comparisons shown, numbering their pages. */
   private pageCount = 0;
+  /** Counts the file steps taken, so only the latest one tells the page it ended. */
+  private fileStepCount = 0;
   private readonly subscriptions: readonly vscode.Disposable[];
 
   constructor(private readonly options: TwoWayDiffPanelsOptions) {
@@ -157,8 +160,9 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     const page = ++this.pageCount;
     const isNewPanel = this.current === null;
     const open = this.current ?? this.createPanel(request, page);
+    const noFileDirections = new Set<FileDirection>();
     try {
-      open.panel.webview.html = this.render(open.panel.webview, request, highlights, page, null);
+      open.panel.webview.html = this.render(open.panel.webview, request, highlights, page, noFileDirections);
     } catch (error) {
       if (isNewPanel) {
         open.panel.dispose();
@@ -169,42 +173,17 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     }
     if (isNewPanel) {
       request.shown?.();
-    } else {
-      const previous = open.request;
-      open.request = request;
-      open.page = page;
-      open.adjacentFiles = null;
-      open.findingNeighbours.abort();
-      open.findingNeighbours = new AbortController();
-      open.panel.title = request.title;
-      open.panel.reveal(undefined, false);
-      request.shown?.();
-      previous.release();
+      return;
     }
-    void this.findAdjacentFiles(open, request);
-  }
 
-  /**
-   * Finds the shown diff's neighbouring files and sends them to its page; dropped once the tab has moved on. A failure
-   * offers no step.
-   */
-  private async findAdjacentFiles(open: OpenPanel, request: TwoWayDiffRequest): Promise<void> {
-    if (request.findAdjacentFiles === undefined) {
-      return;
-    }
-    let adjacentFiles: AdjacentFiles;
-    try {
-      adjacentFiles = await request.findAdjacentFiles(open.findingNeighbours.signal);
-    } catch (error) {
-      this.options.log(`Finding the files next to ${request.title} failed. ${messageOf(error)}`);
-      adjacentFiles = {};
-    }
-    const isShown = !this.isDisposed && this.current === open && open.request === request;
-    if (!isShown) {
-      return;
-    }
-    open.adjacentFiles = adjacentFiles;
-    void open.panel.webview.postMessage({ type: "fileList", page: open.page, ...neighboursOf(adjacentFiles) });
+    const previous = open.request;
+    open.request = request;
+    open.page = page;
+    open.noFileDirections = noFileDirections;
+    open.panel.title = request.title;
+    open.panel.reveal(undefined, false);
+    request.shown?.();
+    previous.release();
   }
 
   private onColorsChanged(): void {
@@ -229,7 +208,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       return;
     }
     try {
-      open.panel.webview.html = this.render(open.panel.webview, shown, highlights, open.page, open.adjacentFiles);
+      open.panel.webview.html = this.render(open.panel.webview, shown, highlights, open.page, open.noFileDirections);
     } catch (error) {
       this.options.log(`Re-rendering ${shown.title} in the new colours failed. ${messageOf(error)}`);
     }
@@ -242,13 +221,12 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       { enableScripts: true, enableFindWidget: true, retainContextWhenHidden: true, localResourceRoots: [this.options.mediaRoot] },
     );
-    const open: OpenPanel = { panel, request, page, adjacentFiles: null, findingNeighbours: new AbortController() };
+    const open: OpenPanel = { panel, request, page, noFileDirections: new Set() };
     this.current = open;
 
     const messages = panel.webview.onDidReceiveMessage((message: unknown) => this.handleMessage(message, open));
     panel.onDidDispose(() => {
       messages.dispose();
-      open.findingNeighbours.abort();
       if (this.current === open) {
         this.current = null;
       }
@@ -294,7 +272,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     request: TwoWayDiffRequest,
     [baseHighlight, resultHighlight]: SideHighlights,
     page: number,
-    adjacentFiles: AdjacentFiles | null,
+    noFileDirections: ReadonlySet<FileDirection>,
   ): string {
     const { base, result } = request;
     const wordLevel = vscode.workspace.getConfiguration("jwDiffer").get<boolean>("wordLevelHighlighting", true);
@@ -317,7 +295,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
         resultPath: result.path,
         title: request.title,
         page,
-        ...(request.findAdjacentFiles === undefined ? {} : { fileList: adjacentFiles === null ? PENDING_NEIGHBOURS : neighboursOf(adjacentFiles) }),
+        ...(request.adjacentFiles === undefined ? {} : { fileList: neighboursOf(request.adjacentFiles, noFileDirections) }),
         ...(request.startAt === undefined ? {} : { startAt: request.startAt }),
       },
     );
@@ -341,7 +319,7 @@ export class TwoWayDiffPanels implements vscode.Disposable {
       case "openNative":
         return this.openNative(request);
       case "openAdjacentFile":
-        return this.openAdjacentFile(request, open.adjacentFiles, message.direction);
+        return this.openAdjacentFile(open, message.direction);
       case "openWorkingCopy":
         return this.openWorkingCopy(request, message.line);
     }
@@ -356,17 +334,45 @@ export class TwoWayDiffPanels implements vscode.Disposable {
     }
   }
 
-  private async openAdjacentFile(request: TwoWayDiffRequest, adjacentFiles: AdjacentFiles | null, direction: FileDirection): Promise<void> {
-    const openFile = adjacentFiles?.[direction];
+  /**
+   * Opens the neighbouring file that way. Answers the page while it still shows: `noAdjacentFile` when the step found
+   * no file to open, which the page then no longer offers, else `fileStepEnded`, so it drops its opening hint, unless a
+   * newer step will answer instead.
+   */
+  private async openAdjacentFile(open: OpenPanel, direction: FileDirection): Promise<void> {
+    const { request, page } = open;
+    const openFile = request.adjacentFiles?.[direction];
     if (openFile === undefined) {
       return;
     }
 
+    const fileStep = ++this.fileStepCount;
+    const result = await this.stepToFile(request, direction, openFile);
+    const isShown = !this.isDisposed && this.current === open && open.page === page;
+    if (!isShown) {
+      return;
+    }
+    if (result === "noFile") {
+      // Sent even when a newer step is under way: it tells the page a fact about the list, that no file that way can
+      // be shown, rather than ending a step. The page marks that direction as having no file, and says so only when
+      // no hint for the other direction is up.
+      open.noFileDirections.add(direction);
+      void open.panel.webview.postMessage({ type: "noAdjacentFile", page, direction });
+      return;
+    }
+    if (fileStep === this.fileStepCount) {
+      void open.panel.webview.postMessage({ type: "fileStepEnded", page, direction });
+    }
+  }
+
+  /** Takes the file step; a failure is logged and reported to the user, and stops the step. */
+  private async stepToFile(request: TwoWayDiffRequest, direction: FileDirection, openFile: () => Promise<FileStepResult>): Promise<FileStepResult> {
     try {
-      await openFile();
+      return await openFile();
     } catch (error) {
       this.options.log(`Opening the ${direction} file after ${request.title} failed. ${messageOf(error)}`);
       void vscode.window.showErrorMessage(`jw-differ could not open the ${direction} file. ${messageOf(error)}`);
+      return "stopped";
     }
   }
 
@@ -447,8 +453,12 @@ async function languageOf(uri: vscode.Uri): Promise<string> {
   }
 }
 
-function neighboursOf(adjacentFiles: AdjacentFiles): FileListNeighbours {
-  return { hasPrevious: adjacentFiles.previous !== undefined, hasNext: adjacentFiles.next !== undefined };
+/** The neighbouring files the page offers: those the list has, less the directions where a step found none to open. */
+function neighboursOf(adjacentFiles: AdjacentFiles, noFileDirections: ReadonlySet<FileDirection>): FileListNeighbours {
+  return {
+    hasPrevious: adjacentFiles.previous !== undefined && !noFileDirections.has("previous"),
+    hasNext: adjacentFiles.next !== undefined && !noFileDirections.has("next"),
+  };
 }
 
 /**

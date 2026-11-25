@@ -6,7 +6,7 @@ import type { ChunkTint, ChunkView } from "../../model/mergeView";
 import type { HighlightedText } from "../../model/syntaxTokens";
 import type { LineRange } from "../../model/twoWayDiff";
 import { renderCode, renderTokenStyles } from "./codeMarkup";
-import { escapeHtml } from "./webviewMarkup";
+import { escapeHtml, renderOverviewRuler } from "./webviewMarkup";
 
 export interface MergeViewInput {
   readonly state: MergeState;
@@ -103,7 +103,7 @@ const CANCEL_TITLE = "Close without writing the file; asks first when the merge 
  * `style#result-styles` holds the result's token styles, which the client replaces with re-highlighted ones;
  * scrollers `#scroll-left`, `#scroll-result`, `#scroll-right` contain one
  * `.line` per text line; `svg#connectors-left` / `svg#connectors-right` sit in
- * the strips; a result `.line` holds `.num` and `.code[data-line]`, which the
+ * the strips; `#overview` is the overview ruler at the right edge; a result `.line` holds `.num` and `.code[data-line]`, which the
  * client also builds when it splits, joins or pastes lines (classes from `mergeLines.js`); buttons
  * `button.act[data-chunk][data-side][data-action]`, `#prev`, `#next`,
  * `button[data-non-conflicting]`, `button[data-accept]`, `#cancel`, `#apply`.
@@ -137,11 +137,13 @@ ${renderSideHeader("left", context.leftLabel)}
 ${renderResultHeader(context.resultPath)}
 <div class="strip-header"></div>
 ${renderSideHeader("right", context.rightLabel)}
+<div class="strip-header"></div>
 ${renderPane(layoutSide(input, "left"))}
 <div class="strip"><svg id="connectors-left" aria-hidden="true"></svg></div>
 ${renderPane(layoutResult(input))}
 <div class="strip"><svg id="connectors-right" aria-hidden="true"></svg></div>
 ${renderPane(layoutSide(input, "right"))}
+${renderOverviewRuler()}
 </main>
 ${renderFooter(input.tally, context)}
 ${scripts}

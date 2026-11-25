@@ -542,3 +542,146 @@ describe("merge client tooltips", () => {
     expect(numbers.map((number) => number.title)).toEqual(["Line 1", "Line 2", "Line 3", "Line 4", "Line 5"]);
   });
 });
+
+describe("merge overview ruler", () => {
+  // Lines are 18px; the result here has 4 lines, 72px, shown on a 72px ruler at full size.
+  const RULER_HEIGHT = 72;
+
+  /** Gives the result pane and the ruler their sizes and lets the page lay out again, as a browser does. */
+  function layOut(page: MergePage, resultLineCount: number): void {
+    const result = page.document.getElementById("scroll-result")!;
+    result.scrollHeight = resultLineCount * 18;
+    result.clientHeight = 36;
+    page.document.getElementById("overview")!.clientHeight = RULER_HEIGHT;
+    page.resize();
+  }
+
+  function markLayer(page: MergePage): FakeElement {
+    return page.document.getElementById("overview")!.childNodes[0] as FakeElement;
+  }
+
+  /** The marks on the ruler as `[className, top, height]`. */
+  function overviewMarks(page: MergePage): [string, string, string][] {
+    return markLayer(page).childNodes.map((node) => {
+      const mark = node as FakeElement;
+      return [mark.className, mark.style.top!, mark.style.height!];
+    });
+  }
+
+  function viewportBox(page: MergePage): [string, string] {
+    const box = page.document.getElementById("overview")!.childNodes[1] as FakeElement;
+    return [box.style.top!, box.style.height!];
+  }
+
+  it("marks every unresolved change in its tint where it sits in the result, outlining the one navigated to", () => {
+    const page = openPage();
+
+    layOut(page, 4);
+
+    // The left insertion is an empty range before result line 1, so its mark gets the least height, centred there.
+    expect(overviewMarks(page)).toEqual([
+      ["overview-mark overview-added is-current", "16.5px", "3px"],
+      ["overview-mark overview-modified", "36px", "18px"],
+      ["overview-mark overview-added", "69px", "3px"],
+    ]);
+  });
+
+  it("marks a conflict in the conflict tint", () => {
+    const page = openPage(startMerge("a\nb\nc", "a\nL\nc", "a\nR\nc"));
+
+    layOut(page, 3);
+
+    expect(overviewMarks(page).map(([className]) => className)).toEqual(["overview-mark overview-conflict is-current"]);
+  });
+
+  it("moves only the box as the view scrolls", () => {
+    const page = openPage();
+    layOut(page, 4);
+    const marks = [...markLayer(page).childNodes];
+
+    page.scroll(page.document.getElementById("scroll-result")!, 36);
+
+    expect(viewportBox(page)).toEqual(["36px", "36px"]);
+    expect(markLayer(page).childNodes.every((mark, index) => mark === marks[index])).toBe(true);
+  });
+
+  it("moves the outline with F7", () => {
+    const page = openPage();
+    layOut(page, 4);
+
+    page.key(page.resultCell(0), { key: "F7" });
+
+    expect(overviewMarks(page).map(([className]) => className)).toEqual([
+      "overview-mark overview-added",
+      "overview-mark overview-modified is-current",
+      "overview-mark overview-added",
+    ]);
+  });
+
+  it("keeps the outline on the change F7 last moved to when the next one cannot scroll any further up", () => {
+    const page = openPage();
+    layOut(page, 4);
+    const result = page.document.getElementById("scroll-result")!;
+    // Three of the four lines on screen: the view scrolls one line at most, which the first F7 takes.
+    result.clientHeight = 54;
+    page.resize();
+    page.key(page.resultCell(0), { key: "F7" });
+    const top = result.scrollTop;
+
+    page.key(page.resultCell(0), { key: "F7" });
+
+    expect(result.scrollTop).toBe(top);
+    expect(overviewMarks(page).map(([className]) => className)).toEqual([
+      "overview-mark overview-added",
+      "overview-mark overview-modified is-current",
+      "overview-mark overview-added",
+    ]);
+  });
+
+  it("follows the layout the host sends after a line split, leaving resolved changes off", () => {
+    const page = openPage();
+    layOut(page, 4);
+    const data = JSON.parse(page.document.getElementById("merge")!.dataset.merge!) as {
+      resultLineCount: number;
+      chunks: { isResolved: boolean; result: [number, number] }[];
+    };
+    page.placeCaret(page.resultCell(0), 1);
+    page.key(page.resultCell(0), { key: "Enter" });
+    const shifted = data.chunks.map((chunk, index) => ({
+      ...chunk,
+      isResolved: index === 1,
+      result: chunk.result.map((line) => line + 1),
+    }));
+    page.document.getElementById("scroll-result")!.scrollHeight = 5 * 18;
+
+    page.receive({ type: "layout", page: PAGE, seq: 1, data: { ...data, resultLineCount: 5, chunks: shifted } });
+
+    // 90px of content on the 72px ruler: the insertion before line 2 at 36px, the addition at 90px.
+    expect(overviewMarks(page).map(([className, top]) => [className, top])).toEqual([
+      ["overview-mark overview-added is-current", "27.3px"],
+      ["overview-mark overview-added", "69px"],
+    ]);
+  });
+
+  it("scrolls the result to a clicked point, centred, and the sides follow", () => {
+    const page = openPage();
+    layOut(page, 4);
+    const result = page.document.getElementById("scroll-result")!;
+    const left = page.document.getElementById("scroll-left")!;
+    left.scrollHeight = 5 * 18;
+    left.clientHeight = 36;
+    page.scroll(result, 0);
+
+    page.pointer(page.document.getElementById("overview")!, "pointerdown", 54);
+    page.scroll(result, result.scrollTop);
+
+    // At full size, 54px on the ruler is 54px into the result: centred in the 36px view, the view starts at 36px,
+    // result line 2 ("c"); the left side, one line longer above it, follows to its line 3.
+    expect(result.scrollTop).toBe(36);
+    expect(left.scrollTop).toBe(54);
+  });
+
+  it("says what clicking and dragging on it do", () => {
+    expect(openPage().document.getElementById("overview")!.title).toBe("Overview of changes: click to jump there, or drag the shaded box to scroll");
+  });
+});

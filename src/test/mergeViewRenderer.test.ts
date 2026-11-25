@@ -13,7 +13,7 @@ const CONTEXT: MergeViewRenderContext = {
   cspSource: "https://res",
   title: "Merge: a.ts",
   styleUris: ["https://res/diff.css", "https://res/merge.css"],
-  scriptUris: ["https://res/diffGeometry.js", "https://res/mergeLines.js", "https://res/merge.js"],
+  scriptUris: ["https://res/diffGeometry.js", "https://res/mergeLines.js", "https://res/overviewRuler.js", "https://res/merge.js"],
   leftLabel: "main",
   rightLabel: "feature/<sku>",
   resultPath: "src/a.ts",
@@ -100,6 +100,13 @@ describe("HtmlMergeViewRenderer", () => {
     expect(shared).toContain('class="scroller pane-left double-acts" id="scroll-left"');
     expect(shared).toContain('class="scroller pane-right" id="scroll-right"');
     expect(single).not.toContain("double-acts");
+  });
+
+  it("ends the grid with the overview ruler beside the right pane, under a blank header", () => {
+    const html = render(startMerge(BASE, LEFT, RIGHT));
+
+    expect(html.match(/<div class="strip-header"><\/div>/g)).toHaveLength(3);
+    expect(html).toMatch(/<div class="overview" id="overview" aria-hidden="true" title="[^"]+"><\/div>\n<\/main>/);
   });
 
   it("draws an addition's empty range in the result as a gap after the last line", () => {

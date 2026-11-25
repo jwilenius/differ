@@ -304,6 +304,8 @@ sides touched differently. The toolbar reports `N changes. M conflicts.`, then `
 Lines get a soft tint; gutters, ribbons and changed words a stronger shade. Light and high-contrast themes have their
 own palettes; all of them can be changed (see [Customizing colours](#customizing-colours)).
 
+The overview ruler at the right edge marks every unprocessed change and conflict of the whole result in the editor's overview ruler colours (conflicts in its error colour), the current one outlined, with a shaded box over the part on screen; click it to jump there or drag the box to scroll.
+
 ![The same merge view in the Default Light Modern theme](docs/images/merge-view-light.png)
 
 _The same merge under Default Light Modern._

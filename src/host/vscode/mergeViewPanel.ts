@@ -250,7 +250,7 @@ export class MergeViewPanel {
       cspSource: webview.cspSource,
       title: this.title,
       styleUris: [this.mediaUri("diff.css"), this.mediaUri("merge.css")],
-      scriptUris: [this.mediaUri("diffGeometry.js"), this.mediaUri("mergeLines.js"), this.mediaUri("merge.js")],
+      scriptUris: [this.mediaUri("diffGeometry.js"), this.mediaUri("mergeLines.js"), this.mediaUri("overviewRuler.js"), this.mediaUri("merge.js")],
       leftLabel: context.leftLabel,
       rightLabel: context.rightLabel,
       resultPath: vscode.workspace.asRelativePath(this.uri),

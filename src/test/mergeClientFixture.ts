@@ -8,7 +8,7 @@ import * as vm from "node:vm";
 
 const MEDIA_ROOT = path.join(__dirname, "..", "..", "media");
 /** The scripts the merge page loads, in its order; they share one global scope. */
-const CLIENT_SOURCES = ["diffGeometry.js", "mergeLines.js", "merge.js"].map((name) => fs.readFileSync(path.join(MEDIA_ROOT, name), "utf8"));
+const CLIENT_SOURCES = ["diffGeometry.js", "mergeLines.js", "overviewRuler.js", "merge.js"].map((name) => fs.readFileSync(path.join(MEDIA_ROOT, name), "utf8"));
 
 const VOID_TAGS = new Set(["meta", "link", "input", "br", "img", "hr"]);
 const TOKEN_PATTERN = /<!--[\s\S]*?-->|<!DOCTYPE[^>]*>|<\/([a-zA-Z0-9]+)\s*>|<([a-zA-Z0-9]+)((?:\s+[a-zA-Z_:][-a-zA-Z0-9_:.]*(?:="[^"]*")?)*)\s*(\/?)>/g;
@@ -89,18 +89,29 @@ export class FakeText extends FakeNode {
 
 export class FakeElement extends FakeNode {
   readonly childNodes: FakeNode[] = [];
-  scrollTop = 0;
   clientHeight = 0;
   scrollHeight = 0;
   inert = false;
   tabIndex = 0;
+  readonly style: Record<string, string> = {};
 
   constructor(readonly owner: FakeDocument | null, readonly tagName: string, readonly attributes: Map<string, string>) {
     super();
   }
 
+  private top = 0;
+
   get id(): string {
     return this.attributes.get("id") ?? "";
+  }
+
+  get scrollTop(): number {
+    return this.top;
+  }
+
+  /** Kept within the content, as a browser keeps it: an offset past either end scrolls only to that end. */
+  set scrollTop(top: number) {
+    this.top = Math.min(Math.max(top, 0), Math.max(this.scrollHeight - this.clientHeight, 0));
   }
 
   get className(): string {
@@ -111,9 +122,12 @@ export class FakeElement extends FakeNode {
     this.attributes.set("class", name);
   }
 
-  get classList(): string[] & { contains(name: string): boolean } {
+  get classList(): string[] & { contains(name: string): boolean; toggle(name: string, force: boolean): void } {
     const names = this.className.split(/\s+/).filter(Boolean);
-    return Object.assign(names, { contains: (name: string) => names.includes(name) });
+    const toggle = (name: string, force: boolean): void => {
+      this.className = [...names.filter((other) => other !== name), ...(force ? [name] : [])].join(" ");
+    };
+    return Object.assign(names, { contains: (name: string) => names.includes(name), toggle });
   }
 
   /** Reads and writes `data-*` attributes, as the DOM's live `dataset` does. */
@@ -165,6 +179,11 @@ export class FakeElement extends FakeNode {
     for (const node of nodes) {
       this.insertBefore(typeof node === "string" ? new FakeText(node) : node, null);
     }
+  }
+
+  replaceChildren(...nodes: FakeNode[]): void {
+    [...this.childNodes].forEach((child) => child.remove());
+    this.append(...nodes);
   }
 
   insertBefore(node: FakeNode, reference: FakeNode | null): void {
@@ -230,9 +249,11 @@ export class FakeElement extends FakeNode {
     this.owner!.activeElement = null;
   }
 
-  getBoundingClientRect(): { readonly height: number } {
-    return { height: LINE_HEIGHT };
+  getBoundingClientRect(): { readonly top: number; readonly height: number } {
+    return { top: 0, height: LINE_HEIGHT };
   }
+
+  setPointerCapture(): void {}
 
   scrollIntoView(): void {}
 }
@@ -615,6 +636,11 @@ export class MergePage {
     this.userEvent(target, "keydown", init);
   }
 
+  /** A main-button pointer event such as `pointerdown` at `clientY`. */
+  pointer(target: FakeElement, type: string, clientY: number): void {
+    this.userEvent(target, type, { button: 0, pointerId: 1, clientY });
+  }
+
   input(target: FakeElement, inputType: string): void {
     this.userEvent(target, "input", { inputType });
   }
@@ -643,6 +669,18 @@ export class MergePage {
     if (keydown && !keydown.defaultPrevented) {
       this.click(button);
     }
+  }
+
+  /** The webview's size changes, as when the panel or the window is resized. */
+  resize(): void {
+    this.window.notify(new FakeEvent("resize", this.window));
+    this.endTask();
+  }
+
+  /** The user scrolls `scroller` to `top`. */
+  scroll(scroller: FakeElement, top: number): void {
+    scroller.scrollTop = top;
+    this.userEvent(scroller, "scroll");
   }
 
   /** A message from the host. */

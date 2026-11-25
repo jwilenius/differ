@@ -1,5 +1,6 @@
-// Three-way merge client. The geometry it uses comes from diffGeometry.js,
-// which the page loads first; this wiring runs only inside a webview.
+// Three-way merge client. The geometry it uses comes from diffGeometry.js and the
+// overview ruler from overviewRuler.js, which the page loads first; this wiring
+// runs only inside a webview.
 //
 // The result pane leads: the side panes follow it through anchors built from
 // the chunks, and scrolling a side moves the result, which moves the other side.
@@ -36,6 +37,7 @@
     right: document.getElementById("scroll-right"),
   };
   const strips = { left: document.getElementById("connectors-left"), right: document.getElementById("connectors-right") };
+  const overview = attachOverviewRuler(document.getElementById("overview"), scrollers.result);
 
   /** Offsets this script set and must not echo back. */
   const expectedTop = { left: null, result: null, right: null };
@@ -185,20 +187,38 @@
     const first = isStillAtLastTarget
       ? navigation.index + direction
       : neighbourBlock(unresolved, "result", (scroller.scrollTop + offset) / lineHeight, direction);
+    // A chunk the view cannot scroll any closer to is skipped; one the view moves to becomes the current chunk.
     for (let index = first; index >= 0 && index < unresolved.length; index += direction) {
-      if (goTo(index)) {
+      if (scrollToChunk(index)) {
+        markCurrent(index);
         return;
       }
     }
   }
 
   /** Scrolls unresolved chunk `index` into view near the top; returns whether the view moved. */
-  function goTo(index) {
+  function scrollToChunk(index) {
     const scroller = scrollers.result;
     const before = scroller.scrollTop;
     scroller.scrollTop = unresolved[index].result[0] * lineHeight - scroller.clientHeight * NAVIGATION_OFFSET;
-    navigation = { index, top: scroller.scrollTop };
     return Math.abs(scroller.scrollTop - before) >= 1;
+  }
+
+  /** Makes unresolved chunk `index` the one navigation steps from and the ruler outlines, with the view where it is now. */
+  function markCurrent(index) {
+    navigation = { index, top: scrollers.result.scrollTop };
+    drawOverview();
+  }
+
+  /** Marks every unresolved chunk on the overview ruler where it sits in the result, which the view scrolls by. */
+  function drawOverview() {
+    const current = navigation.index !== -1 ? unresolved[navigation.index] : null;
+    overview.drawMarks(unresolved.map((chunk) => ({
+      top: chunk.result[0] * lineHeight,
+      bottom: chunk.result[1] * lineHeight,
+      kind: chunk.tint,
+      isCurrent: chunk === current,
+    })));
   }
 
   // --- actions ---
@@ -686,6 +706,7 @@
     resultLineElements().forEach((line, index) => {
       line.className = classes[index] ?? "line";
     });
+    drawOverview();
     scheduleDraw();
   }
 
@@ -894,6 +915,7 @@
   window.addEventListener("resize", () => {
     lineHeight = measureLineHeight();
     syncFrom("result");
+    drawOverview();
     scheduleDraw();
   });
   document.getElementById("prev").addEventListener("click", () => navigate(-1));
@@ -916,11 +938,13 @@
   if (saved && saved.key === scrollStateKey) {
     restoreScroll(saved);
   } else if (unresolved.length > 0) {
-    goTo(0);
+    scrollToChunk(0);
+    navigation = { index: 0, top: scrollers.result.scrollTop };
     syncFrom("result");
   }
   seedBrowserHistory();
   placeStepCaret();
 
+  drawOverview();
   scheduleDraw();
 })();

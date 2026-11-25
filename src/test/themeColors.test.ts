@@ -71,6 +71,7 @@ describe("overview ruler mark colours", () => {
     ["modified", "modifiedForeground"],
     ["added", "addedForeground"],
     ["deleted", "deletedForeground"],
+    ["conflict", "errorForeground"],
   ])("draws %s marks in the editor's overview ruler colour %s, not the pane tints", (kind, rulerColor) => {
     expect(markBackground(kind)).toMatch(new RegExp(`^var\\(--vscode-editorOverviewRuler-${rulerColor}, rgba\\([\\d., ]+\\)\\)$`));
   });

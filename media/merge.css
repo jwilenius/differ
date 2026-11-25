@@ -58,7 +58,7 @@ button.tool.text-only {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--strip-width) minmax(0, 1fr) var(--strip-width) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--strip-width) minmax(0, 1fr) var(--strip-width) minmax(0, 1fr) var(--overview-width);
   grid-template-rows: var(--header-height) minmax(0, 1fr);
 }
 
@@ -222,6 +222,13 @@ button.act:hover {
 .conn-deleted {
   fill: var(--chg-deleted-strong);
   stroke: var(--chg-deleted-strong);
+}
+
+/* --- overview ruler --- */
+
+/* diff.css colours the other marks; a conflict takes the editor's error colour. */
+.overview-mark.overview-conflict {
+  background: var(--vscode-editorOverviewRuler-errorForeground, rgba(255, 18, 18, 0.7));
 }
 
 /* --- the editable result --- */

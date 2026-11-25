@@ -8,6 +8,7 @@ import { type HighlightOptions, unstyledText } from "../highlight/textMateHighli
 import { MergeViewPanel } from "../host/vscode/mergeViewPanel";
 import type { TextHighlighter } from "../host/vscode/twoWayDiffPanel";
 import { createConflictRepository, divergeBranches, divergeFile, mergeFeature, runGit } from "./gitConflictFixture";
+import { type FakeElement, type FakeText, MergePage } from "./mergeClientFixture";
 import { ColorThemeKind, changeColorThemeKind, type FakeWebview, fireDidCloseTextDocument, resetVscodeMock, vscodeMock } from "./vscodeMock";
 
 let repo: string;
@@ -1100,5 +1101,133 @@ describe("MergeViewPanel waiting for the page to answer a colour theme change", 
     expect(shownPage(webview)).toBe(2);
     post(webview, { type: "redrawReady", caret: null });
     await vi.waitFor(() => expect(shownPage(webview)).toBe(3));
+  });
+});
+
+describe("MergeViewPanel driving its page", () => {
+  const LINE_HEIGHT = 18;
+
+  interface LayoutMessage {
+    readonly type: "layout";
+    readonly data: { readonly chunks: readonly { readonly isResolved: boolean }[] };
+  }
+
+  /**
+   * Runs each page the panel draws in the page fixture, with a result pane two lines high, and carries the messages
+   * both ways as the webview does. Records, for each page, the chunk resolutions it was drawn with and those of every
+   * layout the panel sent it.
+   */
+  class ShownPages {
+    readonly drawnResolutions: boolean[][] = [];
+    readonly layoutResolutions: boolean[][][] = [];
+    private page: MergePage | null = null;
+    private html = "";
+    private sentCount = 0;
+    private receivedCount = 0;
+
+    constructor(private readonly webview: FakeWebview) {
+      this.exchange();
+    }
+
+    /** The page the panel drew last. */
+    get shown(): MergePage {
+      return this.page!;
+    }
+
+    /** Sends what the page posted, loads the page the panel drew last, and delivers what the panel posted to it. */
+    exchange(): void {
+      const posted = this.page?.posted.slice(this.sentCount) ?? [];
+      this.sentCount += posted.length;
+      posted.forEach((message) => this.webview.fireDidReceiveMessage(message));
+      if (this.webview.html !== this.html) {
+        this.load();
+      }
+      const received = this.webview.postedSinceHtml.slice(this.receivedCount) as Record<string, unknown>[];
+      this.receivedCount += received.length;
+      for (const message of received) {
+        if (message.type === "layout") {
+          this.layoutResolutions.at(-1)!.push((message as unknown as LayoutMessage).data.chunks.map((chunk) => chunk.isResolved));
+        }
+        this.shown.receive(message);
+      }
+    }
+
+    async exchangeUntil(condition: () => void): Promise<void> {
+      await vi.waitFor(() => {
+        this.exchange();
+        condition();
+      });
+    }
+
+    /** Which of the ruler's marks is outlined as the change navigated to. */
+    outline(): boolean[] {
+      const marks = this.shown.document.getElementById("overview")!.childNodes[0] as FakeElement;
+      return marks.childNodes.map((mark) => (mark as FakeElement).className.includes("is-current"));
+    }
+
+    private load(): void {
+      this.html = this.webview.html;
+      const page = new MergePage(this.html);
+      this.page = page;
+      this.sentCount = 0;
+      this.receivedCount = 0;
+      const data = JSON.parse(page.document.getElementById("merge")!.dataset.merge!) as LayoutMessage["data"];
+      this.drawnResolutions.push(data.chunks.map((chunk) => chunk.isResolved));
+      this.layoutResolutions.push([]);
+      const result = page.document.getElementById("scroll-result")!;
+      result.scrollHeight = result.querySelectorAll(".code[data-line]").length * LINE_HEIGHT;
+      result.clientHeight = 2 * LINE_HEIGHT;
+      page.document.getElementById("overview")!.clientHeight = 4 * LINE_HEIGHT;
+      page.resize();
+    }
+  }
+
+  function textOf(cell: FakeElement): FakeText {
+    return cell.childNodes[0] as FakeText;
+  }
+
+  it("sends a page only layouts with the resolutions it was drawn with, keeping the outline on the change navigated to", async () => {
+    // A conflict on line 2, a trunk change on line 5 and a feature change on line 8.
+    divergeFile(repo, "f.txt", { base: "1\n2\n3\n4\n5\n6\n7\n8\n9\n", trunk: "1\nT\n3\n4\nT\n6\n7\n8\n9\n", feature: "1\nF\n3\n4\n5\n6\n7\nF\n9\n" });
+    mergeFeature(repo);
+    const pages = new ShownPages(await openPanel(fileDocument(path.join(repo, "f.txt"))));
+    const page = pages.shown;
+    page.key(page.resultCell(0), { key: "F7" });
+    expect(pages.outline()).toEqual([false, true, false]);
+
+    page.placeCaret(page.resultCell(0), 1);
+    page.key(page.resultCell(0), { key: "Enter" });
+    await pages.exchangeUntil(() => expect(pages.layoutResolutions[0]).toHaveLength(1));
+    expect(pages.outline()).toEqual([false, true, false]);
+
+    page.placeCaret(page.resultCell(1), 0);
+    page.key(page.resultCell(1), { key: "Backspace" });
+    await pages.exchangeUntil(() => expect(pages.layoutResolutions[0]).toHaveLength(2));
+    expect(pages.outline()).toEqual([false, true, false]);
+
+    // Typed over a selection from line 1 into the conflict's line 2.
+    page.select(textOf(page.resultCell(0)), 0, textOf(page.resultCell(1)), 0);
+    page.key(page.resultCell(0), { key: "x" });
+    await pages.exchangeUntil(() => expect(pages.layoutResolutions[0]).toHaveLength(3));
+    expect(pages.outline()).toEqual([false, true, false]);
+
+    // The change navigated to is accepted before the layout answering a split arrives.
+    page.placeCaret(page.resultCell(0), page.resultCell(0).textContent.length);
+    page.key(page.resultCell(0), { key: "Enter" });
+    page.click(page.button((button) => button.classList.contains("act") && button.dataset.chunk === "1" && button.dataset.action === "apply"));
+    await pages.exchangeUntil(() => expect(pages.drawnResolutions).toHaveLength(2));
+    expect(pages.layoutResolutions[0]).toHaveLength(4);
+    expect(pages.outline()).toEqual([true, false]);
+
+    pages.shown.key(pages.shown.resultCell(0), { key: "z", keyCode: 90, ctrlKey: true });
+    await pages.exchangeUntil(() => expect(pages.drawnResolutions).toHaveLength(3));
+    expect(pages.outline()).toEqual([true, false, false]);
+    pages.shown.key(pages.shown.resultCell(0), { key: "Z", keyCode: 90, ctrlKey: true, shiftKey: true });
+    await pages.exchangeUntil(() => expect(pages.drawnResolutions).toHaveLength(4));
+    pages.shown.click(pages.shown.button((button) => button.dataset.accept === "left"));
+    await pages.exchangeUntil(() => expect(pages.drawnResolutions).toHaveLength(5));
+
+    expect(pages.drawnResolutions).toEqual([[false, false, false], [false, true, false], [false, false, false], [false, true, false], [true, true, true]]);
+    pages.layoutResolutions.forEach((layouts, index) => layouts.forEach((resolutions) => expect(resolutions).toEqual(pages.drawnResolutions[index])));
   });
 });

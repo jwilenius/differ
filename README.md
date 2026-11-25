@@ -32,7 +32,7 @@ from the commits in between. Double-click a file to open its diff in VS Code's n
 
 ![jw-differ Git History panel with Staged changes and Unstaged changes rows above HEAD and the Select branch button next to the branch filter, below an open two-way diff of src/inventory.ts](docs/images/history-view.png)
 
-_Git History panel: uncommitted-change rows above HEAD, branch graph, commit table, changed files, replay order and details; the selected commit's diff open above._
+_Git History panel: uncommitted-change rows above HEAD, commit table, changed files, replay order and details; the selected commit's diff open above._
 
 ![Git History panel with two commits from different branches selected and a pinned base, the Staged changes and Unstaged changes rows above HEAD left unselected, below the diff of src/inventory.ts against that selection](docs/images/history-multi-select.png)
 
@@ -61,8 +61,8 @@ _The jw-differ history button in the Explorer's folder header (left) and Source 
 
 ### Selecting commits
 
-Layout follows IntelliJ's Git Log: branch graph and commit table (subject, branch/tag labels, author, date, hash) on
-the left; changed files, replay order and commit details on the right.
+Layout follows IntelliJ's Git Log: commit table (subject, branch/tag labels, author, date, hash) on the left; changed files, replay order and commit details on the right.
+Each row's subject starts with a dot: filled for a commit, a hollow ring for a merge, a dashed ring for uncommitted changes; hovering it names the commit's parents.
 
 | Gesture                         | Effect                                              |
 | ------------------------------- | --------------------------------------------------- |
@@ -94,13 +94,10 @@ the left; changed files, replay order and commit details on the right.
   another; the list then opens with no entry highlighted, so `Enter` just closes it. The button stays on across
   refreshes, repositories and hiding the panel; it starts off.
 - The table shows 200 commits at a time; **Load more** adds 200.
-- The panel loads at most `jwDiffer.historyMaxCommits` commits (default 20,000, minimum 100): the newest ones by commit
-  date across local and remote branches, tags and a detached HEAD; the table then lists them in date order rather than
-  topological order. When older history is left out, the status line and the end of the table say "Showing the newest
-  20,000 commits", and graph lines to parents that were not loaded end in a short dashed stub. Changing the setting
-  reloads the panel. Larger values make loading and searching slower and use more of the extension host's memory.
-- The graph draws at most 16 lanes. Commits on later lanes share a 17th overflow column with a dimmed dotted marker,
-  and lines into it fade out at its edge; hovering such a row's graph explains this.
+- The panel loads at most `jwDiffer.historyMaxCommits` commits (default 20,000, minimum 100): the newest ones by commit date across local and remote branches, tags and a detached HEAD; the table then lists them in date order rather than topological order.
+  When older history is left out, the status line and the end of the table say "Showing the newest 20,000 commits".
+  Changing the setting reloads the panel.
+  Larger values make loading and searching slower and use more of the extension host's memory.
 - **Select branch** (the branch icon next to the funnel) selects the commits of the filtered branch that are not on the default branch (`origin/HEAD`, else `main`, else `master`).
   The filtered branch is the checked-out one unless you picked another.
   When that branch is checked out, the uncommitted-change rows are selected too.

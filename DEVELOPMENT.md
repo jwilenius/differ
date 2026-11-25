@@ -81,7 +81,6 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `src/host/vscode/mergeViewPanel.ts`       | Webview lifecycle, messages, document edits                      |
 | `src/model/historyTypes.ts`               | History domain types and the `HistoryRepository` port            |
 | `src/model/historyController.ts`          | Selection, base, merge parents, cancellable comparisons          |
-| `src/model/historyGraph.ts`               | Branch graph lanes and edges per commit row                      |
 | `src/model/historyVisibility.ts`          | Search and branch filtering of loaded commits                    |
 | `src/model/historyBranchFilter.ts`        | Branch filter by ref name; the checked-out option follows HEAD   |
 | `src/model/historyRefNames.ts`            | Ref namespaces (`refs/heads/`, …) and the ref kinds they give    |
@@ -97,7 +96,7 @@ src/host/    VS Code wiring: webview panels, commands, message validation
 | `src/git/gitWorkingTrees.ts`              | Index and working-tree trees built from private index copies     |
 | `src/git/gitComparisonFiles.ts`           | Net changed files and immutable file content                     |
 | `src/git/gitComparisonRepository.ts`      | Git adapter implementing `HistoryRepository`, snapshot leases    |
-| `src/render/html/historyRenderer.ts`      | History panel HTML: toolbar, graph, table, files, details        |
+| `src/render/html/historyRenderer.ts`      | History panel HTML: toolbar, table, files, details               |
 | `src/host/vscode/historyViewProvider.ts`  | Panel lifecycle, repositories, messages, publishing              |
 | `src/host/vscode/historyDiffProvider.ts`  | Read-only `jw-differ-history:` documents and `vscode.diff`       |
 | `src/host/vscode/historyMessages.ts`      | Validation of every message from the history webview             |

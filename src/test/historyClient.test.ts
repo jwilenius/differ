@@ -559,7 +559,7 @@ describe("history client", () => {
       const filledCells = rows.flatMap((row) => row.descendants()).filter((element) => element.tagName === "TD" && element.childNodes.length > 0);
 
       expect(rows).toHaveLength(2);
-      expect(filledCells).toHaveLength(6);
+      expect(filledCells).toHaveLength(4);
       expect([...rows, ...filledCells].filter((element) => element.title.trim() === "")).toEqual([]);
       expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["Unstaged changes, 2 files", "Staged changes, 1 file"]);
     });

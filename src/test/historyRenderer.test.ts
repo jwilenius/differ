@@ -98,25 +98,6 @@ function rowHtml(html: string, id: string): string {
   return html.slice(start, html.indexOf("</tr>", start) + "</tr>".length);
 }
 
-/** `count` branch tips side by side, each on its own parent, all joining one root below. */
-function wideHistory(count: number): HistoryData {
-  const tips = Array.from({ length: count }, (_, index) => commit(oid(1_000 + index), `tip ${index}`, [oid(2_000 + index)]));
-  const bases = Array.from({ length: count }, (_, index) => commit(oid(2_000 + index), `base ${index}`, [ROOT]));
-  return { commits: [...tips, ...bases, commit(ROOT, "Initial", [])], refs: [], head: null, isTruncated: false };
-}
-
-function renderAll(data: HistoryData): string {
-  const visibleOids = data.commits.map((entry) => entry.oid);
-  return render({ history: data }, {
-    visibleOids,
-    presentation: { search: "", branchChoice: null, branch: null, focusedOid: null, rowLimit: visibleOids.length },
-  });
-}
-
-function numbers(html: string, pattern: RegExp): readonly number[] {
-  return [...html.matchAll(pattern)].map((match) => Number(match[1]));
-}
-
 function rowFor(html: string, id: string): string {
   const match = new RegExp(`<tr [^>]*data-oid="${id}"[^>]*>`).exec(html);
   if (!match) {
@@ -160,40 +141,12 @@ describe("HtmlHistoryRenderer", () => {
     expect(html).toContain("2 hidden by filters");
   });
 
-  it("ends lines to unloaded parents in stubs while true roots end at their node", () => {
-    const cut: HistoryData = { ...history, commits: history.commits.filter((entry) => entry.oid !== ROOT), isTruncated: true };
+  it("starts each commit's subject with a dot, hollow for a merge", () => {
+    const html = render();
 
-    const truncated = render({ history: cut }, { visibleOids: [MERGE, SIDE, MIDDLE] });
-    const complete = render();
-    const graphOf = (id: string): string => truncated.slice(truncated.indexOf(rowFor(truncated, id))).split("</tr>")[0]!;
-
-    expect(graphOf(SIDE)).toMatch(/<line class="graph-edge lane-\d graph-cut" x1="18" y1="11" x2="18" y2="20"\/>/);
-    expect(graphOf(MIDDLE)).toContain("graph-cut");
-    expect(graphOf(MERGE)).not.toContain("graph-cut");
-    expect(complete).not.toContain("graph-cut");
-  });
-
-  it("keeps stubs to unloaded parents within the node's own column", () => {
-    const octopus: HistoryData = {
-      commits: [commit(MERGE, "Octopus", [MIDDLE, oid(90), oid(91), oid(92)]), commit(MIDDLE, "Middle work", [])],
-      refs: [],
-      head: null,
-      isTruncated: true,
-    };
-
-    const html = render({ history: octopus }, { visibleOids: [MERGE, MIDDLE] });
-    const stubs = [...rowHtml(html, MERGE).matchAll(/<line class="[^"]*graph-cut" x1="([\d.]+)" y1="[\d.]+" x2="([\d.]+)"/g)];
-
-    expect(stubs).toHaveLength(3);
-    expect(stubs.every(([, x1, x2]) => Number(x1) === 6 && Number(x2) > 6 && Number(x2) < 12)).toBe(true);
-    expect(rowHtml(html, MERGE)).toContain('<svg class="graph" width="12"');
-  });
-
-  it("marks hidden rows in the graph instead of joining visible rows", () => {
-    const html = render({}, { visibleOids: [MERGE, ROOT] });
-
-    expect(html).toContain("graph-gap");
-    expect(html).toMatch(/<circle class="graph-node lane-\d is-merge" cx="\d+" cy="11" r="3.5"\/>/);
+    expect(rowHtml(html, MERGE)).toContain('<td class="subject-cell" role="gridcell" title="Merge side"><span class="commit-dot is-merge" title=');
+    expect(rowHtml(html, SIDE)).toContain('<td class="subject-cell" role="gridcell" title="Side work"><span class="commit-dot" title=');
+    expect(html).not.toContain('<svg class="graph"');
   });
 
   it("shows the Automatic base resolution and merge-parent choices", () => {
@@ -307,7 +260,7 @@ describe("HtmlHistoryRenderer", () => {
     expect(html).toContain(`id="history-load-more" class="load-more" data-row-limit="${HISTORY_PAGE_SIZE * 2}" title="Show the next 1 commit">Load more (1 more)`);
   });
 
-  it("lays out the graph only through the last rendered row on render and Load more, and not on selection change", () => {
+  it("reads only the rendered rows' commits on render and Load more, and not on selection change", () => {
     const parentReads = new Map<number, number>();
     const chain = Array.from({ length: 1_000 }, (_, index) => {
       const { parents, ...fields } = commit(oid(100 + index), `c${index}`, index === 999 ? [] : [oid(101 + index)]);
@@ -445,18 +398,6 @@ describe("HtmlHistoryRenderer", () => {
       expect(update.appendedRows).not.toContain('tabindex="0"');
       expect(update.regions["history-commit-footer"]).toContain("Load more (50 more)");
       expect(next.rows.count).toBe(HISTORY_PAGE_SIZE * 2);
-    });
-
-    it("replaces the table when the added rows widen the graph", () => {
-      const renderer = new HtmlHistoryRenderer();
-      const data = wideHistory(3);
-      const context = makeContext({ visibleOids: data.commits.map((entry) => entry.oid), presentation: { search: "", branchChoice: null, branch: null, focusedOid: null, rowLimit: 1 } });
-      const { page } = renderer.render(makeState({ history: data }), context);
-
-      const { update } = renderer.update(makeState({ history: data }), { ...context, presentation: { ...context.presentation, rowLimit: 3 } }, page);
-
-      expect(rowsIn(update.regions["history-commits"] ?? "")).toEqual(data.commits.slice(0, 3).map((entry) => entry.oid));
-      expect(update.appendedRows).toBe("");
     });
 
     it("replaces the table, escaped, when the filters change", () => {
@@ -696,10 +637,8 @@ describe("HtmlHistoryRenderer working-change rows", () => {
     expect(staged).toContain('title="Staged changes: 1 file in the index compared with HEAD. Select to include them; they replay after any selected commits."');
     expect(unstaged).toContain('aria-label="Unstaged changes, 3 files"');
     expect(unstaged).toContain('title="Unstaged changes: 3 files on disk compared with the index, including 1 untracked. Unsaved editor text is not included."');
-    expect(unstaged).toContain('<td class="graph-cell" role="gridcell" title="Uncommitted changes on top of HEAD">');
+    expect(unstaged).toContain('<span class="commit-dot is-working" title="Uncommitted changes on top of HEAD"></span>');
     expect(unstaged).toContain('<td class="hash-cell" role="gridcell" title="Not a commit"><code>—</code></td>');
-    expect(unstaged).toContain("graph-node lane-");
-    expect(unstaged).toContain("is-working");
   });
 
   it("names working changes by label when they are among several earliest selections", () => {
@@ -730,21 +669,11 @@ describe("HtmlHistoryRenderer working-change rows", () => {
     expect(incomplete).toMatch(/<p id="history-files-incomplete" class="truncated-note" title="[^"]*5,000[^"]*">/);
   });
 
-  it("joins the rows to HEAD with a dashed line only while HEAD is the first commit row", () => {
-    const linked = renderWorking();
-    const unlinked = renderWorking({}, { visibleOids: [SIDE, ROOT] });
-
-    expect(rowHtml(linked, MERGE)).toContain("graph-working");
-    expect(rowHtml(linked, STAGED_CHANGES_ID)).toMatch(/graph-working[^>]*y1="0"[\s\S]*graph-working/);
-    expect(rowHtml(unlinked, SIDE)).not.toContain("graph-working");
-    expect(rowHtml(unlinked, STAGED_CHANGES_ID).match(/graph-working/g)).toHaveLength(1);
-  });
-
   it("shows no rows when none are visible", () => {
     const html = renderWorking({}, { visibleWorkingIds: [] });
 
     expect(rowIds(html)).toEqual([MERGE, SIDE, MIDDLE, ROOT]);
-    expect(rowHtml(html, MERGE)).not.toContain("graph-working");
+    expect(html).not.toContain("is-working");
   });
 
   it("describes a focused working change in the details", () => {
@@ -762,6 +691,22 @@ describe("HtmlHistoryRenderer working-change rows", () => {
 
     expect(margin(".details-working")).toBeDefined();
     expect(margin(".details-working")).toBe(margin(".details-fields"));
+  });
+
+  it("draws the dots of a selected row, commit or working change, in the row's text colour", () => {
+    const css = fs.readFileSync(path.join(__dirname, "..", "..", "media", "history.css"), "utf8");
+
+    expect(css).toMatch(/\n\.commit-row\.is-selected \.commit-dot \{\s*--commit-dot: currentColor;\s*\}/);
+  });
+
+  it("draws the ref labels and working change counts of a selected row in the row's text colour", () => {
+    const css = fs.readFileSync(path.join(__dirname, "..", "..", "media", "history.css"), "utf8");
+    const inheritingSelectors = [...css.matchAll(/\n([^{}/]+)\{\s*color: inherit;\s*\}/g)]
+      .flatMap((match) => match[1].split(",").map((selector) => selector.trim()));
+
+    for (const element of [".ref-label", ".working-count", ".working-conflicts"]) {
+      expect(inheritingSelectors).toContain(`.commit-row.is-selected ${element}`);
+    }
   });
 
   it("names working changes in the status and in an unborn repository", () => {
@@ -787,7 +732,7 @@ describe("HtmlHistoryRenderer working-change rows", () => {
       expect(update.appendedRows).toBe("");
     });
 
-    it("replaces the whole table when a row appears, linking HEAD to it", () => {
+    it("replaces the whole table when a row appears", () => {
       const renderer = new HtmlHistoryRenderer();
       const context = makeContext();
       const state = makeState({ history: checkedOut, workingChanges: CHANGES });
@@ -797,63 +742,8 @@ describe("HtmlHistoryRenderer working-change rows", () => {
       const table = update.regions["history-commits"] ?? "";
 
       expect(rowIds(table)).toEqual([STAGED_CHANGES_ID, MERGE, SIDE, MIDDLE, ROOT]);
-      expect(rowHtml(table, MERGE)).toContain("graph-working");
       expect(update.regions).not.toHaveProperty("history-working-rows");
     });
-  });
-});
-
-describe("HtmlHistoryRenderer graph width", () => {
-  const LANE_WIDTH = 12;
-  const DRAWN_LANES = 16;
-  const OVERFLOW_X = DRAWN_LANES * LANE_WIDTH + LANE_WIDTH / 2;
-  const OVERFLOW_EDGE = DRAWN_LANES * LANE_WIDTH;
-
-  it("draws at most 16 lanes plus one overflow column, however wide the history", () => {
-    for (const count of [17, 40]) {
-      const html = renderAll(wideHistory(count));
-
-      expect(new Set(numbers(html, /<svg class="graph" width="(\d+)"/g))).toEqual(new Set([(DRAWN_LANES + 1) * LANE_WIDTH]));
-      expect(Math.max(...numbers(html, / cx="([\d.]+)"/g))).toBe(OVERFLOW_X);
-    }
-  });
-
-  it("marks commits in the overflow column with a distinct node", () => {
-    const html = renderAll(wideHistory(24));
-
-    expect(rowHtml(html, oid(1_000 + 15))).not.toContain("is-overflow");
-    for (const index of [16, 20, 23]) {
-      expect(rowHtml(html, oid(1_000 + index))).toMatch(new RegExp(`<circle class="graph-node lane-\\d is-overflow" cx="${OVERFLOW_X}" cy="11"`));
-    }
-  });
-
-  it("draws no line between lanes it does not draw, and clips lines into the overflow at its edge", () => {
-    const html = renderAll(wideHistory(24));
-    const lines = [...html.matchAll(/<line class="([^"]*)" x1="([\d.]+)" y1="[\d.]+" x2="([\d.]+)"/g)]
-      .map(([, classes, x1, x2]) => ({ classes: classes!, x1: Number(x1), x2: Number(x2) }));
-    const clipped = lines.filter((line) => line.classes.includes("graph-clipped"));
-
-    expect(lines.every((line) => Math.min(line.x1, line.x2) < OVERFLOW_EDGE)).toBe(true);
-    expect(lines.every((line) => Math.max(line.x1, line.x2) <= OVERFLOW_X)).toBe(true);
-    expect(clipped.length).toBeGreaterThan(0);
-    expect(clipped.every((line) => Math.max(line.x1, line.x2) === OVERFLOW_EDGE)).toBe(true);
-  });
-
-  it("explains the collapsed lanes on rows that reach the overflow column", () => {
-    const html = renderAll(wideHistory(24));
-
-    expect(rowHtml(html, oid(1_000))).toContain(`<td class="graph-cell" role="gridcell" title="Parent: ${oid(2_000).slice(0, 8)}">`);
-    expect(rowHtml(html, oid(1_000 + 20))).toMatch(/<td class="graph-cell" role="gridcell" title="[^"]*too wide[^"]*">/);
-  });
-
-  it("leaves graphs within 16 lanes unchanged", () => {
-    const html = renderAll(wideHistory(DRAWN_LANES));
-
-    expect(new Set(numbers(html, /<svg class="graph" width="(\d+)"/g))).toEqual(new Set([DRAWN_LANES * LANE_WIDTH]));
-    expect(html).not.toContain("is-overflow");
-    expect(html).not.toContain("graph-clipped");
-    expect(html).not.toContain("too wide");
-    expect(rowHtml(html, oid(1_000 + 15))).toContain(`<circle class="graph-node lane-7" cx="${15 * LANE_WIDTH + 6}" cy="11" r="3.5"/>`);
   });
 });
 
@@ -920,7 +810,7 @@ describe("HtmlHistoryRenderer tooltips", () => {
     const html = render();
     const headers = [...html.matchAll(/<th\b[^>]*>/g)].map((match) => match[0]);
 
-    expect(headers).toHaveLength(5);
+    expect(headers).toHaveLength(4);
     expect(headers.filter((tag) => !titleOf(tag))).toEqual([]);
     expect(html).toMatch(/<span class="label" title="[^"]+">Base:<\/span>/);
     expect(titleOf(tagById(html, "history-search"))).toContain("subject or hash");
@@ -934,8 +824,9 @@ describe("HtmlHistoryRenderer tooltips", () => {
     expect(row).toContain('<td class="author-cell" role="gridcell" title="Ada">');
     expect(row).toContain('<td class="date-cell" role="gridcell" title="2026-03-04 05:06:07 +02:00">');
     expect(row).toContain(`<td class="hash-cell" role="gridcell" title="${MERGE}">`);
-    expect(row).toContain(`<td class="graph-cell" role="gridcell" title="Merge commit; parents: ${MIDDLE.slice(0, 8)}, ${SIDE.slice(0, 8)}">`);
-    expect(rowHtml(html, ROOT)).toContain('<td class="graph-cell" role="gridcell" title="Root commit: no parents">');
+    expect(row).toContain(`<span class="commit-dot is-merge" title="Merge commit; parents: ${MIDDLE.slice(0, 8)}, ${SIDE.slice(0, 8)}"></span>`);
+    expect(rowHtml(html, SIDE)).toContain(`<span class="commit-dot" title="Parent: ${ROOT.slice(0, 8)}"></span>`);
+    expect(rowHtml(html, ROOT)).toContain('<span class="commit-dot" title="Root commit: no parents"></span>');
     expect(row).toContain('<span class="ref-label ref-local" title="Local branch: main">main</span>');
     expect(rowHtml(html, ROOT)).toContain('<span class="ref-label ref-tag" title="Tag: v1">v1</span>');
   });

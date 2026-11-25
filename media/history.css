@@ -1,21 +1,13 @@
-/* History panel styled after IntelliJ's Git Log: a dense graph + commit table
-   with a side column of changed files and commit details. Colours come from
-   VS Code theme variables so dark, light and high-contrast themes work; lane
-   colours supplement the graph shape and are never the only ancestry cue. */
+/* History panel styled after IntelliJ's Git Log: a dense commit table with a
+   side column of changed files and commit details. Colours come from VS Code
+   theme variables so dark, light and high-contrast themes work. */
 :root {
   --row-height: 22px;
   --hit-size: 24px;
   --divider: var(--vscode-panel-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
   --muted: var(--vscode-descriptionForeground);
   --focus-ring: var(--vscode-focusBorder);
-  --lane-0: var(--vscode-charts-blue, #4c8bf5);
-  --lane-1: var(--vscode-charts-green, #5fb865);
-  --lane-2: var(--vscode-charts-orange, #e5953a);
-  --lane-3: var(--vscode-charts-purple, #a970ff);
-  --lane-4: var(--vscode-charts-red, #e5534b);
-  --lane-5: var(--vscode-charts-yellow, #d9b72b);
-  --lane-6: #3fb6b2;
-  --lane-7: #d55fde;
+  --commit-dot: var(--vscode-charts-blue, #4c8bf5);
 }
 
 html,
@@ -60,18 +52,6 @@ h2 {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  border: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 
 .empty {
@@ -456,16 +436,42 @@ input::placeholder {
   color: var(--vscode-editorWarning-foreground, var(--muted));
 }
 
+/* Muted and theme colours can vanish on a selection background (Light+ draws white text on blue), so a selected row
+   draws its cells, ref labels (text and border) and working change counts in its own text colour. */
 .commit-row.is-selected .author-cell,
 .commit-row.is-selected .date-cell,
-.commit-row.is-selected .hash-cell {
+.commit-row.is-selected .hash-cell,
+.commit-row.is-selected .ref-label,
+.commit-row.is-selected .working-count,
+.commit-row.is-selected .working-conflicts {
   color: inherit;
 }
 
-.commit-table .graph-cell {
-  padding: 0 0 0 4px;
-  width: 1px;
-  line-height: 0;
+/* Each row starts with a dot: filled for a commit, a hollow ring for a merge, a hollow dashed ring for uncommitted changes. */
+.commit-dot {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border: 1.5px solid var(--commit-dot);
+  border-radius: 50%;
+  background: var(--commit-dot);
+  vertical-align: middle;
+}
+
+.commit-dot.is-merge,
+.commit-dot.is-working {
+  background: transparent;
+}
+
+.commit-dot.is-working {
+  border-style: dashed;
+}
+
+/* A selection background can be the dot's own blue (Light+); the row's selection text colour contrasts with it. */
+.commit-row.is-selected .commit-dot {
+  --commit-dot: currentColor;
 }
 
 .load-more {
@@ -492,87 +498,21 @@ input::placeholder {
 }
 
 .ref-head {
-  color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--lane-5));
+  color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-charts-yellow, #d9b72b));
   font-weight: 600;
 }
 
 .ref-local {
-  color: var(--vscode-gitDecoration-addedResourceForeground, var(--lane-1));
+  color: var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-charts-green, #5fb865));
 }
 
 .ref-remote {
-  color: var(--vscode-gitDecoration-untrackedResourceForeground, var(--lane-3));
+  color: var(--vscode-gitDecoration-untrackedResourceForeground, var(--vscode-charts-purple, #a970ff));
 }
 
 .ref-tag {
   color: var(--muted);
 }
-
-/* --- graph --- */
-
-.graph {
-  display: block;
-  overflow: visible;
-}
-
-.graph-edge {
-  stroke: var(--lane-color);
-  stroke-width: 1.5;
-  fill: none;
-}
-
-.graph-gap {
-  stroke-dasharray: 2 2;
-  opacity: 0.6;
-}
-
-/* Parents beyond the loaded history: a faint stub that stops short of the row edge. */
-.graph-cut {
-  stroke-dasharray: 2 1.5;
-  opacity: 0.85;
-}
-
-.graph-node {
-  stroke: var(--lane-color);
-  stroke-width: 1.5;
-  fill: var(--lane-color);
-}
-
-/* Merge nodes are hollow rings. */
-.graph-node.is-merge {
-  fill: var(--vscode-panel-background, var(--vscode-editor-background));
-}
-
-/* Lanes past the drawn ones share the last column: dimmed dotted rings, and lines that fade out at its edge. */
-.graph-node.is-overflow {
-  fill: var(--vscode-panel-background, var(--vscode-editor-background));
-  stroke-dasharray: 1.5 1;
-  opacity: 0.7;
-}
-
-/* Uncommitted changes are no commits yet: hollow dashed rings joined by dashed lines on HEAD's lane. */
-.graph-node.is-working {
-  fill: var(--vscode-panel-background, var(--vscode-editor-background));
-  stroke-dasharray: 2 1.5;
-}
-
-.graph-working {
-  stroke-dasharray: 2 2;
-}
-
-.graph-clipped {
-  stroke-dasharray: 1 2;
-  opacity: 0.5;
-}
-
-.lane-0 { --lane-color: var(--lane-0); }
-.lane-1 { --lane-color: var(--lane-1); }
-.lane-2 { --lane-color: var(--lane-2); }
-.lane-3 { --lane-color: var(--lane-3); }
-.lane-4 { --lane-color: var(--lane-4); }
-.lane-5 { --lane-color: var(--lane-5); }
-.lane-6 { --lane-color: var(--lane-6); }
-.lane-7 { --lane-color: var(--lane-7); }
 
 /* --- changed files --- */
 
@@ -779,11 +719,11 @@ body.vscode-high-contrast-light .file-row:focus {
     border-top: 1px solid var(--divider);
   }
 
-  /* Header cells carry no classes; columns are graph, subject, author, date, hash. */
+  /* Header cells carry no classes; columns are subject, author, date, hash. */
   .author-cell,
   .date-cell,
-  .commit-table th:nth-child(3),
-  .commit-table th:nth-child(4) {
+  .commit-table th:nth-child(2),
+  .commit-table th:nth-child(3) {
     display: none;
   }
 

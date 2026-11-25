@@ -206,10 +206,10 @@ const FAILED_OPERATION_LABELS: Readonly<Record<HistoryOperation, string>> = {
 };
 
 const COLUMN_HEADERS = [
-  `<th scope="col" title="Commit subject, after its branch and tag labels. ${SELECTION_GESTURES}">Subject</th>`,
-  `<th scope="col" title="Commit author">Author</th>`,
-  `<th scope="col" title="Author date, in the author's time zone">Date</th>`,
-  `<th scope="col" title="Abbreviated commit hash">Hash</th>`,
+  `<th scope="col" class="subject-cell" title="Commit subject, after its branch and tag labels. ${SELECTION_GESTURES}">Subject</th>`,
+  `<th scope="col" class="author-cell" title="Commit author">Author</th>`,
+  `<th scope="col" class="date-cell" title="Author date, in the author's time zone">Date</th>`,
+  `<th scope="col" class="hash-cell" title="Abbreviated commit hash">Hash</th>`,
 ].join("");
 
 const REF_KIND_LABELS: Readonly<Record<HistoryRefKind, string>> = {

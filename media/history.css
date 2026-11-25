@@ -324,6 +324,7 @@ input::placeholder {
   flex: 1;
   min-width: 0;
   overflow: auto;
+  container: commits / inline-size;
 }
 
 /* The resize grip sits on the left edge (rtl) so dragging it widens the side column.
@@ -356,7 +357,20 @@ input::placeholder {
 
 /* --- commit table --- */
 
+/* Subject takes the width left over and keeps --subject-min; the hash is always shown in full. As the pane narrows,
+   author and then date give up width down to their minimums, then are hidden (container queries at the end).
+   Widths are border-box estimates in the UI font's ch: --date-width fits `YYYY-MM-DD HH:MM`; --hash-width
+   approximates the 8-character hash, drawn in the editor font at 0.95em (`code`). Overestimates only make author and
+   date give way a little early; an underestimate (a wide editor font) squeezes the subject below its minimum, since
+   nothing but this arithmetic enforces that minimum. Each width includes the cell's 16px padding; the subject's also
+   the 15px dot before its ~20 characters. var() is not allowed in container query conditions, so the two @container
+   thresholds at the end repeat these widths as literals: update them whenever these widths change. */
 .commit-table {
+  --subject-min: calc(20ch + 31px);
+  --author-min: calc(6ch + 16px);
+  --date-min: calc(6ch + 16px);
+  --date-width: calc(16ch + 16px);
+  --hash-width: calc(9ch + 16px);
   width: 100%;
   border-collapse: collapse;
   table-layout: auto;
@@ -371,6 +385,7 @@ input::placeholder {
   padding: 0 8px;
   text-align: left;
   font-weight: normal;
+  white-space: nowrap;
   color: var(--muted);
   background: var(--vscode-panel-background, var(--vscode-editor-background));
   border-bottom: 1px solid var(--divider);
@@ -422,6 +437,21 @@ input::placeholder {
 .date-cell,
 .hash-cell {
   color: var(--muted);
+}
+
+/* A shrunk cell ends in an ellipsis; its title holds the full value. */
+.author-cell,
+.date-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.author-cell {
+  max-width: max(var(--author-min), 100cqi - var(--subject-min) - var(--date-width) - var(--hash-width));
+}
+
+.date-cell {
+  max-width: max(var(--date-min), 100cqi - var(--subject-min) - var(--author-min) - var(--hash-width));
 }
 
 .working-label {
@@ -719,18 +749,30 @@ body.vscode-high-contrast-light .file-row:focus {
     border-top: 1px solid var(--divider);
   }
 
-  /* Header cells carry no classes; columns are subject, author, date, hash. */
-  .author-cell,
-  .date-cell,
-  .commit-table th:nth-child(2),
-  .commit-table th:nth-child(3) {
-    display: none;
-  }
-
   #history-search,
   #history-base-input,
   .branch-input {
     width: 10em;
+  }
+}
+
+/* --- narrow commit panes: once author and date are at their minimums, hide author, then date, so the subject keeps
+   its minimum. Thresholds are the sums of the column widths above, term by term: --subject-min + --author-min +
+   --date-min + --hash-width, then --subject-min + --date-min + --hash-width; keep them in step with the widths. --- */
+
+@container commits (max-width: calc((20ch + 31px) + (6ch + 16px) + (6ch + 16px) + (9ch + 16px))) {
+  .author-cell {
+    display: none;
+  }
+
+  .date-cell {
+    max-width: max(var(--date-min), 100cqi - var(--subject-min) - var(--hash-width));
+  }
+}
+
+@container commits (max-width: calc((20ch + 31px) + (6ch + 16px) + (9ch + 16px))) {
+  .date-cell {
+    display: none;
   }
 }
 

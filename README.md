@@ -62,6 +62,7 @@ _The jw-differ history button in the Explorer's folder header (left) and Source 
 ### Selecting commits
 
 Layout follows IntelliJ's Git Log: commit table (subject, branch/tag labels, author, date, hash) on the left; changed files, replay order and commit details on the right.
+In a narrow panel the subject keeps room for about 20 characters and the hash is always shown in full: the author, then the date, are cut short with an ellipsis and then hidden; hovering a cell shows its full value.
 Each row's subject starts with a dot: filled for a commit, a hollow ring for a merge, a dashed ring for uncommitted changes; hovering it names the commit's parents.
 
 | Gesture                         | Effect                                              |

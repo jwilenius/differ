@@ -816,6 +816,12 @@ describe("HtmlHistoryRenderer tooltips", () => {
     expect(titleOf(tagById(html, "history-search"))).toContain("subject or hash");
   });
 
+  it("classes each column header like its cells, so a narrow pane shrinks and hides both together", () => {
+    const headers = [...render().matchAll(/<th\b[^>]*>/g)].map((match) => match[0]);
+
+    expect(headers.map((tag) => tag.match(/\bclass="([^"]+)"/)?.[1])).toEqual(["subject-cell", "author-cell", "date-cell", "hash-cell"]);
+  });
+
   it("shows each cell's full value: subject, author, date with its time zone and hash", () => {
     const html = render();
     const row = rowHtml(html, MERGE);

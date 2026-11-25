@@ -181,6 +181,9 @@ _One commit's changes to `src/inventory.ts`: added lines green, modified lines b
   Once the comparison has changed, as after another selection, stepping to another file says so instead; open the file again from the updated list.
 - `Ctrl+F` (`Cmd+F`) opens VS Code's find widget over both sides, off-screen lines included (not the line numbers);
   `Enter` / `Shift+Enter` go to the next / previous match, `Escape` closes it and returns the keys to the diff.
+- **Wrap lines**, the checkbox left of the difference count, wraps long lines to the pane width on both sides instead of scrolling sideways; it is off by default.
+  Corresponding rows stay level (the shorter one is padded to the taller), and the line number sits on a line's first row.
+  The choice is kept for the other files opened in the same tab with F7 / Shift+F7 or from the panel; a new diff tab starts unwrapped.
 - F4 opens the file from your working tree, editable in a tab of its own, with the cursor at the current difference
   (or the top visible line once that is scrolled away). The line follows later commits and unsaved edits to wherever it
   is now, or the nearest line if it is gone. A file deleted on the right side, or since deleted or renamed in the

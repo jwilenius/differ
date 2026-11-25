@@ -273,6 +273,13 @@ describe("HtmlTwoWayDiffRenderer", () => {
       expect(numberTitle("result", 4)).toBe("Line 5, in difference 3 of 3 (added)");
     });
 
+    it("offers an unchecked Wrap lines checkbox with a tooltip just before the status", () => {
+      const html = render("a", "b");
+
+      expect(html).toMatch(/<label class="wrap-toggle" title="[^"]+"><input type="checkbox" id="wrap-lines"> Wrap lines<\/label>\s*<span id="status"/);
+      expect(titleOf(html, `class="wrap-toggle"`)).toBe("Wrap long lines to the pane width on both sides, keeping the sides aligned");
+    });
+
     it("gives every toolbar button a tooltip", () => {
       const buttons = [...render("a", "b").matchAll(/<button[^>]*>/g)].map((match) => match[0]);
 

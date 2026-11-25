@@ -38,6 +38,7 @@
   /** The marked change's number in the status; absent when there are no differences. */
   const currentNumber = document.getElementById("current-number");
   const status = document.getElementById("status");
+  const wrapToggle = document.getElementById("wrap-lines");
   const anchors = buildAnchors(data.blocks, data.baseLineCount, data.resultLineCount);
   const scrollers = { base: document.getElementById("scroll-base"), result: document.getElementById("scroll-result") };
   const svg = document.getElementById("connectors");
@@ -51,6 +52,17 @@
   /** Vertical offsets last synced from, so horizontal scrolling never moves the other pane. */
   const lastTop = { base: 0, result: 0 };
   let lineHeight = measureLineHeight();
+  /** Whether long lines wrap to the panes' width; the webview state keeps it for every file this tab shows. */
+  let isWrapping = false;
+  /** Each side's row offsets while lines wrap; null while every row is `lineHeight` tall. */
+  let wrappedOffsets = null;
+  /** The anchors in pixels while lines wrap, for scroll sync; null while rows are uniform. */
+  let pixelAnchors = null;
+  /** Rows made taller to stay level with their counterpart on the other side. */
+  let leveledRows = [];
+  /** The panes' widths (`paneWidths`) the wrapped rows were measured at. */
+  let measuredWidths = "";
+  let isResizeScheduled = false;
   let isDrawScheduled = false;
   /** Index of the block last navigated to, which the marker shows; -1 before any navigation. */
   let currentIndex = -1;
@@ -70,6 +82,16 @@
     return line ? line.getBoundingClientRect().height || 1 : 1;
   }
 
+  /** The offset of a (fractional) line's top inside its pane. */
+  function lineTop(side, line) {
+    return wrappedOffsets === null ? line * lineHeight : offsetOfLine(wrappedOffsets[side], line);
+  }
+
+  /** The (fractional) line at an offset inside its pane. */
+  function lineAt(side, top) {
+    return wrappedOffsets === null ? top / lineHeight : lineAtOffset(wrappedOffsets[side], top);
+  }
+
   function viewport(scroller) {
     return {
       top: scroller.scrollTop,
@@ -78,9 +100,13 @@
     };
   }
 
+  function saveState() {
+    vscode.setState({ key: scrollStateKey, base: scrollers.base.scrollTop, result: scrollers.result.scrollTop, isWrapping });
+  }
+
   function onScroll(side) {
     fitMarker(side);
-    vscode.setState({ key: scrollStateKey, base: scrollers.base.scrollTop, result: scrollers.result.scrollTop });
+    saveState();
     const top = scrollers[side].scrollTop;
     const expected = expectedTop[side];
     expectedTop[side] = null;
@@ -98,7 +124,9 @@
   function syncFrom(side) {
     const other = side === "base" ? "result" : "base";
     const target = scrollers[other];
-    const top = syncedScrollTop(anchors, side, other, viewport(scrollers[side]), viewport(target), lineHeight);
+    const top = pixelAnchors === null
+      ? syncedScrollTop(anchors, side, other, viewport(scrollers[side]), viewport(target), lineHeight)
+      : syncedScrollTop(pixelAnchors, side, other, viewport(scrollers[side]), viewport(target), 1);
     if (Math.abs(target.scrollTop - top) < 1) {
       return;
     }
@@ -126,10 +154,10 @@
     const paths = [];
 
     for (const block of data.blocks) {
-      const leftTop = block.base[0] * lineHeight - baseTop;
-      const leftBottom = block.base[1] * lineHeight - baseTop;
-      const rightTop = block.result[0] * lineHeight - resultTop;
-      const rightBottom = block.result[1] * lineHeight - resultTop;
+      const leftTop = lineTop("base", block.base[0]) - baseTop;
+      const leftBottom = lineTop("base", block.base[1]) - baseTop;
+      const rightTop = lineTop("result", block.result[0]) - resultTop;
+      const rightBottom = lineTop("result", block.result[1]) - resultTop;
       const isVisible = isBandVisible(leftTop, leftBottom, height) || isBandVisible(rightTop, rightBottom, height);
       if (!isVisible) {
         continue;
@@ -153,7 +181,7 @@
     const offset = scroller.clientHeight * NAVIGATION_OFFSET;
     const index = isMarkedInView()
       ? currentIndex + direction
-      : neighbourBlock(data.blocks, "result", (scroller.scrollTop + offset) / lineHeight, direction);
+      : neighbourBlock(data.blocks, "result", lineAt("result", scroller.scrollTop + offset), direction);
     if (index < 0 || index >= data.blocks.length) {
       return false;
     }
@@ -252,14 +280,14 @@
     event.stopPropagation();
     const line = isMarkedInView()
       ? data.blocks[currentIndex].result[0]
-      : Math.floor(scrollers.result.scrollTop / lineHeight);
+      : Math.floor(lineAt("result", scrollers.result.scrollTop));
     post({ type: "openWorkingCopy", line });
   }
 
   /** Scrolls block `index` into view near the top and marks it as the current change. */
   function goTo(index) {
     const scroller = scrollers.result;
-    scroller.scrollTop = data.blocks[index].result[0] * lineHeight - scroller.clientHeight * NAVIGATION_OFFSET;
+    scroller.scrollTop = lineTop("result", data.blocks[index].result[0]) - scroller.clientHeight * NAVIGATION_OFFSET;
     currentIndex = index;
     markCurrent(data.blocks[index]);
     showCurrentNumber();
@@ -271,7 +299,7 @@
       return false;
     }
     const scroller = scrollers.result;
-    const [start, end] = data.blocks[currentIndex].result.map((line) => line * lineHeight - scroller.scrollTop);
+    const [start, end] = data.blocks[currentIndex].result.map((line) => lineTop("result", line) - scroller.scrollTop);
     return isBandVisible(start, end, scroller.clientHeight);
   }
 
@@ -285,15 +313,24 @@
       const lineCount = side === "base" ? data.baseLineCount : data.resultLineCount;
       const isEmpty = start === end;
       const marker = currentMarkers[side];
-      // Rows in --row-height units follow font and zoom changes without measuring.
-      marker.style.top = `calc(${start} * var(--row-height))`;
-      marker.style.height = `calc(${end - start} * var(--row-height))`;
+      marker.style.top = markerLength(side, 0, start);
+      marker.style.height = markerLength(side, start, end);
       marker.classList.toggle("is-empty", isEmpty);
       marker.classList.toggle("at-top", isEmpty && start === 0);
       marker.classList.toggle("at-bottom", isEmpty && start === lineCount);
       fitMarker(side);
       marker.hidden = false;
     }
+  }
+
+  /**
+   * The CSS length of lines [start, end): in --row-height units while rows are uniform, which follow font and zoom
+   * changes without measuring; in pixels while lines wrap.
+   */
+  function markerLength(side, start, end) {
+    return wrappedOffsets === null
+      ? `calc(${end - start} * var(--row-height))`
+      : `${lineTop(side, end) - lineTop(side, start)}px`;
   }
 
   /** The status's number and tooltip, worded as the renderer words them. */
@@ -325,17 +362,124 @@
     }
   }
 
+  /** The checkbox: turns wrapping on or off, keeping the right pane's top line in place, and remembers the choice. */
+  function setWrapping(isOn) {
+    const topLine = lineAt("result", scrollers.result.scrollTop);
+    applyWrapping(isOn);
+    showFromLine(topLine);
+    saveState();
+  }
+
+  function applyWrapping(isOn) {
+    isWrapping = isOn;
+    wrapToggle.checked = isOn;
+    diffElement.classList.toggle("is-wrapping", isOn);
+    layOutRows();
+  }
+
+  /** Measures the rows again: one line height while lines run on, each row's height while they wrap. */
+  function layOutRows() {
+    for (const row of leveledRows) {
+      row.style.minHeight = "";
+    }
+    leveledRows = [];
+    if (!isWrapping) {
+      wrappedOffsets = null;
+      pixelAnchors = null;
+      lineHeight = measureLineHeight();
+      return;
+    }
+    wrappedOffsets = levelWrappedRows();
+    // In pixels, the anchors map wrapped rows of different heights too.
+    pixelAnchors = anchors.map((anchor) => ({ base: lineTop("base", anchor.base), result: lineTop("result", anchor.result) }));
+  }
+
+  /**
+   * Gives corresponding rows the taller one's height and returns each side's row offsets. Every row is read before
+   * any is written, so the page lays out once for the reads.
+   */
+  function levelWrappedRows() {
+    measuredWidths = paneWidths();
+    const rows = {};
+    const naturalHeights = {};
+    for (const side of SIDES) {
+      rows[side] = Array.from(scrollers[side].querySelectorAll(".line"));
+      naturalHeights[side] = rows[side].map((row) => row.getBoundingClientRect().height);
+    }
+    const heights = alignedRowHeights(anchors, naturalHeights);
+    for (const side of SIDES) {
+      rows[side].forEach((row, line) => {
+        if (heights[side][line] > naturalHeights[side][line]) {
+          row.style.minHeight = `${heights[side][line]}px`;
+          leveledRows.push(row);
+        }
+      });
+    }
+    return { base: rowOffsets(heights.base), result: rowOffsets(heights.result) };
+  }
+
+  /** Both panes' widths, which decide where lines wrap. */
+  function paneWidths() {
+    return `${scrollers.base.clientWidth},${scrollers.result.clientWidth}`;
+  }
+
+  /** After a layout: scrolls the right pane to `topLine` and the left one with it, and redraws the marker and ribbons. */
+  function showFromLine(topLine) {
+    scrollers.result.scrollTop = lineTop("result", topLine);
+    syncFrom("result");
+    for (const side of SIDES) {
+      fitMarker(side);
+    }
+    if (currentIndex !== -1) {
+      markCurrent(data.blocks[currentIndex]);
+    }
+    scheduleDraw();
+  }
+
   for (const side of SIDES) {
     scrollers[side].addEventListener("scroll", () => onScroll(side), { passive: true });
   }
   window.addEventListener("resize", () => {
+    if (isWrapping) {
+      scheduleWrappedResize();
+      return;
+    }
     lineHeight = measureLineHeight();
+    fitView();
+  });
+
+  function fitView() {
     for (const side of SIDES) {
       fitMarker(side);
     }
     syncFrom("result");
     scheduleDraw();
-  });
+  }
+
+  /**
+   * Dragging a sash fires resize continuously, so the wrapped rows are laid out at most once a frame, and only when the
+   * panes' width changed, the one change that reflows them.
+   */
+  function scheduleWrappedResize() {
+    if (isResizeScheduled) {
+      return;
+    }
+    isResizeScheduled = true;
+    requestAnimationFrame(() => {
+      isResizeScheduled = false;
+      if (!isWrapping) {
+        return;
+      }
+      if (paneWidths() === measuredWidths) {
+        fitView();
+        return;
+      }
+      // The old offsets say which line the unchanged scroll offset showed at the top before the rows reflowed.
+      const topLine = lineAt("result", scrollers.result.scrollTop);
+      layOutRows();
+      showFromLine(topLine);
+    });
+  }
   // The buttons stay within the file; a click ends any offer of the next or previous file.
   document.getElementById("prev").addEventListener("click", () => {
     endFileStepOffer();
@@ -346,6 +490,7 @@
     navigate(1);
   });
   document.getElementById("open-native").addEventListener("click", () => post({ type: "openNative" }));
+  wrapToggle.addEventListener("change", () => setWrapping(wrapToggle.checked));
   window.addEventListener("message", (event) => {
     const answer = fileStepAnswerOf(event.data);
     if (answer === null || fileList === null) {
@@ -402,6 +547,10 @@
     }
   }
   const saved = vscode.getState();
+  // Wrapping applies to every file the tab shows; the scroll offsets only to the same comparison.
+  if (saved && saved.isWrapping === true) {
+    applyWrapping(true);
+  }
   if (saved && saved.key === scrollStateKey) {
     restoreScroll(saved);
     // A restored view marks no change.

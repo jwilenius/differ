@@ -94,7 +94,9 @@ const SIDE_NAMES: Readonly<Record<PaneSide, string>> = { base: "Left side", resu
  * `#current-base` / `#current-result`, the hidden marker the client places over
  * the change navigated to. While there are differences, `#current-number` in the
  * status `#status` holds that change's 1-based number, which the client keeps up
- * to date along with the status's tooltip.
+ * to date along with the status's tooltip. The `#wrap-lines` checkbox, rendered
+ * clear, wraps long lines in both panes; the client keeps the choice in the
+ * webview state.
  */
 export class HtmlTwoWayDiffRenderer {
   render(input: TwoWayDiffInput, context: TwoWayDiffRenderContext): string {
@@ -165,6 +167,7 @@ function renderToolbar(diff: TwoWayDiff, startAt: StartChange): string {
     <button id="prev" class="tool" title="Previous Difference (Shift+F7)" aria-label="Previous difference">↑</button>
     <button id="next" class="tool" title="Next Difference (F7)" aria-label="Next difference">↓</button>
   </span>
+  <label class="wrap-toggle" title="Wrap long lines to the pane width on both sides, keeping the sides aligned"><input type="checkbox" id="wrap-lines"> Wrap lines</label>
   <span id="status" class="status" role="status" aria-live="polite" title="${describeStatus(diff.blocks.length, startAt)}">${renderStatus(diff.blocks.length, startAt)}</span>
   <button id="open-native" class="tool text" title="Show this comparison in VS Code's built-in diff editor">Open in VS Code diff</button>
 </header>`;

@@ -89,3 +89,75 @@ function neighbourBlock(blocks, side, line, direction) {
   }
   return -1;
 }
+
+// Wrapped lines differ in height, so offsets come from each line's row height
+// rather than a line index times one line height.
+
+/**
+ * Row heights that keep corresponding rows level when lines wrap: lines that
+ * pair one to one between two anchors (unchanged lines, and the lines of a
+ * block as long on both sides) both take the taller one's height; the rows of
+ * other blocks keep their own, and the ribbons join them. `heights` holds each
+ * side's natural row heights; returns new arrays.
+ */
+function alignedRowHeights(anchors, heights) {
+  const aligned = { base: heights.base.slice(), result: heights.result.slice() };
+  for (let index = 0; index + 1 < anchors.length; index++) {
+    const start = anchors[index];
+    const end = anchors[index + 1];
+    const span = end.base - start.base;
+    const isPaired = span > 0 && span === end.result - start.result;
+    if (!isPaired) {
+      continue;
+    }
+    for (let offset = 0; offset < span; offset++) {
+      const height = Math.max(heights.base[start.base + offset], heights.result[start.result + offset]);
+      aligned.base[start.base + offset] = height;
+      aligned.result[start.result + offset] = height;
+    }
+  }
+  return aligned;
+}
+
+/** Each row's top offset, then the rows' total height: one entry more than rows. */
+function rowOffsets(heights) {
+  const offsets = [0];
+  for (const height of heights) {
+    offsets.push(offsets[offsets.length - 1] + height);
+  }
+  return offsets;
+}
+
+/** The offset of a (fractional) line, a fraction of a line being that fraction of its row; clamped to the rows. */
+function offsetOfLine(offsets, line) {
+  const lineCount = offsets.length - 1;
+  if (lineCount === 0) {
+    return 0;
+  }
+  const clamped = Math.min(Math.max(line, 0), lineCount);
+  const index = Math.min(Math.floor(clamped), lineCount - 1);
+  return offsets[index] + (clamped - index) * (offsets[index + 1] - offsets[index]);
+}
+
+/** The (fractional) line at `offset`, the inverse of {@link offsetOfLine}; clamped to the rows. */
+function lineAtOffset(offsets, offset) {
+  const lineCount = offsets.length - 1;
+  if (offset <= 0) {
+    return 0;
+  }
+  if (offset >= offsets[lineCount]) {
+    return lineCount;
+  }
+  // The last row starting at or above the offset.
+  let low = 0;
+  let high = lineCount - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (offsets[middle] <= offset) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return low + (offset - offsets[low]) / (offsets[low + 1] - offsets[low]);
+}

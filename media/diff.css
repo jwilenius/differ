@@ -67,8 +67,25 @@ body {
   gap: 2px;
 }
 
-.toolbar .status {
+.toolbar .wrap-toggle {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wrap-toggle input {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--vscode-focusBorder);
+}
+
+.wrap-toggle input:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
 }
 
 button {
@@ -312,6 +329,39 @@ button:focus-visible {
 
 .current-change.is-empty.at-bottom {
   margin-top: -4px;
+}
+
+/* --- line wrapping --- */
+
+/* Long lines wrap to the pane's width; a row grows to its wrapped height, the
+   number staying on its first visual line. diff.js measures the rows and gives
+   corresponding rows on both sides the same height. Without scroll anchoring the
+   offsets stay put while the rows reflow, so diff.js knows which line was on top. */
+.diff.is-wrapping .scroller {
+  overflow-x: hidden;
+  overflow-anchor: none;
+}
+
+/* Rows padded level could make the scrollbar appear after they were measured,
+   narrowing the pane and reflowing them; its space is kept from the start. */
+.diff.is-wrapping .scroller.pane-result {
+  scrollbar-gutter: stable;
+}
+
+.diff.is-wrapping .lines {
+  width: auto;
+}
+
+.diff.is-wrapping .line {
+  height: auto;
+  min-height: var(--row-height);
+  white-space: pre-wrap;
+}
+
+.diff.is-wrapping .code {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* --- connectors --- */

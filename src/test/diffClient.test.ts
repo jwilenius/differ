@@ -42,6 +42,10 @@ interface DiffGeometry {
   connectorPath(width: number, leftTop: number, leftBottom: number, rightTop: number, rightBottom: number): string;
   isBandVisible(top: number, bottom: number, height: number): boolean;
   neighbourBlock(blocks: readonly ClientBlock[], side: Side, line: number, direction: 1 | -1): number;
+  alignedRowHeights(anchors: readonly Anchor[], heights: Record<Side, readonly number[]>): Record<Side, number[]>;
+  rowOffsets(heights: readonly number[]): number[];
+  offsetOfLine(offsets: readonly number[], line: number): number;
+  lineAtOffset(offsets: readonly number[], offset: number): number;
 }
 
 function loadGeometry(): DiffGeometry {
@@ -147,6 +151,58 @@ describe("diff client geometry", () => {
     expect(geometry.neighbourBlock(BLOCKS, "result", 9, 1)).toBe(-1);
     expect(geometry.neighbourBlock(BLOCKS, "result", 2, -1)).toBe(-1);
   });
+
+  it("levels the rows that correspond one to one, unchanged lines and equal-length blocks, at the taller height", () => {
+    const blocks: ClientBlock[] = [
+      { kind: "modified", base: [1, 2], result: [1, 2] },
+      { kind: "added", base: [3, 3], result: [3, 5] },
+    ];
+    const pairedAnchors = geometry.buildAnchors(blocks, 4, 6);
+
+    const heights = geometry.alignedRowHeights(pairedAnchors, {
+      base: [20, 60, 20, 20],
+      result: [40, 20, 20, 80, 20, 20],
+    });
+
+    expect(heights).toEqual({ base: [40, 60, 20, 20], result: [40, 60, 20, 80, 20, 20] });
+  });
+
+  it("leaves the rows of blocks with different lengths at their own heights", () => {
+    const heights = geometry.alignedRowHeights(anchors, {
+      base: Array.from({ length: BASE_LINES }, (_, line) => (line === 8 ? 60 : 20)),
+      result: Array.from({ length: RESULT_LINES }, (_, line) => (line === 10 ? 40 : 20)),
+    });
+
+    expect(heights.base[8]).toBe(60);
+    expect(heights.result.slice(9, 12)).toEqual([20, 40, 20]);
+  });
+
+  it("converts between fractional lines and offsets over rows of different heights", () => {
+    const offsets = geometry.rowOffsets([20, 60, 20]);
+
+    expect(offsets).toEqual([0, 20, 80, 100]);
+    expect(geometry.offsetOfLine(offsets, 1.5)).toBe(50);
+    expect(geometry.offsetOfLine(offsets, 3)).toBe(100);
+    expect(geometry.lineAtOffset(offsets, 50)).toBe(1.5);
+    expect(geometry.lineAtOffset(offsets, 80)).toBe(2);
+  });
+
+  it("clamps lines and offsets beyond either end to the rows' edges", () => {
+    const offsets = geometry.rowOffsets([20, 60, 20]);
+
+    expect(geometry.offsetOfLine(offsets, -1)).toBe(0);
+    expect(geometry.offsetOfLine(offsets, 5)).toBe(100);
+    expect(geometry.lineAtOffset(offsets, -10)).toBe(0);
+    expect(geometry.lineAtOffset(offsets, 150)).toBe(3);
+  });
+
+  it("places every line of a side without rows, such as a deleted file's right side, at the top", () => {
+    const offsets = geometry.rowOffsets([]);
+
+    expect(geometry.offsetOfLine(offsets, 0)).toBe(0);
+    expect(geometry.lineAtOffset(offsets, 0)).toBe(0);
+    expect(geometry.lineAtOffset(offsets, 30)).toBe(0);
+  });
 });
 
 // ------------------------------------------------- webview wiring
@@ -170,6 +226,22 @@ interface FiredEvent {
   readonly isPropagationStopped: boolean;
 }
 
+/** A pane's `.line`: one 20px row unless the page wraps lines, then `wrappedHeight`; counts its measurements. */
+class FakeRow {
+  readonly style: Record<string, string> = {};
+  measurements = 0;
+
+  constructor(
+    private readonly diff: FakeElement,
+    public wrappedHeight: number,
+  ) {}
+
+  getBoundingClientRect(): { height: number } {
+    this.measurements++;
+    return { height: this.diff.classList.contains("is-wrapping") ? this.wrappedHeight : 20 };
+  }
+}
+
 /** Scroll offsets clamp to the scrollable range, as in a browser. */
 class FakeElement {
   private top = 0;
@@ -178,6 +250,7 @@ class FakeElement {
   scrollHeight = 400;
   clientWidth = 40;
   disabled = false;
+  checked = false;
   hidden = false;
   textContent = "";
   title = "";
@@ -196,6 +269,8 @@ class FakeElement {
     },
   };
   children: unknown[] = [];
+  /** A scroller's `.line` rows. */
+  rows: FakeRow[] = [];
   private readonly listeners = new Map<string, Listener[]>();
 
   get scrollTop(): number {
@@ -227,6 +302,10 @@ class FakeElement {
     return { getBoundingClientRect: () => ({ height: 20 }) };
   }
 
+  querySelectorAll(): FakeRow[] {
+    return this.rows;
+  }
+
   replaceChildren(...children: unknown[]): void {
     this.children = children;
   }
@@ -242,6 +321,7 @@ interface Harness {
   /** Receives the messages the host posts. */
   readonly window: FakeElement;
   readonly messages: unknown[];
+  readonly rows: Record<Side, FakeRow[]>;
   /** What the script last saved with `setState`, as VS Code keeps it across re-renders. */
   savedState(): unknown;
   flushFrames(): void;
@@ -254,6 +334,8 @@ interface ClientStart {
   /** Published when the diff belongs to a list of changed files. */
   readonly files?: { readonly hasPrevious: boolean; readonly hasNext: boolean };
   readonly startAt?: "first" | "last";
+  /** Rows taller than one line once wrapped, by side and line; every other row stays 20px. */
+  readonly wrappedHeights?: Partial<Record<Side, Record<number, number>>>;
 }
 
 function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart = {}): Harness {
@@ -265,6 +347,7 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
     "prev",
     "next",
     "open-native",
+    "wrap-lines",
     "status",
     "file-step",
     "current-base",
@@ -283,6 +366,11 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
   if (start.startAt) {
     elements.diff.dataset.startAt = start.startAt;
   }
+  const rowsOf = (side: Side, lineCount: number): FakeRow[] =>
+    Array.from({ length: lineCount }, (_, line) => new FakeRow(elements.diff, start.wrappedHeights?.[side]?.[line] ?? 20));
+  const rows = { base: rowsOf("base", BASE_LINES), result: rowsOf("result", RESULT_LINES) };
+  elements["scroll-base"].rows = rows.base;
+  elements["scroll-result"].rows = rows.result;
   const document = Object.assign(new FakeElement(), {
     title: start.title ?? "app.ts (a ↔ b)",
     getElementById: (id: string) => elements[id] ?? null,
@@ -312,6 +400,7 @@ function startClient(blocks: readonly ClientBlock[] = BLOCKS, start: ClientStart
     document,
     window,
     messages,
+    rows,
     savedState: () => state,
     flushFrames: () => {
       const pending = frames;
@@ -1082,5 +1171,185 @@ describe("diff client tooltips", () => {
     document.fire("keydown", { key: "F7" });
 
     expect(elements["file-step"].title).toBe("No later file of the Changed files list has differences to show");
+  });
+});
+
+describe("diff client line wrapping", () => {
+  /**
+   * Base line 0 wraps onto three rows and pairs with result line 0; result line 3 wraps onto two and pairs with base
+   * line 5; result line 5 wraps onto two inside the added block, which has no counterpart rows.
+   */
+  const WRAPPED: ClientStart = { wrappedHeights: { base: { 0: 60 }, result: { 3: 40, 5: 40 } } };
+
+  function setWrapping(harness: Harness, isWrapping: boolean): void {
+    harness.elements["wrap-lines"].checked = isWrapping;
+    harness.elements["wrap-lines"].fire("change");
+  }
+
+  /** The rows' inline minimum heights, by line, for the rows that have one. */
+  function minHeights(rows: readonly FakeRow[]): Record<number, string> {
+    const entries = rows.map((row, line) => [line, row.style.minHeight] as const);
+    return Object.fromEntries(entries.filter(([, minHeight]) => Boolean(minHeight)));
+  }
+
+  /** The current-change marker of `side` as `[top, height]` in pixels. */
+  function markedPixels(elements: Record<string, FakeElement>, side: Side): [number, number] {
+    const marker = elements[`current-${side}`];
+    const pixels = (value: string | undefined) => Number(/^(-?[\d.]+)px$/.exec(value ?? "")?.[1]);
+    return [pixels(marker.style.top), pixels(marker.style.height)];
+  }
+
+  it("starts unwrapped with the checkbox clear", () => {
+    const { elements } = startClient(BLOCKS, WRAPPED);
+
+    expect(elements["wrap-lines"].checked).toBe(false);
+    expect(elements.diff.classList.contains("is-wrapping")).toBe(false);
+    expect(markedRows(elements, "base")).toEqual([2, 4]);
+  });
+
+  it("wraps both panes and levels each pair of corresponding rows at the taller one", () => {
+    const harness = startClient(BLOCKS, WRAPPED);
+
+    setWrapping(harness, true);
+
+    expect(harness.elements.diff.classList.contains("is-wrapping")).toBe(true);
+    expect(minHeights(harness.rows.base)).toEqual({ 5: "40px" });
+    expect(minHeights(harness.rows.result)).toEqual({ 0: "60px" });
+  });
+
+  it("measures every row once per layout and none when wrapping is turned off", () => {
+    const harness = startClient(BLOCKS, WRAPPED);
+    const allRows = [...harness.rows.base, ...harness.rows.result];
+    const measurements = () => allRows.reduce((sum, row) => sum + row.measurements, 0);
+
+    setWrapping(harness, true);
+    expect(measurements()).toBe(BASE_LINES + RESULT_LINES);
+
+    setWrapping(harness, false);
+    expect(measurements()).toBe(BASE_LINES + RESULT_LINES);
+  });
+
+  it("places the marker, navigation and the working-copy line by the wrapped rows", () => {
+    const harness = startClient(BLOCKS, WRAPPED);
+    const { elements, document, messages } = harness;
+    setWrapping(harness, true);
+
+    // Base line 2 sits below line 0 (60px) and line 1 (20px); the deleted lines 2-3 are 40px.
+    expect(markedPixels(elements, "base")).toEqual([80, 40]);
+    expect(markedPixels(elements, "result")).toEqual([80, 0]);
+
+    document.fire("keydown", { key: "F7" });
+    // Result line 4: 60 + 20 + 20 + 40; the added lines 4-6 are 20 + 40 + 20.
+    expect(elements["scroll-result"].scrollTop).toBe(140 - 25);
+    expect(markedPixels(elements, "result")).toEqual([140, 80]);
+    expect(markedPixels(elements, "base")).toEqual([180, 0]);
+
+    elements["scroll-result"].scrollTop = 250;
+    elements["scroll-result"].fire("scroll");
+    document.fire("keydown", { key: "F4" });
+    // 250px is half-way down result line 8 (240-260px).
+    expect(messages.at(-1)).toEqual({ type: "openWorkingCopy", line: 8, page: PAGE });
+  });
+
+  it("joins the blocks' wrapped rows with the ribbons", () => {
+    const harness = startClient(BLOCKS, WRAPPED);
+    setWrapping(harness, true);
+    harness.flushFrames();
+
+    const geometry = loadGeometry();
+    const baseTop = harness.elements["scroll-base"].scrollTop;
+    const resultTop = harness.elements["scroll-result"].scrollTop;
+    const first = harness.elements.connectors.children[0] as FakeElement;
+    expect(first.attributes.d).toBe(geometry.connectorPath(40, 80 - baseTop, 120 - baseTop, 80 - resultTop, 80 - resultTop));
+  });
+
+  it("keeps the top line in view when wrapping is turned on and syncs the other pane to it", () => {
+    const harness = startClient(BLOCKS, WRAPPED);
+    const { elements } = harness;
+    elements["scroll-result"].scrollTop = 100;
+    elements["scroll-result"].fire("scroll");
+
+    setWrapping(harness, true);
+
+    // Result line 5 moves from 100px to 160px; the viewport's centre, 210px, is inside the added block, whose base
+    // edge is at base line 6 (180px), so the base pane centres there.
+    expect(elements["scroll-result"].scrollTop).toBe(160);
+    expect(elements["scroll-base"].scrollTop).toBe(180 - 50);
+  });
+
+  /** Narrows both panes, reflows base line 0 onto one row and fires `count` resize events within one frame. */
+  function narrowPanes(harness: Harness, count: number): void {
+    for (const side of ["base", "result"] as const) {
+      harness.elements[`scroll-${side}`].clientWidth -= 10;
+    }
+    harness.rows.base[0].wrappedHeight = 20;
+    for (let index = 0; index < count; index++) {
+      harness.window.fire("resize");
+    }
+    harness.flushFrames();
+  }
+
+  it("re-measures the rows once a frame when the panes' width changes while wrapping", () => {
+    const harness = startClient(BLOCKS, WRAPPED);
+    setWrapping(harness, true);
+    const allRows = [...harness.rows.base, ...harness.rows.result];
+    const measurements = () => allRows.reduce((sum, row) => sum + row.measurements, 0);
+
+    narrowPanes(harness, 3);
+
+    expect(measurements()).toBe(2 * (BASE_LINES + RESULT_LINES));
+    expect(minHeights(harness.rows.result)).toEqual({});
+    expect(minHeights(harness.rows.base)).toEqual({ 5: "40px" });
+  });
+
+  it("keeps the wrapped rows when a resize leaves the panes' width alone", () => {
+    const harness = startClient(BLOCKS, WRAPPED);
+    setWrapping(harness, true);
+    const allRows = [...harness.rows.base, ...harness.rows.result];
+    const measurements = () => allRows.reduce((sum, row) => sum + row.measurements, 0);
+
+    harness.elements["scroll-result"].clientHeight = 80;
+    harness.window.fire("resize");
+    harness.flushFrames();
+
+    expect(measurements()).toBe(BASE_LINES + RESULT_LINES);
+    expect(minHeights(harness.rows.result)).toEqual({ 0: "60px" });
+  });
+
+  it("restores the unwrapped layout when wrapping is turned off", () => {
+    const harness = startClient(BLOCKS, WRAPPED);
+    setWrapping(harness, true);
+
+    setWrapping(harness, false);
+
+    expect(harness.elements.diff.classList.contains("is-wrapping")).toBe(false);
+    expect(minHeights(harness.rows.base)).toEqual({});
+    expect(minHeights(harness.rows.result)).toEqual({});
+    expect(markedRows(harness.elements, "base")).toEqual([2, 4]);
+  });
+
+  it("keeps wrapping for the next file shown in the same tab and for a reload of the same file", () => {
+    const before = startClient(BLOCKS, WRAPPED);
+    setWrapping(before, true);
+    before.elements["scroll-result"].fire("scroll");
+
+    const nextFile = startClient(BLOCKS, { ...WRAPPED, title: "util.ts (a ↔ b)", state: before.savedState() });
+    const reload = startClient(BLOCKS, { ...WRAPPED, state: before.savedState() });
+
+    for (const after of [nextFile, reload]) {
+      expect(after.elements["wrap-lines"].checked).toBe(true);
+      expect(after.elements.diff.classList.contains("is-wrapping")).toBe(true);
+      expect(minHeights(after.rows.result)).toEqual({ 0: "60px" });
+    }
+    expect(nextFile.elements["scroll-result"].scrollTop).toBe(80 - 25);
+  });
+
+  it("saves the choice as soon as it is made", () => {
+    const harness = startClient(BLOCKS, WRAPPED);
+
+    setWrapping(harness, true);
+    const after = startClient(BLOCKS, { ...WRAPPED, title: "util.ts (a ↔ b)", state: harness.savedState() });
+
+    expect(after.elements["wrap-lines"].checked).toBe(true);
   });
 });

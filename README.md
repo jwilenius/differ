@@ -162,7 +162,7 @@ _**Staged changes** and **Unstaged changes** selected together replay on HEAD, S
 
 Files open in an IntelliJ-style side-by-side diff rather than VS Code's padded one:
 
-![Two-way diff of src/inventory.ts with added, modified and changed-word highlights](docs/images/diff-view.png)
+![Two-way diff of src/inventory.ts with added, modified and changed-word highlights and an overview ruler at the right edge](docs/images/diff-view.png)
 
 _One commit's changes to `src/inventory.ts`: added lines green, modified lines blue with changed words darker._
 
@@ -246,7 +246,7 @@ _The jw-differ icon on a changed file (left) and on a merge-conflict file (right
 IntelliJ's merge dialog: your branch on the left, the editable result in the middle, the incoming version on the right,
 joined by connector ribbons.
 
-![Three-pane merge view of src/inventory.ts with connector ribbons and gutter buttons](docs/images/merge-view.png)
+![Three-pane merge view of src/inventory.ts with connector ribbons, gutter buttons and an overview ruler at the right edge](docs/images/merge-view.png)
 
 _`src/inventory.ts` mid-merge: `main` left, result middle, `feature/sku` right; 7 changes, 4 conflicts._
 
